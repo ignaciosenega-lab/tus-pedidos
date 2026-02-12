@@ -17,8 +17,8 @@ FROM node:20-alpine
 WORKDIR /app
 
 # Install server dependencies
-COPY server/package.json ./
-RUN npm ci --production
+COPY server/package.json server/package-lock.json* ./
+RUN npm install --omit=dev
 
 # Copy server code
 COPY server/index.js ./
