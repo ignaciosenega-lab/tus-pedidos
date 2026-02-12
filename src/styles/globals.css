@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Hide scrollbar for category chips */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Google Maps autocomplete dropdown fix for dark theme */
+.pac-container {
+  background-color: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 0.5rem;
+  margin-top: 4px;
+  font-family: inherit;
+}
+.pac-item {
+  padding: 8px 12px;
+  color: #d1d5db;
+  border-top: 1px solid #374151;
+  cursor: pointer;
+}
+.pac-item:hover {
+  background-color: #374151;
+}
+.pac-item-query {
+  color: #fff;
+}
+.pac-icon {
+  display: none;
+}
