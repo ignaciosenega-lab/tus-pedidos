@@ -89,23 +89,30 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
     onClose();
   }
 
+  const inputStyle: React.CSSProperties = {
+    backgroundColor: "var(--panel-bg)",
+    color: "var(--general-text)",
+  };
+
   return (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4"
       onClick={onClose}
     >
       <div
-        className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col"
+        className="border border-white/10 rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col"
+        style={{ backgroundColor: "var(--popup-bg)" }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-gray-800">
-          <h2 className="text-xl font-bold text-white">
+        <div className="flex items-center justify-between p-5 border-b border-white/10">
+          <h2 className="text-xl font-bold" style={{ color: "var(--title-text)" }}>
             Enviar por Whatsapp
           </h2>
           <button
             onClick={onClose}
-            className="bg-gray-800 hover:bg-gray-700 text-white w-8 h-8 rounded-full flex items-center justify-center text-lg transition-colors"
+            className="opacity-60 hover:opacity-100 w-8 h-8 rounded-full flex items-center justify-center text-lg transition-opacity"
+            style={{ color: "var(--general-text)" }}
           >
             &times;
           </button>
@@ -115,14 +122,15 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {/* Nombre */}
           <div>
-            <label className="block text-sm text-gray-300 font-medium mb-1">
+            <label className="block text-sm font-medium mb-1 opacity-70" style={{ color: "var(--general-text)" }}>
               Nombre
             </label>
             <input
               type="text"
               value={form.name}
               onChange={(e) => updateField("name", e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent"
+              className="w-full border border-white/10 rounded-lg px-4 py-2.5 text-sm placeholder-current/40 focus:outline-none focus:ring-2 focus:border-transparent"
+              style={{ ...inputStyle, "--tw-ring-color": "var(--btn-bg)" } as React.CSSProperties}
               placeholder="Tu nombre"
             />
             {errors.name && (
@@ -132,14 +140,15 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
 
           {/* Celular */}
           <div>
-            <label className="block text-sm text-gray-300 font-medium mb-1">
+            <label className="block text-sm font-medium mb-1 opacity-70" style={{ color: "var(--general-text)" }}>
               Celular
             </label>
             <input
               type="tel"
               value={form.phone}
               onChange={(e) => updateField("phone", e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent"
+              className="w-full border border-white/10 rounded-lg px-4 py-2.5 text-sm placeholder-current/40 focus:outline-none focus:ring-2 focus:border-transparent"
+              style={{ ...inputStyle, "--tw-ring-color": "var(--btn-bg)" } as React.CSSProperties}
               placeholder="11 2345 6789"
             />
             {errors.phone && (
@@ -155,15 +164,17 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
                 name="deliveryType"
                 checked={form.deliveryType === "pickup"}
                 onChange={() => updateField("deliveryType", "pickup")}
-                className="mt-1 accent-emerald-600"
+                className="mt-1"
+                style={{ accentColor: "var(--btn-bg)" }}
               />
-              <span className="text-sm text-gray-300">
+              <span className="text-sm" style={{ color: "var(--general-text)" }}>
                 Retiro en sucursal{" "}
                 <a
                   href={storeConfig.addressUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-emerald-400 underline"
+                  style={{ color: "var(--btn-bg)" }}
+                  className="underline"
                 >
                   {storeConfig.address}
                 </a>
@@ -175,9 +186,10 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
                 name="deliveryType"
                 checked={form.deliveryType === "delivery"}
                 onChange={() => updateField("deliveryType", "delivery")}
-                className="mt-1 accent-emerald-600"
+                className="mt-1"
+                style={{ accentColor: "var(--btn-bg)" }}
               />
-              <span className="text-sm text-gray-300">
+              <span className="text-sm" style={{ color: "var(--general-text)" }}>
                 Envío a domicilio
               </span>
             </label>
@@ -196,14 +208,15 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
 
               {/* Piso / Depto / Lote */}
               <div>
-                <label className="block text-sm text-gray-300 font-medium mb-1">
+                <label className="block text-sm font-medium mb-1 opacity-70" style={{ color: "var(--general-text)" }}>
                   Piso / Departamento / Lote
                 </label>
                 <input
                   type="text"
                   value={form.floor}
                   onChange={(e) => updateField("floor", e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent"
+                  className="w-full border border-white/10 rounded-lg px-4 py-2.5 text-sm placeholder-current/40 focus:outline-none focus:ring-2 focus:border-transparent"
+                  style={{ ...inputStyle, "--tw-ring-color": "var(--btn-bg)" } as React.CSSProperties}
                   placeholder="Ej: 3ro A / Lote 12"
                 />
               </div>
@@ -212,13 +225,14 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
 
           {/* Fecha */}
           <div>
-            <label className="block text-sm text-gray-300 font-medium mb-1">
+            <label className="block text-sm font-medium mb-1 opacity-70" style={{ color: "var(--general-text)" }}>
               Fecha
             </label>
             <select
               value={form.date}
               onChange={(e) => updateField("date", e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent"
+              className="w-full border border-white/10 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:border-transparent"
+              style={{ ...inputStyle, "--tw-ring-color": "var(--btn-bg)" } as React.CSSProperties}
             >
               <option value="">Lo antes posible</option>
               {dateOptions.map((d) => (
@@ -231,13 +245,14 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
 
           {/* Hora */}
           <div>
-            <label className="block text-sm text-gray-300 font-medium mb-1">
+            <label className="block text-sm font-medium mb-1 opacity-70" style={{ color: "var(--general-text)" }}>
               Hora
             </label>
             <select
               value={form.time}
               onChange={(e) => updateField("time", e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent"
+              className="w-full border border-white/10 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:border-transparent"
+              style={{ ...inputStyle, "--tw-ring-color": "var(--btn-bg)" } as React.CSSProperties}
             >
               <option value="">Lo antes posible</option>
               {timeSlots.map((t) => (
@@ -250,21 +265,22 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
 
           {/* Indicaciones */}
           <div>
-            <label className="block text-sm text-gray-300 font-medium mb-1">
+            <label className="block text-sm font-medium mb-1 opacity-70" style={{ color: "var(--general-text)" }}>
               Indicaciones de entrega
             </label>
             <input
               type="text"
               value={form.instructions}
               onChange={(e) => updateField("instructions", e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent"
+              className="w-full border border-white/10 rounded-lg px-4 py-2.5 text-sm placeholder-current/40 focus:outline-none focus:ring-2 focus:border-transparent"
+              style={{ ...inputStyle, "--tw-ring-color": "var(--btn-bg)" } as React.CSSProperties}
               placeholder="Tocar timbre, dejar en portería, etc."
             />
           </div>
 
           {/* Forma de pago */}
           <div>
-            <label className="block text-sm text-gray-300 font-medium mb-1">
+            <label className="block text-sm font-medium mb-1 opacity-70" style={{ color: "var(--general-text)" }}>
               Formas de pago
             </label>
             <select
@@ -275,7 +291,8 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
                   e.target.value as "Efectivo" | "Transferencia"
                 )
               }
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent"
+              className="w-full border border-white/10 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:border-transparent"
+              style={{ ...inputStyle, "--tw-ring-color": "var(--btn-bg)" } as React.CSSProperties}
             >
               <option value="Efectivo">Efectivo</option>
               <option value="Transferencia">Transferencia</option>
@@ -293,21 +310,25 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
         </div>
 
         {/* Footer */}
-        <div className="border-t border-gray-800 p-5 flex gap-3">
+        <div className="border-t border-white/10 p-5 flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 bg-gray-800 hover:bg-gray-700 text-white py-3 rounded-lg font-semibold text-sm transition-colors"
+            className="flex-1 border border-white/20 py-3 rounded-lg font-semibold text-sm transition-opacity hover:opacity-80"
+            style={{ color: "var(--general-text)" }}
           >
             Cancelar
           </button>
           <button
             onClick={handleSend}
             disabled={!isStoreOpen}
-            className={`flex-1 py-3 rounded-lg font-semibold text-sm transition-colors ${
-              isStoreOpen
-                ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                : "bg-gray-700 text-gray-500 cursor-not-allowed"
+            className={`flex-1 py-3 rounded-lg font-semibold text-sm transition-opacity ${
+              isStoreOpen ? "hover:opacity-90" : "opacity-40 cursor-not-allowed"
             }`}
+            style={
+              isStoreOpen
+                ? { backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }
+                : { backgroundColor: "gray", color: "var(--general-text)" }
+            }
           >
             Enviar!
           </button>

@@ -13,11 +13,12 @@ export default function CategoryChips({ categories, selected, onSelect }: Props)
         <button
           key={cat.id}
           onClick={() => onSelect(cat.id)}
-          className={`whitespace-nowrap px-4 py-2 rounded-full text-sm font-medium transition-colors shrink-0 ${
+          className="whitespace-nowrap px-4 py-2 rounded-full text-sm font-medium transition-opacity shrink-0 hover:opacity-90"
+          style={
             selected === cat.id
-              ? "bg-emerald-600 text-white"
-              : "bg-gray-800 text-gray-300 hover:bg-gray-700"
-          }`}
+              ? { backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }
+              : { backgroundColor: "var(--panel-bg)", color: "var(--general-text)" }
+          }
         >
           {cat.name}
         </button>

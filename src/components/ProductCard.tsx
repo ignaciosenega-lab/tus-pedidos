@@ -17,7 +17,10 @@ export default function ProductCard({ product, onOptions, onAdd }: Props) {
     product.type === "simple" && product.stock !== undefined && product.stock <= 0;
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden flex flex-col">
+    <div
+      className="border border-white/10 rounded-xl overflow-hidden flex flex-col"
+      style={{ backgroundColor: "var(--panel-bg)" }}
+    >
       <div className="relative">
         <img
           src={product.imageUrl}
@@ -42,20 +45,23 @@ export default function ProductCard({ product, onOptions, onAdd }: Props) {
       </div>
 
       <div className="p-4 flex flex-col flex-1">
-        <h3 className="text-white font-semibold text-base">{product.name}</h3>
-        <p className="text-gray-400 text-sm mt-1 line-clamp-2 flex-1">
+        <h3 className="font-semibold text-base" style={{ color: "var(--title-text)" }}>
+          {product.name}
+        </h3>
+        <p className="text-sm mt-1 line-clamp-2 flex-1 opacity-70" style={{ color: "var(--general-text)" }}>
           {product.description}
         </p>
 
         <div className="mt-3 flex items-center justify-between">
-          <span className="text-emerald-400 font-bold text-lg">
+          <span className="font-bold text-lg" style={{ color: "var(--btn-bg)" }}>
             {formatPrice(displayPrice)}
           </span>
 
           {product.type === "options" ? (
             <button
               onClick={() => onOptions(product)}
-              className="bg-emerald-600 hover:bg-emerald-700 transition-colors text-white text-sm font-semibold px-4 py-2 rounded-lg"
+              className="hover:opacity-90 transition-opacity text-sm font-semibold px-4 py-2 rounded-lg"
+              style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
             >
               Opciones
             </button>
@@ -63,11 +69,14 @@ export default function ProductCard({ product, onOptions, onAdd }: Props) {
             <button
               onClick={() => onAdd(product)}
               disabled={isSimpleOutOfStock}
-              className={`text-sm font-semibold px-4 py-2 rounded-lg transition-colors ${
-                isSimpleOutOfStock
-                  ? "bg-gray-700 text-gray-500 cursor-not-allowed"
-                  : "bg-emerald-600 hover:bg-emerald-700 text-white"
+              className={`text-sm font-semibold px-4 py-2 rounded-lg transition-opacity ${
+                isSimpleOutOfStock ? "opacity-40 cursor-not-allowed" : "hover:opacity-90"
               }`}
+              style={
+                isSimpleOutOfStock
+                  ? { backgroundColor: "gray", color: "var(--general-text)" }
+                  : { backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }
+              }
             >
               {isSimpleOutOfStock ? "Agotado" : "Agregar"}
             </button>

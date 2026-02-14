@@ -14,7 +14,7 @@ export default function StoreClosedBanner() {
         <h2 className="text-3xl font-bold text-red-400 mb-2">
           Local Cerrado
         </h2>
-        <p className="text-gray-400">
+        <p style={{ color: "var(--general-text)" }} className="opacity-70">
           En este momento no estamos recibiendo pedidos. Volvé pronto!
         </p>
       </div>

@@ -15,7 +15,8 @@ export default function SearchAndSort({
     <div className="flex flex-col sm:flex-row gap-3">
       <div className="relative flex-1">
         <svg
-          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500"
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 opacity-50"
+          style={{ color: "var(--general-text)" }}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -32,14 +33,24 @@ export default function SearchAndSort({
           placeholder="Buscar productos..."
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
-          className="w-full bg-gray-800 border border-gray-700 rounded-lg pl-10 pr-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent"
+          className="w-full border border-white/10 rounded-lg pl-10 pr-4 py-2.5 text-sm placeholder-current/40 focus:outline-none focus:ring-2 focus:border-transparent"
+          style={{
+            backgroundColor: "var(--panel-bg)",
+            color: "var(--general-text)",
+            "--tw-ring-color": "var(--btn-bg)",
+          } as React.CSSProperties}
         />
       </div>
 
       <select
         value={sort}
         onChange={(e) => onSortChange(e.target.value as Props["sort"])}
-        className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent"
+        className="border border-white/10 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:border-transparent"
+        style={{
+          backgroundColor: "var(--panel-bg)",
+          color: "var(--general-text)",
+          "--tw-ring-color": "var(--btn-bg)",
+        } as React.CSSProperties}
       >
         <option value="default">Ordenar por</option>
         <option value="price-asc">Precio: menor a mayor</option>

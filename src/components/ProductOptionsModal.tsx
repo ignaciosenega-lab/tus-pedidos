@@ -52,7 +52,8 @@ export default function ProductOptionsModal({
       onClick={onClose}
     >
       <div
-        className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto"
+        className="border border-white/10 rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto"
+        style={{ backgroundColor: "var(--popup-bg)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="relative">
@@ -70,8 +71,12 @@ export default function ProductOptionsModal({
         </div>
 
         <div className="p-5">
-          <h2 className="text-xl font-bold text-white">{product.name}</h2>
-          <p className="text-gray-400 text-sm mt-1">{product.description}</p>
+          <h2 className="text-xl font-bold" style={{ color: "var(--title-text)" }}>
+            {product.name}
+          </h2>
+          <p className="text-sm mt-1 opacity-60" style={{ color: "var(--general-text)" }}>
+            {product.description}
+          </p>
 
           <div className="mt-5 space-y-3">
             {product.variants?.map((v) => {
@@ -81,15 +86,16 @@ export default function ProductOptionsModal({
               return (
                 <div
                   key={v.id}
-                  className={`flex items-center justify-between p-3 rounded-lg border ${
-                    outOfStock
-                      ? "border-gray-800 bg-gray-800/50 opacity-50"
-                      : "border-gray-700 bg-gray-800"
+                  className={`flex items-center justify-between p-3 rounded-lg border border-white/10 ${
+                    outOfStock ? "opacity-50" : ""
                   }`}
+                  style={{ backgroundColor: "var(--panel-bg)" }}
                 >
                   <div>
-                    <span className="text-white font-medium">{v.label}</span>
-                    <span className="text-emerald-400 font-bold ml-3">
+                    <span className="font-medium" style={{ color: "var(--title-text)" }}>
+                      {v.label}
+                    </span>
+                    <span className="font-bold ml-3" style={{ color: "var(--btn-bg)" }}>
                       {formatPrice(v.price)}
                     </span>
                   </div>
@@ -102,22 +108,25 @@ export default function ProductOptionsModal({
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => setQty(v.id, qty - 1)}
-                        className="bg-gray-700 hover:bg-gray-600 text-white w-7 h-7 rounded-full flex items-center justify-center text-sm"
+                        className="w-7 h-7 rounded-full flex items-center justify-center text-sm opacity-70 hover:opacity-100 transition-opacity"
+                        style={{ backgroundColor: "var(--panel-bg)", color: "var(--general-text)", border: "1px solid rgba(255,255,255,0.15)" }}
                       >
                         -
                       </button>
-                      <span className="text-white w-6 text-center text-sm">
+                      <span className="w-6 text-center text-sm" style={{ color: "var(--title-text)" }}>
                         {qty}
                       </span>
                       <button
                         onClick={() => setQty(v.id, qty + 1)}
-                        className="bg-gray-700 hover:bg-gray-600 text-white w-7 h-7 rounded-full flex items-center justify-center text-sm"
+                        className="w-7 h-7 rounded-full flex items-center justify-center text-sm opacity-70 hover:opacity-100 transition-opacity"
+                        style={{ backgroundColor: "var(--panel-bg)", color: "var(--general-text)", border: "1px solid rgba(255,255,255,0.15)" }}
                       >
                         +
                       </button>
                       <button
                         onClick={() => handleAdd(v)}
-                        className="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-3 py-1.5 rounded-lg ml-2 transition-colors"
+                        className="text-sm font-semibold px-3 py-1.5 rounded-lg ml-2 transition-opacity hover:opacity-90"
+                        style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
                       >
                         Agregar
                       </button>

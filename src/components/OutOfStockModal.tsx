@@ -9,12 +9,14 @@ export default function OutOfStockModal({ onClose }: Props) {
       onClick={onClose}
     >
       <div
-        className="relative bg-gray-900 border border-gray-700 rounded-2xl p-8 text-center max-w-sm w-full"
+        className="relative border border-white/10 rounded-2xl p-8 text-center max-w-sm w-full"
+        style={{ backgroundColor: "var(--popup-bg)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <button
           onClick={onClose}
-          className="absolute top-3 right-3 bg-gray-800 hover:bg-gray-700 text-white w-8 h-8 rounded-full flex items-center justify-center text-lg transition-colors"
+          className="absolute top-3 right-3 opacity-60 hover:opacity-100 w-8 h-8 rounded-full flex items-center justify-center text-lg transition-opacity"
+          style={{ color: "var(--general-text)" }}
         >
           &times;
         </button>
@@ -23,12 +25,13 @@ export default function OutOfStockModal({ onClose }: Props) {
         <h2 className="text-2xl font-bold text-red-400 mb-2">
           PRODUCTO AGOTADO
         </h2>
-        <p className="text-gray-400 text-sm mb-6">
+        <p className="text-sm mb-6 opacity-60" style={{ color: "var(--general-text)" }}>
           Lo sentimos, este producto no está disponible en este momento.
         </p>
         <button
           onClick={onClose}
-          className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-6 py-2.5 rounded-lg transition-colors"
+          className="font-semibold px-6 py-2.5 rounded-lg transition-opacity hover:opacity-90"
+          style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
         >
           Entendido
         </button>

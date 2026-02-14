@@ -13,6 +13,7 @@ import CartModal from "./components/CartModal";
 import CheckoutModal from "./components/CheckoutModal";
 import OutOfStockModal from "./components/OutOfStockModal";
 import StoreClosedBanner from "./components/StoreClosedBanner";
+import ThemeStyles from "./components/ThemeStyles";
 
 type SortOption = "default" | "price-asc" | "price-desc" | "name";
 
@@ -105,7 +106,8 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
+    <div className="min-h-screen" style={{ backgroundColor: "var(--body-bg)", color: "var(--general-text)" }}>
+      <ThemeStyles />
       <HeaderBar onOpenCart={() => setShowCart(true)} />
 
       {/* Main content */}
@@ -132,7 +134,7 @@ export default function App() {
         {/* Products grid */}
         <section className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredProducts.length === 0 ? (
-            <div className="col-span-full text-center py-12 text-gray-500">
+            <div className="col-span-full text-center py-12 opacity-50">
               No se encontraron productos
             </div>
           ) : (

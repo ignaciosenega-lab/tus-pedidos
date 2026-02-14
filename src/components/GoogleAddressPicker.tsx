@@ -96,7 +96,7 @@ export default function GoogleAddressPicker({ onSelect, value }: Props) {
 
   return (
     <div className="space-y-2">
-      <label className="block text-sm text-gray-300 font-medium">
+      <label className="block text-sm font-medium opacity-70" style={{ color: "var(--general-text)" }}>
         Dirección
       </label>
       <p className="text-xs text-yellow-400">Verifique su domicilio</p>
@@ -105,22 +105,31 @@ export default function GoogleAddressPicker({ onSelect, value }: Props) {
         type="text"
         placeholder="Dirección Google Map"
         defaultValue={value}
-        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-transparent"
+        className="w-full border border-white/10 rounded-lg px-4 py-2.5 text-sm placeholder-current/40 focus:outline-none focus:ring-2 focus:border-transparent"
+        style={{
+          backgroundColor: "var(--panel-bg)",
+          color: "var(--general-text)",
+          "--tw-ring-color": "var(--btn-bg)",
+        } as React.CSSProperties}
       />
 
       {API_KEY ? (
         <div
           ref={mapRef}
-          className="w-full h-48 rounded-lg overflow-hidden bg-gray-800 mt-2"
+          className="w-full h-48 rounded-lg overflow-hidden mt-2"
+          style={{ backgroundColor: "var(--panel-bg)" }}
         >
           {!coords && (
-            <div className="w-full h-full flex items-center justify-center text-gray-500 text-sm">
+            <div className="w-full h-full flex items-center justify-center text-sm opacity-50" style={{ color: "var(--general-text)" }}>
               Seleccioná una dirección para ver el mapa
             </div>
           )}
         </div>
       ) : (
-        <div className="w-full h-48 rounded-lg bg-gray-800 flex items-center justify-center text-gray-500 text-sm mt-2">
+        <div
+          className="w-full h-48 rounded-lg flex items-center justify-center text-sm mt-2 opacity-50"
+          style={{ backgroundColor: "var(--panel-bg)", color: "var(--general-text)" }}
+        >
           Configurá VITE_GOOGLE_MAPS_KEY en .env para ver el mapa
         </div>
       )}
