@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { NavLink, Outlet, Navigate } from "react-router-dom";
 import { useAuth } from "../store/authContext";
+import { useAdmin } from "../store/adminContext";
 
 const NAV_ITEMS = [
   { to: "/admin/catalogo", label: "Catálogo", icon: "M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" },
@@ -15,10 +16,22 @@ const NAV_ITEMS = [
 
 export default function AdminLayout() {
   const { isAuthenticated, logout } = useAuth();
+  const { loading } = useAdmin();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   if (!isAuthenticated) {
     return <Navigate to="/admin/login" replace />;
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="text-center space-y-3">
+          <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-gray-400 text-sm">Cargando datos...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
