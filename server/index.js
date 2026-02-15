@@ -80,6 +80,8 @@ app.get("/api/auth/verify", requireAuth, (_req, res) => {
 
 // Get state (public — storefront needs to read products)
 app.get("/api/state", (_req, res) => {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+  res.set("Pragma", "no-cache");
   const state = readState();
   if (!state) {
     return res.json(null);

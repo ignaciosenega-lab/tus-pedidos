@@ -244,20 +244,25 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hydrated = useRef(false);
+  const saveVersion = useRef(0); // track changes after hydration
 
   // Fetch state from API on mount
   useEffect(() => {
-    fetch("/api/state")
+    fetch("/api/state", { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
         if (data) {
           dispatch({ type: "_HYDRATE", payload: data });
         }
-        hydrated.current = true;
+        // Mark hydrated AFTER a microtask so the save effect
+        // triggered by _HYDRATE still sees hydrated=false and skips
+        queueMicrotask(() => {
+          hydrated.current = true;
+          saveVersion.current = 0;
+        });
         setLoading(false);
       })
       .catch(() => {
-        // API not available (dev without server) — use default state
         hydrated.current = true;
         setLoading(false);
       });
@@ -266,6 +271,9 @@ export function AdminProvider({ children }: { children: ReactNode }) {
   // Save state to API on changes (debounced 500ms)
   useEffect(() => {
     if (!hydrated.current) return; // Don't save until first load completes
+
+    saveVersion.current += 1;
+    const currentVersion = saveVersion.current;
 
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
@@ -279,7 +287,13 @@ export function AdminProvider({ children }: { children: ReactNode }) {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(state),
-      }).catch((e) => console.error("Error saving state:", e));
+      })
+        .then((r) => {
+          if (!r.ok) {
+            console.error(`Auto-save failed: ${r.status} ${r.statusText}`);
+          }
+        })
+        .catch((e) => console.error("Error saving state:", e));
     }, 500);
 
     return () => {

@@ -1,5 +1,4 @@
 import { useState, useMemo } from "react";
-import { storeConfig } from "./data/seed";
 import type { Product } from "./types";
 import { useCartDispatch } from "./store/cartContext";
 import { useAdmin } from "./store/adminContext";
@@ -24,7 +23,7 @@ function getProductPrice(p: Product): number {
 
 export default function App() {
   const dispatch = useCartDispatch();
-  const { products: adminProducts, categories: adminCategories } = useAdmin();
+  const { products: adminProducts, categories: adminCategories, businessConfig } = useAdmin();
 
   // Only show active (alta), non-private products
   const products: Product[] = useMemo(
@@ -173,7 +172,7 @@ export default function App() {
       {showCheckout && (
         <CheckoutModal
           onClose={() => setShowCheckout(false)}
-          isStoreOpen={storeConfig.isOpen}
+          isStoreOpen={businessConfig.isOpen}
         />
       )}
 
@@ -181,7 +180,7 @@ export default function App() {
         <OutOfStockModal onClose={() => setShowOutOfStock(false)} />
       )}
 
-      {!storeConfig.isOpen && <StoreClosedBanner />}
+      {!businessConfig.isOpen && <StoreClosedBanner />}
     </div>
   );
 }

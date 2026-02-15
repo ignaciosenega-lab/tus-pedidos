@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { useCart, useCartDispatch } from "../store/cartContext";
-import { storeConfig } from "../data/seed";
+import { useAdmin } from "../store/adminContext";
 import { getDateOptions, getTimeSlots } from "../utils/dateTime";
 import { buildWhatsAppMessage, buildWhatsAppUrl } from "../utils/whatsapp";
 import GoogleAddressPicker from "./GoogleAddressPicker";
@@ -14,6 +14,7 @@ interface Props {
 export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
   const { items } = useCart();
   const dispatch = useCartDispatch();
+  const { businessConfig } = useAdmin();
 
   const [form, setForm] = useState<CheckoutData>({
     name: "",
@@ -81,8 +82,8 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
     if (!isStoreOpen) return;
     if (!validate()) return;
 
-    const message = buildWhatsAppMessage(items, form, storeConfig.address);
-    const url = buildWhatsAppUrl(storeConfig.phone, message);
+    const message = buildWhatsAppMessage(items, form, businessConfig.address);
+    const url = buildWhatsAppUrl(businessConfig.whatsapp || businessConfig.phone, message);
 
     window.open(url, "_blank");
     dispatch({ type: "CLEAR" });
@@ -170,13 +171,13 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
               <span className="text-sm" style={{ color: "var(--general-text)" }}>
                 Retiro en sucursal{" "}
                 <a
-                  href={storeConfig.addressUrl}
+                  href={businessConfig.addressUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   style={{ color: "var(--btn-bg)" }}
                   className="underline"
                 >
-                  {storeConfig.address}
+                  {businessConfig.address}
                 </a>
               </span>
             </label>
