@@ -16,12 +16,19 @@ RUN npm run build
 FROM node:20-alpine
 WORKDIR /app
 
+# better-sqlite3 needs build tools for native addon
+RUN apk add --no-cache python3 make g++
+
 # Install server dependencies
 COPY server/package.json server/package-lock.json* ./
 RUN npm install --omit=dev
 
+# Remove build tools to keep image small
+RUN apk del python3 make g++
+
 # Copy server code
 COPY server/index.js ./
+COPY server/db ./db
 
 # Copy built frontend
 COPY --from=frontend /app/dist ./public
