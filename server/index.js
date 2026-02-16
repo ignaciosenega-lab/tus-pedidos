@@ -8,6 +8,7 @@ const { requireAuth } = require("./middleware/auth");
 const authRoutes = require("./routes/auth");
 const usersRoutes = require("./routes/users");
 const catalogRoutes = require("./routes/catalog");
+const branchesRoutes = require("./routes/branches");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -465,6 +466,9 @@ app.use("/api/users", usersRoutes);
 // Global Catalog (master only)
 app.use("/api/catalog", catalogRoutes);
 
+// Branches & Overrides
+app.use("/api/branches", branchesRoutes);
+
 // Get state (public — storefront needs to read products)
 app.get("/api/state", (_req, res) => {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate");
@@ -525,6 +529,12 @@ app.use("/api/uploads", express.static(UPLOADS_DIR));
 const publicDir = path.join(__dirname, "public");
 if (fs.existsSync(publicDir)) {
   app.use(express.static(publicDir));
+
+  // Branch-specific storefront
+  app.get("/s/:slug", (req, res) => {
+    res.sendFile(path.join(publicDir, "index.html"));
+  });
+
   // SPA fallback
   app.get("*", (_req, res) => {
     res.sendFile(path.join(publicDir, "index.html"));
