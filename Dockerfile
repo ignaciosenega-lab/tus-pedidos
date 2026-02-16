@@ -29,6 +29,8 @@ RUN apk del python3 make g++
 # Copy server code
 COPY server/index.js ./
 COPY server/db ./db
+COPY server/middleware ./middleware
+COPY server/routes ./routes
 
 # Copy built frontend
 COPY --from=frontend /app/dist ./public

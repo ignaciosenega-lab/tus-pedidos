@@ -2,19 +2,14 @@ const express = require("express");
 const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
-const jwt = require("jsonwebtoken");
-const bcrypt = require("bcryptjs");
 const multer = require("multer");
 const { getDb } = require("./db");
+const { requireAuth } = require("./middleware/auth");
+const authRoutes = require("./routes/auth");
+const usersRoutes = require("./routes/users");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || "tuspedidos_dev_secret_change_me";
-const ADMIN_USER = process.env.ADMIN_USER || "admin";
-const ADMIN_PASS_HASH = bcrypt.hashSync(
-  process.env.ADMIN_PASSWORD || "admin123",
-  10
-);
 
 /* ── Paths ────────────────────────────────────── */
 const DATA_DIR = path.join(__dirname, "data");
@@ -24,28 +19,14 @@ const UPLOADS_DIR = path.join(DATA_DIR, "uploads");
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
-// Initialize database on startup
+// Initialize database on startup and share via app.locals
 const db = getDb();
+app.locals.db = db;
 console.log("SQLite database initialized");
 
 /* ── Middleware ────────────────────────────────── */
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
-
-/* ── Auth middleware ──────────────────────────── */
-function requireAuth(req, res, next) {
-  const header = req.headers.authorization;
-  if (!header || !header.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Token requerido" });
-  }
-  try {
-    const decoded = jwt.verify(header.slice(7), JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch {
-    return res.status(401).json({ error: "Token inválido o expirado" });
-  }
-}
 
 /* ══════════════════════════════════════════════════
    DB → AdminState (GET /api/state)
@@ -284,7 +265,6 @@ const writeStateToDb = db.transaction((state) => {
   );
   cats.forEach((cat, idx) => {
     if (cat.id === "all") {
-      // skip the virtual "Todos" category — store mapping anyway
       catIdMap[cat.id] = null;
       return;
     }
@@ -294,7 +274,7 @@ const writeStateToDb = db.transaction((state) => {
 
   // ── Products + Variants + Toppings ──
   const products = state.products || [];
-  const prodIdMap = {}; // old string id → new integer id
+  const prodIdMap = {};
   const insertProduct = db.prepare(`
     INSERT INTO products (name, description, category_id, image_url, type, base_price, stock, badges, is_active, is_featured, is_private, gallery)
     VALUES (@name, @description, @category_id, @image_url, @type, @base_price, @stock, @badges, @is_active, @is_featured, @is_private, @gallery)
@@ -308,7 +288,7 @@ const writeStateToDb = db.transaction((state) => {
 
   products.forEach((p) => {
     const categoryId = catIdMap[p.categoryId];
-    if (!categoryId) return; // skip products with unknown or "all" category
+    if (!categoryId) return;
 
     const result = insertProduct.run({
       name: p.name,
@@ -477,22 +457,9 @@ function safeParseJson(str, fallback) {
 
 /* ── API Routes ──────────────────────────────── */
 
-// Login
-app.post("/api/auth/login", (req, res) => {
-  const { username, password } = req.body;
-  if (username !== ADMIN_USER || !bcrypt.compareSync(password, ADMIN_PASS_HASH)) {
-    return res.status(401).json({ error: "Credenciales incorrectas" });
-  }
-  const token = jwt.sign({ sub: username, role: "admin" }, JWT_SECRET, {
-    expiresIn: "7d",
-  });
-  res.json({ token });
-});
-
-// Verify token
-app.get("/api/auth/verify", requireAuth, (_req, res) => {
-  res.json({ ok: true });
-});
+// Auth & Users
+app.use("/api/auth", authRoutes);
+app.use("/api/users", usersRoutes);
 
 // Get state (public — storefront needs to read products)
 app.get("/api/state", (_req, res) => {

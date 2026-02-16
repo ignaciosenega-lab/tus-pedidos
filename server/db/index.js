@@ -1,4 +1,5 @@
 const Database = require("better-sqlite3");
+const bcrypt = require("bcryptjs");
 const path = require("path");
 const fs = require("fs");
 
@@ -21,6 +22,18 @@ function getDb() {
     // Run schema (CREATE IF NOT EXISTS is idempotent)
     const schema = fs.readFileSync(SCHEMA_PATH, "utf-8");
     db.exec(schema);
+
+    // Seed master user if no users exist
+    const userCount = db.prepare("SELECT COUNT(*) as count FROM users").get();
+    if (userCount.count === 0) {
+      const username = process.env.ADMIN_USER || "admin";
+      const password = process.env.ADMIN_PASSWORD || "admin123";
+      const hash = bcrypt.hashSync(password, 10);
+      db.prepare(
+        "INSERT INTO users (username, password_hash, role, display_name) VALUES (?, ?, 'master', 'Administrador')"
+      ).run(username, hash);
+      console.log(`Master user "${username}" created`);
+    }
   }
   return db;
 }
