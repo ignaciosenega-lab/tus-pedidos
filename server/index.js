@@ -7,6 +7,7 @@ const { getDb } = require("./db");
 const { requireAuth } = require("./middleware/auth");
 const authRoutes = require("./routes/auth");
 const usersRoutes = require("./routes/users");
+const catalogRoutes = require("./routes/catalog");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -460,6 +461,9 @@ function safeParseJson(str, fallback) {
 // Auth & Users
 app.use("/api/auth", authRoutes);
 app.use("/api/users", usersRoutes);
+
+// Global Catalog (master only)
+app.use("/api/catalog", catalogRoutes);
 
 // Get state (public — storefront needs to read products)
 app.get("/api/state", (_req, res) => {
