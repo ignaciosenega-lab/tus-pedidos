@@ -283,17 +283,17 @@ router.post("/:id/overrides/products", requireAuth, requireBranchAccess("id"), (
   // Upsert override
   db.prepare(`
     INSERT INTO branch_product_overrides (branch_id, product_id, price_override, is_available, stock_override)
-    VALUES (@branch_id, @product_id, @is_active, @is_featured, @base_price)
+    VALUES (@branch_id, @product_id, @price_override, @is_available, @stock_override)
     ON CONFLICT(branch_id, product_id) DO UPDATE SET
-      is_active = excluded.is_active,
-      is_featured = excluded.is_featured,
-      base_price = excluded.base_price
+      price_override = excluded.price_override,
+      is_available = excluded.is_available,
+      stock_override = excluded.stock_override
   `).run({
     branch_id: branchId,
     product_id,
-    is_active: is_active !== undefined ? (is_active ? 1 : 0) : null,
-    is_featured: is_featured !== undefined ? (is_featured ? 1 : 0) : null,
-    base_price: base_price !== undefined ? base_price : null,
+    price_override: price_override !== undefined ? price_override : null,
+    is_available: is_available !== undefined ? (is_available ? 1 : 0) : 1,
+    stock_override: stock_override !== undefined ? stock_override : null,
   });
 
   const created = db
@@ -343,15 +343,15 @@ router.post("/:id/overrides/variants", requireAuth, requireBranchAccess("id"), (
   // Upsert override
   db.prepare(`
     INSERT INTO branch_variant_overrides (branch_id, variant_id, price_override, is_available)
-    VALUES (@branch_id, @variant_id, @price, @stock)
+    VALUES (@branch_id, @variant_id, @price_override, @is_available)
     ON CONFLICT(branch_id, variant_id) DO UPDATE SET
-      price = excluded.price,
-      stock = excluded.stock
+      price_override = excluded.price_override,
+      is_available = excluded.is_available
   `).run({
     branch_id: branchId,
     variant_id,
-    price: price !== undefined ? price : null,
-    stock: stock !== undefined ? stock : null,
+    price_override: price_override !== undefined ? price_override : null,
+    is_available: is_available !== undefined ? (is_available ? 1 : 0) : 1,
   });
 
   const created = db
@@ -415,24 +415,28 @@ function readBranchState(db, branchId) {
   const products = prodRows
     .map((p) => {
       const override = productOverrides[p.id];
-      const isActive = override?.is_active !== null ? override.is_active : p.is_active;
-      const isFeatured = override?.is_featured !== null ? override.is_featured : p.is_featured;
-      const basePrice = override?.base_price !== null ? override.base_price : p.base_price;
+      const isAvailable = override?.is_available !== null && override?.is_available !== undefined ? override.is_available : 1;
+      const basePrice = override?.price_override !== null && override?.price_override !== undefined ? override.price_override : p.base_price;
 
-      if (!isActive) return null; // Skip inactive products
+      if (!isAvailable) return null; // Skip unavailable products
+      if (!p.is_active) return null; // Skip globally inactive products
 
       const variants = db
         .prepare("SELECT * FROM product_variants WHERE product_id = ? ORDER BY sort_order, id")
         .all(p.id)
         .map((v) => {
           const vOverride = variantOverrides[v.id];
+          const vIsAvailable = vOverride?.is_available !== null && vOverride?.is_available !== undefined ? vOverride.is_available : 1;
+          if (!vIsAvailable) return null; // Skip unavailable variants
+
           return {
             id: String(v.id),
             label: v.label,
-            price: vOverride?.price !== null ? vOverride.price : v.price,
-            stock: vOverride?.stock !== null ? vOverride.stock : v.stock,
+            price: vOverride?.price_override !== null && vOverride?.price_override !== undefined ? vOverride.price_override : v.price,
+            stock: v.stock,
           };
-        });
+        })
+        .filter(Boolean);
 
       const toppings = db
         .prepare("SELECT * FROM product_toppings WHERE product_id = ? ORDER BY sort_order, id")
@@ -452,7 +456,7 @@ function readBranchState(db, branchId) {
         type: p.type,
         badges: safeParseJson(p.badges, []),
         status: "alta",
-        featured: !!isFeatured,
+        featured: !!p.is_featured,
         private: !!p.is_private,
         gallery: safeParseJson(p.gallery, []),
         toppings,
