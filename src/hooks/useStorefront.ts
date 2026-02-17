@@ -9,16 +9,20 @@ interface StorefrontData {
 }
 
 const defaultConfig: BusinessConfig = {
-  name: "TusPedidos",
-  whatsapp: "",
+  title: "TusPedidos",
+  email: "",
   address: "",
-  logo: "",
+  addressUrl: "",
+  url: "",
+  description: "",
+  phone: "",
   isOpen: true,
-  deliveryFee: 0,
-  minOrderAmount: 0,
-  estimatedDeliveryTime: "30-45 min",
-  schedule: [],
-  paymentMethods: [],
+  logo: "",
+  favicon: "",
+  banners: [],
+  whatsapp: "",
+  socialLinks: [],
+  sliderImages: [],
 };
 
 export function useStorefront(): StorefrontData {
