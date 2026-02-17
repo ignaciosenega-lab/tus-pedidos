@@ -1,5 +1,5 @@
 import { useCart, cartItemCount, cartTotal } from "../store/cartContext";
-import { useAdmin } from "../store/adminContext";
+import { useStorefront } from "../hooks/useStorefront";
 import { formatPrice } from "../utils/money";
 
 interface Props {
@@ -8,7 +8,7 @@ interface Props {
 
 export default function HeaderBar({ onOpenCart }: Props) {
   const { items } = useCart();
-  const { businessConfig } = useAdmin();
+  const { businessConfig } = useStorefront();
   const count = cartItemCount(items);
   const total = cartTotal(items);
 

@@ -1,8 +1,24 @@
-import { useAdmin } from "../store/adminContext";
+import { useStorefront } from "../hooks/useStorefront";
+
+const defaultStyles = {
+  headerBg: "#111827",
+  headerText: "#ffffff",
+  bodyBg: "#000000",
+  panelBg: "#1f2937",
+  popupBg: "#111827",
+  generalText: "#d1d5db",
+  titleText: "#ffffff",
+  buttonBg: "#10b981",
+  buttonText: "#ffffff",
+  footerBg: "#111827",
+  footerText: "#9ca3af",
+  fontFamily: "system-ui, -apple-system, sans-serif",
+  fontUrl: "",
+};
 
 export default function ThemeStyles() {
-  const { styleConfig, businessConfig } = useAdmin();
-  const s = styleConfig;
+  const { businessConfig } = useStorefront();
+  const s = defaultStyles;
 
   // Dynamically set favicon
   const faviconHref = businessConfig.favicon || "/vite.svg";

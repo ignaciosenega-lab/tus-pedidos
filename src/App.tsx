@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import type { Product } from "./types";
 import { useCartDispatch } from "./store/cartContext";
-import { useAdmin } from "./store/adminContext";
+import { useStorefront } from "./hooks/useStorefront";
 
 import HeaderBar from "./components/HeaderBar";
 import CategoryChips from "./components/CategoryChips";
@@ -23,7 +23,7 @@ function getProductPrice(p: Product): number {
 
 export default function App() {
   const dispatch = useCartDispatch();
-  const { products: adminProducts, categories: adminCategories, businessConfig } = useAdmin();
+  const { products: adminProducts, categories: adminCategories, businessConfig } = useStorefront();
 
   // Only show active (alta), non-private products
   const products: Product[] = useMemo(

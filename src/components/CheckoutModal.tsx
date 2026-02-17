@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { useCart, useCartDispatch } from "../store/cartContext";
-import { useAdmin } from "../store/adminContext";
+import { useStorefront } from "../hooks/useStorefront";
 import { getDateOptions, getTimeSlots } from "../utils/dateTime";
 import { buildWhatsAppMessage, buildWhatsAppUrl } from "../utils/whatsapp";
 import GoogleAddressPicker from "./GoogleAddressPicker";
@@ -14,7 +14,7 @@ interface Props {
 export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
   const { items } = useCart();
   const dispatch = useCartDispatch();
-  const { businessConfig } = useAdmin();
+  const { businessConfig } = useStorefront();
 
   const [form, setForm] = useState<CheckoutData>({
     name: "",
