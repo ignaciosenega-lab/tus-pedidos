@@ -8,9 +8,20 @@ interface Branch {
   address: string;
   phone: string;
   whatsapp: string;
+  email: string;
   is_open: number;
   is_active: number;
   created_at: string;
+}
+
+interface BranchFormData {
+  slug: string;
+  name: string;
+  address: string;
+  phone: string;
+  whatsapp: string;
+  email: string;
+  is_open: boolean;
 }
 
 export default function BranchesPage() {
@@ -18,6 +29,17 @@ export default function BranchesPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showModal, setShowModal] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [formData, setFormData] = useState<BranchFormData>({
+    slug: "",
+    name: "",
+    address: "",
+    phone: "",
+    whatsapp: "",
+    email: "",
+    is_open: true,
+  });
 
   useEffect(() => {
     loadBranches();
@@ -44,6 +66,41 @@ export default function BranchesPage() {
       loadBranches();
     } catch (err: any) {
       alert(err.message || "Error al cambiar estado");
+    }
+  }
+
+  function openCreateModal() {
+    setFormData({
+      slug: "",
+      name: "",
+      address: "",
+      phone: "",
+      whatsapp: "",
+      email: "",
+      is_open: true,
+    });
+    setShowModal(true);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!formData.slug.trim() || !formData.name.trim()) {
+      alert("Slug y nombre son requeridos");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      await apiFetch("/api/branches", {
+        method: "POST",
+        body: JSON.stringify(formData),
+      });
+      setShowModal(false);
+      loadBranches();
+    } catch (err: any) {
+      alert(err.message || "Error al crear sucursal");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -76,7 +133,7 @@ export default function BranchesPage() {
           <p className="text-gray-400">Gestiona las sucursales del sistema multi-tenant</p>
         </div>
         <button
-          onClick={() => alert("Crear sucursal - próximamente")}
+          onClick={openCreateModal}
           className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors"
         >
           + Nueva Sucursal
@@ -145,6 +202,142 @@ export default function BranchesPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Create Branch Modal */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 rounded-lg border border-gray-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-gray-900 border-b border-gray-800 px-6 py-4 flex items-center justify-between">
+              <h3 className="text-xl font-bold text-white">Nueva Sucursal</h3>
+              <button
+                onClick={() => setShowModal(false)}
+                className="text-gray-400 hover:text-white"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    Slug <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.slug}
+                    onChange={(e) => setFormData({ ...formData, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                    placeholder="sucursal-centro"
+                    required
+                  />
+                  <p className="text-xs text-gray-500 mt-1">URL-friendly (solo minúsculas, números y guiones)</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    Nombre <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                    placeholder="Sucursal Centro"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Dirección
+                </label>
+                <input
+                  type="text"
+                  value={formData.address}
+                  onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                  placeholder="Av. Principal 123"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    Teléfono
+                  </label>
+                  <input
+                    type="tel"
+                    value={formData.phone}
+                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                    placeholder="11 1234-5678"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    WhatsApp
+                  </label>
+                  <input
+                    type="tel"
+                    value={formData.whatsapp}
+                    onChange={(e) => setFormData({ ...formData, whatsapp: e.target.value })}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                    placeholder="5491123456789"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                  placeholder="sucursal@ejemplo.com"
+                />
+              </div>
+
+              <div>
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={formData.is_open}
+                    onChange={(e) => setFormData({ ...formData, is_open: e.target.checked })}
+                    className="w-4 h-4 bg-gray-800 border-gray-700 rounded text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <span className="text-sm text-gray-300">Sucursal abierta</span>
+                </label>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
+                >
+                  {saving ? "Creando..." : "Crear Sucursal"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  disabled={saving}
+                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>
