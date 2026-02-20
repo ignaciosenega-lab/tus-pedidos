@@ -11,6 +11,20 @@ interface AdminUser {
   created_at: string;
 }
 
+interface Branch {
+  id: number;
+  slug: string;
+  name: string;
+}
+
+interface UserFormData {
+  username: string;
+  password: string;
+  display_name: string;
+  role: "master" | "branch_admin" | "staff";
+  branch_id: number | null;
+}
+
 const ROLE_LABELS = {
   master: "Master",
   branch_admin: "Admin de Sucursal",
@@ -20,11 +34,22 @@ const ROLE_LABELS = {
 export default function AdminUsersPage() {
   const { apiFetch } = useApi();
   const [users, setUsers] = useState<AdminUser[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showModal, setShowModal] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [formData, setFormData] = useState<UserFormData>({
+    username: "",
+    password: "",
+    display_name: "",
+    role: "branch_admin",
+    branch_id: null,
+  });
 
   useEffect(() => {
     loadUsers();
+    loadBranches();
   }, []);
 
   async function loadUsers() {
@@ -37,6 +62,52 @@ export default function AdminUsersPage() {
       setError(err.message || "Error al cargar usuarios");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadBranches() {
+    try {
+      const data = await apiFetch<Branch[]>("/api/branches");
+      setBranches(data);
+    } catch {
+      // silently fail - branches are optional for form
+    }
+  }
+
+  function openCreateModal() {
+    setFormData({
+      username: "",
+      password: "",
+      display_name: "",
+      role: "branch_admin",
+      branch_id: branches.length > 0 ? branches[0].id : null,
+    });
+    setShowModal(true);
+  }
+
+  async function handleCreateUser(e: React.FormEvent) {
+    e.preventDefault();
+    if (!formData.username.trim() || !formData.password.trim()) {
+      alert("Usuario y contraseña son requeridos");
+      return;
+    }
+    if (formData.role !== "master" && !formData.branch_id) {
+      alert("Debe seleccionar una sucursal para este rol");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      await apiFetch("/api/users", {
+        method: "POST",
+        body: JSON.stringify(formData),
+      });
+      setShowModal(false);
+      loadUsers();
+    } catch (err: any) {
+      alert(err.message || "Error al crear usuario");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -94,7 +165,7 @@ export default function AdminUsersPage() {
           <p className="text-gray-400">Gestiona los usuarios administradores del sistema</p>
         </div>
         <button
-          onClick={() => alert("Crear usuario - próximamente")}
+          onClick={openCreateModal}
           className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors"
         >
           + Nuevo Usuario
@@ -173,6 +244,132 @@ export default function AdminUsersPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Create User Modal */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 rounded-lg border border-gray-800 w-full max-w-lg">
+            <div className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
+              <h3 className="text-xl font-bold text-white">Nuevo Usuario Admin</h3>
+              <button
+                onClick={() => setShowModal(false)}
+                className="text-gray-400 hover:text-white"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateUser} className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    Usuario <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.username}
+                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                    placeholder="usuario123"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    Contraseña <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="password"
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                    placeholder="••••••••"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Nombre para mostrar
+                </label>
+                <input
+                  type="text"
+                  value={formData.display_name}
+                  onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                  placeholder="Juan Pérez"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Rol <span className="text-red-400">*</span>
+                </label>
+                <select
+                  value={formData.role}
+                  onChange={(e) => {
+                    const role = e.target.value as UserFormData["role"];
+                    setFormData({
+                      ...formData,
+                      role,
+                      branch_id: role === "master" ? null : (formData.branch_id || (branches.length > 0 ? branches[0].id : null)),
+                    });
+                  }}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="master">Master (acceso total)</option>
+                  <option value="branch_admin">Admin de Sucursal</option>
+                  <option value="staff">Personal</option>
+                </select>
+              </div>
+
+              {formData.role !== "master" && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    Sucursal <span className="text-red-400">*</span>
+                  </label>
+                  {branches.length === 0 ? (
+                    <p className="text-sm text-yellow-400">No hay sucursales creadas. Crea una primero.</p>
+                  ) : (
+                    <select
+                      value={formData.branch_id || ""}
+                      onChange={(e) => setFormData({ ...formData, branch_id: Number(e.target.value) })}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                    >
+                      {branches.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.name} ({b.slug})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
+                >
+                  {saving ? "Creando..." : "Crear Usuario"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  disabled={saving}
+                  className="px-4 py-2 bg-gray-800 hover:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>
