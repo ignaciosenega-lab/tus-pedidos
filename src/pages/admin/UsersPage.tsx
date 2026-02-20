@@ -1,15 +1,143 @@
+import { useState, useEffect } from "react";
+import { useApi } from "../../hooks/useApi";
+import { useBranchId } from "../../hooks/useBranchId";
+
+interface AppUser {
+  id: number;
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+  created_at: string;
+}
+
 export default function UsersPage() {
-  return (
-    <div className="flex flex-col items-center justify-center h-64">
-      <div className="text-center">
-        <h2 className="text-2xl font-bold text-white mb-2">Clientes</h2>
-        <p className="text-gray-400">
-          Esta funcionalidad estará disponible próximamente.
-        </p>
-        <p className="text-sm text-gray-500 mt-4">
-          Gestión de clientes del storefront
-        </p>
+  const { apiFetch } = useApi();
+  const { branchId, branches, setBranchId, isMaster, loading: branchLoading } = useBranchId();
+
+  const [users, setUsers] = useState<AppUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    if (!branchId) return;
+    loadUsers();
+  }, [branchId]);
+
+  async function loadUsers() {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await apiFetch<AppUser[]>(`/api/branches/${branchId}/customers`);
+      setUsers(data);
+    } catch (err: any) {
+      setError(err.message || "Error al cargar clientes");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const filtered = users.filter((u) => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (
+      (u.name || "").toLowerCase().includes(q) ||
+      (u.email || "").toLowerCase().includes(q) ||
+      (u.phone || "").toLowerCase().includes(q)
+    );
+  });
+
+  if (branchLoading || loading) {
+    return (
+      <div className="max-w-6xl">
+        <div className="text-center py-12">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+          <p className="text-gray-400 mt-4">Cargando clientes...</p>
+        </div>
       </div>
+    );
+  }
+
+  if (!branchId) {
+    return (
+      <div className="max-w-6xl">
+        <div className="bg-yellow-900/20 border border-yellow-900/50 rounded-lg p-4 text-yellow-400">
+          No hay sucursal asignada. Contacta al administrador master.
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-6xl">
+        <div className="bg-red-900/20 border border-red-900/50 rounded-lg p-4 text-red-400">{error}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-6xl">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-2xl font-bold text-white mb-1">Clientes</h2>
+          <p className="text-gray-400">Clientes registrados en la tienda ({users.length})</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {isMaster && branches.length > 0 && (
+            <select value={branchId}
+              onChange={(e) => setBranchId(Number(e.target.value))}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm">
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          )}
+        </div>
+      </div>
+
+      <div className="mb-4">
+        <input type="text" value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full sm:w-80 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+          placeholder="Buscar por nombre, email o teléfono..." />
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="bg-gray-900 border border-gray-800 rounded-lg p-8 text-center">
+          <p className="text-gray-500">
+            {search ? "No se encontraron clientes con ese criterio" : "No hay clientes registrados"}
+          </p>
+        </div>
+      ) : (
+        <div className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
+          <table className="w-full">
+            <thead className="bg-gray-800 border-b border-gray-700">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Nombre</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Email</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Teléfono</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Dirección</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Registrado</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-800">
+              {filtered.map((user) => (
+                <tr key={user.id} className="hover:bg-gray-800/50 transition-colors">
+                  <td className="px-4 py-3 text-sm text-white font-medium">{user.name || "-"}</td>
+                  <td className="px-4 py-3 text-sm text-gray-300">{user.email || "-"}</td>
+                  <td className="px-4 py-3 text-sm text-gray-300">{user.phone || "-"}</td>
+                  <td className="px-4 py-3 text-sm text-gray-400 max-w-xs truncate">{user.address || "-"}</td>
+                  <td className="px-4 py-3 text-sm text-gray-400">
+                    {user.created_at ? new Date(user.created_at).toLocaleDateString("es-AR") : "-"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
