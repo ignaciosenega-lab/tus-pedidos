@@ -30,34 +30,80 @@ console.log("SQLite database initialized");
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 
+// Subdomain detection: extracts branch slug from Host header
+// e.g. canning.pedidos.jirosushi.com.ar → slug "canning"
+const BRANCH_DOMAIN = process.env.BRANCH_DOMAIN || ""; // e.g. "pedidos.jirosushi.com.ar"
+app.use((req, _res, next) => {
+  req.branchSlug = null;
+  const host = (req.hostname || req.headers.host || "").split(":")[0];
+  if (BRANCH_DOMAIN && host.endsWith(BRANCH_DOMAIN)) {
+    const prefix = host.slice(0, -(BRANCH_DOMAIN.length + 1)); // +1 for the dot
+    if (prefix && prefix !== "master" && prefix !== "www") {
+      req.branchSlug = prefix;
+    }
+  }
+  next();
+});
+
 /* ══════════════════════════════════════════════════
    DB → AdminState (GET /api/state)
    ══════════════════════════════════════════════════ */
 
-function readStateFromDb() {
-  // Get the first (and for now, only) branch
-  const branch = db.prepare("SELECT * FROM branches LIMIT 1").get();
+function readStateFromDb(branchSlug) {
+  // If a slug is provided, find that specific branch; otherwise use the first one
+  const branch = branchSlug
+    ? db.prepare("SELECT * FROM branches WHERE slug = ? AND is_active = 1").get(branchSlug)
+    : db.prepare("SELECT * FROM branches WHERE is_active = 1 ORDER BY id LIMIT 1").get();
   if (!branch) return null;
 
-  // ── Categories ──
-  const catRows = db.prepare("SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order, id").all();
-  const categories = catRows.map((c) => ({
-    id: String(c.id),
-    name: c.name,
-  }));
+  const branchId = branch.id;
 
-  // ── Products + Variants + Toppings ──
+  // ── Categories (with branch visibility filter) ──
+  const catRows = db.prepare("SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order, id").all();
+  const visibilityMap = {};
+  db.prepare("SELECT category_id, is_visible FROM branch_category_visibility WHERE branch_id = ?")
+    .all(branchId)
+    .forEach((r) => { visibilityMap[r.category_id] = r.is_visible; });
+
+  const categories = catRows
+    .filter((c) => (visibilityMap[c.id] !== undefined ? visibilityMap[c.id] : true))
+    .map((c) => ({ id: String(c.id), name: c.name }));
+
+  // ── Branch overrides ──
+  const productOverrides = {};
+  db.prepare("SELECT * FROM branch_product_overrides WHERE branch_id = ?")
+    .all(branchId)
+    .forEach((o) => { productOverrides[o.product_id] = o; });
+
+  const variantOverrides = {};
+  db.prepare("SELECT * FROM branch_variant_overrides WHERE branch_id = ?")
+    .all(branchId)
+    .forEach((o) => { variantOverrides[o.variant_id] = o; });
+
+  // ── Products + Variants + Toppings (with overrides applied) ──
   const prodRows = db.prepare("SELECT * FROM products ORDER BY id").all();
   const products = prodRows.map((p) => {
+    const override = productOverrides[p.id];
+    const isAvailable = override?.is_available !== null && override?.is_available !== undefined
+      ? override.is_available : 1;
+    if (!isAvailable || !p.is_active) return null;
+
     const variants = db
       .prepare("SELECT * FROM product_variants WHERE product_id = ? ORDER BY sort_order, id")
       .all(p.id)
-      .map((v) => ({
-        id: String(v.id),
-        label: v.label,
-        price: v.price,
-        stock: v.stock != null ? v.stock : 0,
-      }));
+      .map((v) => {
+        const vOverride = variantOverrides[v.id];
+        const vAvailable = vOverride?.is_available !== null && vOverride?.is_available !== undefined
+          ? vOverride.is_available : 1;
+        if (!vAvailable) return null;
+        return {
+          id: String(v.id),
+          label: v.label,
+          price: vOverride?.price_override != null ? vOverride.price_override : v.price,
+          stock: v.stock != null ? v.stock : 0,
+        };
+      })
+      .filter(Boolean);
 
     const toppings = db
       .prepare("SELECT * FROM product_toppings WHERE product_id = ? ORDER BY sort_order, id")
@@ -68,6 +114,8 @@ function readStateFromDb() {
         price: t.price,
       }));
 
+    const basePrice = override?.price_override != null ? override.price_override : p.base_price;
+
     const product = {
       id: String(p.id),
       name: p.name,
@@ -76,7 +124,7 @@ function readStateFromDb() {
       imageUrl: p.image_url,
       type: p.type,
       badges: safeParseJson(p.badges, []),
-      status: p.is_active ? "alta" : "baja",
+      status: "alta",
       featured: !!p.is_featured,
       private: !!p.is_private,
       gallery: safeParseJson(p.gallery, []),
@@ -84,7 +132,7 @@ function readStateFromDb() {
     };
 
     if (p.type === "simple") {
-      product.basePrice = p.base_price;
+      product.basePrice = basePrice;
       product.stock = p.stock != null ? p.stock : 0;
     }
     if (variants.length > 0) {
@@ -92,7 +140,7 @@ function readStateFromDb() {
     }
 
     return product;
-  });
+  }).filter(Boolean);
 
   // ── Promotions ──
   const promoRows = db.prepare("SELECT * FROM promotions WHERE branch_id = ? ORDER BY id").all(branch.id);
@@ -200,12 +248,14 @@ function readStateFromDb() {
    AdminState → DB (POST /api/state)
    ══════════════════════════════════════════════════ */
 
-const writeStateToDb = db.transaction((state) => {
-  // Ensure a default branch exists
-  let branch = db.prepare("SELECT id FROM branches LIMIT 1").get();
+const writeStateToDb = db.transaction((state, branchSlug) => {
+  // Find the target branch by slug, or default to the first one
+  let branch = branchSlug
+    ? db.prepare("SELECT * FROM branches WHERE slug = ?").get(branchSlug)
+    : db.prepare("SELECT * FROM branches ORDER BY id LIMIT 1").get();
   if (!branch) {
     db.prepare("INSERT INTO branches (slug, name) VALUES ('principal', 'Sucursal Principal')").run();
-    branch = db.prepare("SELECT id FROM branches LIMIT 1").get();
+    branch = db.prepare("SELECT * FROM branches ORDER BY id LIMIT 1").get();
   }
   const branchId = branch.id;
 
@@ -470,11 +520,12 @@ app.use("/api/catalog", catalogRoutes);
 app.use("/api/branches", branchesRoutes);
 
 // Get state (public — storefront needs to read products)
-app.get("/api/state", (_req, res) => {
+// Uses subdomain detection: canning.pedidos.jirosushi.com.ar → branchSlug "canning"
+app.get("/api/state", (req, res) => {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate");
   res.set("Pragma", "no-cache");
   try {
-    const state = readStateFromDb();
+    const state = readStateFromDb(req.branchSlug);
     if (!state) {
       return res.json(null);
     }
@@ -486,9 +537,13 @@ app.get("/api/state", (_req, res) => {
 });
 
 // Save state (admin only)
+// Branch admins save to their own branch; master saves to the branch from subdomain or default
 app.post("/api/state", requireAuth, (req, res) => {
   try {
-    writeStateToDb(req.body);
+    const branchSlug = req.branchSlug || (req.user?.branch_id
+      ? db.prepare("SELECT slug FROM branches WHERE id = ?").get(req.user.branch_id)?.slug
+      : null);
+    writeStateToDb(req.body, branchSlug);
     res.json({ ok: true });
   } catch (e) {
     console.error("Error saving state to DB:", e.message);
