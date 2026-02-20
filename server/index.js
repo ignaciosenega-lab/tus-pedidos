@@ -27,12 +27,14 @@ app.locals.db = db;
 console.log("SQLite database initialized");
 
 /* ── Middleware ────────────────────────────────── */
+app.set("trust proxy", true); // Required behind EasyPanel reverse proxy
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 
 // Subdomain detection: extracts branch slug from Host header
 // e.g. canning.pedidos.jirosushi.com.ar → slug "canning"
 const BRANCH_DOMAIN = process.env.BRANCH_DOMAIN || ""; // e.g. "pedidos.jirosushi.com.ar"
+console.log("BRANCH_DOMAIN configured as:", BRANCH_DOMAIN || "(not set)");
 app.use((req, _res, next) => {
   req.branchSlug = null;
   const host = (req.hostname || req.headers.host || "").split(":")[0];
