@@ -377,6 +377,81 @@ router.delete("/:id/overrides/variants/:variantId", requireAuth, requireBranchAc
   res.json({ ok: true });
 });
 
+/* ══════════════════════════════════════════════════
+   DELIVERY ZONES
+   ══════════════════════════════════════════════════ */
+
+// GET /api/branches/:id/zones
+router.get("/:id/zones", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+  const zones = db.prepare("SELECT * FROM delivery_zones WHERE branch_id = ? ORDER BY id").all(branchId);
+  res.json(zones.map((z) => ({
+    ...z,
+    polygon: safeParseJson(z.polygon, []),
+  })));
+});
+
+// POST /api/branches/:id/zones
+router.post("/:id/zones", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+  const { name, polygon, cost, is_active, color } = req.body;
+  if (!name) return res.status(400).json({ error: "Nombre es requerido" });
+
+  const result = db.prepare(
+    "INSERT INTO delivery_zones (branch_id, name, polygon, cost, is_active, color) VALUES (@branch_id, @name, @polygon, @cost, @is_active, @color)"
+  ).run({
+    branch_id: branchId,
+    name,
+    polygon: JSON.stringify(polygon || []),
+    cost: cost || 0,
+    is_active: is_active !== false ? 1 : 0,
+    color: color || "#3B82F6",
+  });
+
+  const created = db.prepare("SELECT * FROM delivery_zones WHERE id = ?").get(result.lastInsertRowid);
+  res.status(201).json({ ...created, polygon: safeParseJson(created.polygon, []) });
+});
+
+// PUT /api/branches/:id/zones/:zoneId
+router.put("/:id/zones/:zoneId", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+  const zoneId = Number(req.params.zoneId);
+
+  const existing = db.prepare("SELECT * FROM delivery_zones WHERE id = ? AND branch_id = ?").get(zoneId, branchId);
+  if (!existing) return res.status(404).json({ error: "Zona no encontrada" });
+
+  const { name, polygon, cost, is_active, color } = req.body;
+  db.prepare(`
+    UPDATE delivery_zones SET
+      name = @name, polygon = @polygon, cost = @cost, is_active = @is_active, color = @color
+    WHERE id = @id
+  `).run({
+    id: zoneId,
+    name: name !== undefined ? name : existing.name,
+    polygon: polygon !== undefined ? JSON.stringify(polygon) : existing.polygon,
+    cost: cost !== undefined ? cost : existing.cost,
+    is_active: is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active,
+    color: color !== undefined ? color : existing.color,
+  });
+
+  const updated = db.prepare("SELECT * FROM delivery_zones WHERE id = ?").get(zoneId);
+  res.json({ ...updated, polygon: safeParseJson(updated.polygon, []) });
+});
+
+// DELETE /api/branches/:id/zones/:zoneId
+router.delete("/:id/zones/:zoneId", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+  const zoneId = Number(req.params.zoneId);
+
+  const result = db.prepare("DELETE FROM delivery_zones WHERE id = ? AND branch_id = ?").run(zoneId, branchId);
+  if (result.changes === 0) return res.status(404).json({ error: "Zona no encontrada" });
+  res.json({ ok: true });
+});
+
 /* ── Helper ──────────────────────────────────── */
 
 function readBranchState(db, branchId) {
