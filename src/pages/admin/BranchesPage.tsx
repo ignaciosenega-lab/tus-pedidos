@@ -58,14 +58,25 @@ export default function BranchesPage() {
     }
   }
 
-  async function toggleActive(id: number, currentActive: number) {
+  async function toggleOpen(id: number, currentOpen: number) {
     try {
-      await apiFetch(`/api/branches/${id}/toggle`, {
-        method: "PATCH",
+      await apiFetch(`/api/branches/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ is_open: !currentOpen }),
       });
       loadBranches();
     } catch (err: any) {
       alert(err.message || "Error al cambiar estado");
+    }
+  }
+
+  async function deleteBranch(id: number, name: string) {
+    if (!confirm(`¿Eliminar la sucursal "${name}"? Se eliminarán todos sus datos asociados.`)) return;
+    try {
+      await apiFetch(`/api/branches/${id}`, { method: "DELETE" });
+      loadBranches();
+    } catch (err: any) {
+      alert(err.message || "Error al eliminar sucursal");
     }
   }
 
@@ -154,8 +165,7 @@ export default function BranchesPage() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Nombre</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Dirección</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Teléfono</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Estado</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Activa</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Abierta</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Acciones</th>
               </tr>
             </thead>
@@ -168,35 +178,32 @@ export default function BranchesPage() {
                   <td className="px-4 py-3 text-sm text-gray-400">{branch.address || "-"}</td>
                   <td className="px-4 py-3 text-sm text-gray-400">{branch.phone || "-"}</td>
                   <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
+                    <button
+                      onClick={() => toggleOpen(branch.id, branch.is_open)}
+                      className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                         branch.is_open
-                          ? "bg-green-900/30 text-green-400"
-                          : "bg-red-900/30 text-red-400"
+                          ? "bg-green-900/30 text-green-400 hover:bg-green-900/50"
+                          : "bg-red-900/30 text-red-400 hover:bg-red-900/50"
                       }`}
                     >
                       {branch.is_open ? "Abierta" : "Cerrada"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={() => toggleActive(branch.id, branch.is_active)}
-                      className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium transition-colors ${
-                        branch.is_active
-                          ? "bg-emerald-900/30 text-emerald-400 hover:bg-emerald-900/50"
-                          : "bg-gray-700 text-gray-400 hover:bg-gray-600"
-                      }`}
-                    >
-                      {branch.is_active ? "Activa" : "Inactiva"}
                     </button>
                   </td>
                   <td className="px-4 py-3">
-                    <button
-                      onClick={() => alert(`Editar sucursal ${branch.id} - próximamente`)}
-                      className="text-sm text-emerald-400 hover:text-emerald-300 font-medium"
-                    >
-                      Editar
-                    </button>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => alert(`Editar sucursal ${branch.id} - próximamente`)}
+                        className="text-sm text-emerald-400 hover:text-emerald-300 font-medium"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => deleteBranch(branch.id, branch.name)}
+                        className="text-sm text-red-400 hover:text-red-300 font-medium"
+                      >
+                        Eliminar
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
