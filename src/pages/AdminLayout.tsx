@@ -31,8 +31,7 @@ export default function AdminLayout() {
     return <Navigate to="/admin/login" replace />;
   }
 
-  // Determine which nav items to show based on role
-  const navItems = user?.role === "master" ? MASTER_NAV_ITEMS : BRANCH_NAV_ITEMS;
+  const isMaster = user?.role === "master";
 
   return (
     <div className="min-h-screen bg-gray-950 flex">
@@ -83,26 +82,56 @@ export default function AdminLayout() {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              onClick={() => setSidebarOpen(false)}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isActive
-                    ? "bg-emerald-600/20 text-emerald-400"
-                    : "text-gray-400 hover:text-white hover:bg-gray-800"
-                }`
-              }
-            >
-              <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={item.icon} />
-              </svg>
-              {item.label}
-            </NavLink>
-          ))}
+        <nav className="flex-1 py-4 px-3 overflow-y-auto">
+          {isMaster && (
+            <>
+              <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-600">Global</p>
+              <div className="space-y-1 mb-4">
+                {MASTER_NAV_ITEMS.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    onClick={() => setSidebarOpen(false)}
+                    className={({ isActive }) =>
+                      `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                        isActive
+                          ? "bg-emerald-600/20 text-emerald-400"
+                          : "text-gray-400 hover:text-white hover:bg-gray-800"
+                      }`
+                    }
+                  >
+                    <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={item.icon} />
+                    </svg>
+                    {item.label}
+                  </NavLink>
+                ))}
+              </div>
+              <div className="border-t border-gray-800 mb-3" />
+              <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-600">Sucursal</p>
+            </>
+          )}
+          <div className="space-y-1">
+            {BRANCH_NAV_ITEMS.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                onClick={() => setSidebarOpen(false)}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                    isActive
+                      ? "bg-emerald-600/20 text-emerald-400"
+                      : "text-gray-400 hover:text-white hover:bg-gray-800"
+                  }`
+                }
+              >
+                <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={item.icon} />
+                </svg>
+                {item.label}
+              </NavLink>
+            ))}
+          </div>
         </nav>
 
         {/* Footer */}
