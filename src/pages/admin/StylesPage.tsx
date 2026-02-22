@@ -1,41 +1,33 @@
 import { useState, useEffect } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useBranchId } from "../../hooks/useBranchId";
+import type { StyleConfig } from "../../types";
 
-interface StyleFormData {
+type StyleFormData = Omit<StyleConfig, "fontUrl"> & {
   logo: string;
   favicon: string;
   banners: string[];
-  fontFamily: string;
-  headerBg: string;
-  headerText: string;
-  bodyBg: string;
-  generalText: string;
-  buttonBg: string;
-  buttonText: string;
-  menuBg: string;
-  menuText: string;
-  footerEnabled: boolean;
-  footerBg: string;
-  footerText: string;
-}
+};
 
 const DEFAULT_STYLE: StyleFormData = {
   logo: "",
   favicon: "",
   banners: [],
-  fontFamily: "",
-  headerBg: "#1a1a2e",
+  fontFamily: "system-ui, -apple-system, sans-serif",
+  headerBg: "#111827",
   headerText: "#ffffff",
-  bodyBg: "#0f0f1a",
-  generalText: "#e0e0e0",
+  bodyBg: "#000000",
+  panelBg: "#1f2937",
+  popupBg: "#111827",
+  generalText: "#d1d5db",
+  titleText: "#ffffff",
+  menuBg: "#111827",
+  menuText: "#d1d5db",
   buttonBg: "#10b981",
   buttonText: "#ffffff",
-  menuBg: "#1a1a2e",
-  menuText: "#e0e0e0",
   footerEnabled: false,
-  footerBg: "#1a1a2e",
-  footerText: "#e0e0e0",
+  footerBg: "#111827",
+  footerText: "#9ca3af",
 };
 
 export default function StylesPage() {
@@ -67,15 +59,18 @@ export default function StylesPage() {
         logo: data.logo || "",
         favicon: data.favicon || "",
         banners: Array.isArray(data.banners) ? data.banners : [],
-        fontFamily: sc.fontFamily || "",
+        fontFamily: sc.fontFamily || DEFAULT_STYLE.fontFamily,
         headerBg: sc.headerBg || DEFAULT_STYLE.headerBg,
         headerText: sc.headerText || DEFAULT_STYLE.headerText,
         bodyBg: sc.bodyBg || DEFAULT_STYLE.bodyBg,
+        panelBg: sc.panelBg || DEFAULT_STYLE.panelBg,
+        popupBg: sc.popupBg || DEFAULT_STYLE.popupBg,
         generalText: sc.generalText || DEFAULT_STYLE.generalText,
-        buttonBg: sc.buttonBg || DEFAULT_STYLE.buttonBg,
-        buttonText: sc.buttonText || DEFAULT_STYLE.buttonText,
+        titleText: sc.titleText || DEFAULT_STYLE.titleText,
         menuBg: sc.menuBg || DEFAULT_STYLE.menuBg,
         menuText: sc.menuText || DEFAULT_STYLE.menuText,
+        buttonBg: sc.buttonBg || DEFAULT_STYLE.buttonBg,
+        buttonText: sc.buttonText || DEFAULT_STYLE.buttonText,
         footerEnabled: sc.footerEnabled || false,
         footerBg: sc.footerBg || DEFAULT_STYLE.footerBg,
         footerText: sc.footerText || DEFAULT_STYLE.footerText,
@@ -150,17 +145,50 @@ export default function StylesPage() {
     );
   }
 
-  const colorFields: { key: keyof StyleFormData; label: string }[] = [
-    { key: "headerBg", label: "Fondo del header" },
-    { key: "headerText", label: "Texto del header" },
-    { key: "bodyBg", label: "Fondo general" },
-    { key: "generalText", label: "Texto general" },
-    { key: "menuBg", label: "Fondo del menú" },
-    { key: "menuText", label: "Texto del menú" },
-    { key: "buttonBg", label: "Fondo de botones" },
-    { key: "buttonText", label: "Texto de botones" },
-    { key: "footerBg", label: "Fondo del footer" },
-    { key: "footerText", label: "Texto del footer" },
+  const colorSections: { title: string; fields: { key: keyof StyleFormData; label: string }[] }[] = [
+    {
+      title: "Header",
+      fields: [
+        { key: "headerBg", label: "Fondo" },
+        { key: "headerText", label: "Texto" },
+      ],
+    },
+    {
+      title: "Cuerpo / Fondo",
+      fields: [
+        { key: "bodyBg", label: "Fondo general" },
+        { key: "generalText", label: "Texto general" },
+        { key: "titleText", label: "Títulos" },
+      ],
+    },
+    {
+      title: "Paneles y Modales",
+      fields: [
+        { key: "panelBg", label: "Fondo de tarjetas" },
+        { key: "popupBg", label: "Fondo de modales" },
+      ],
+    },
+    {
+      title: "Menú de categorías",
+      fields: [
+        { key: "menuBg", label: "Fondo" },
+        { key: "menuText", label: "Texto" },
+      ],
+    },
+    {
+      title: "Botones",
+      fields: [
+        { key: "buttonBg", label: "Fondo" },
+        { key: "buttonText", label: "Texto" },
+      ],
+    },
+    {
+      title: "Footer",
+      fields: [
+        { key: "footerBg", label: "Fondo" },
+        { key: "footerText", label: "Texto" },
+      ],
+    },
   ];
 
   return (
@@ -247,10 +275,9 @@ export default function StylesPage() {
         </div>
       </div>
 
-      {/* Colores */}
+      {/* Fuente */}
       <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 space-y-4">
-        <h3 className="text-lg font-semibold text-white mb-2">Colores</h3>
-
+        <h3 className="text-lg font-semibold text-white mb-2">Tipografía</h3>
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-1">Fuente personalizada</label>
           <input type="text" value={form.fontFamily}
@@ -258,29 +285,73 @@ export default function StylesPage() {
             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
             placeholder="Inter, Roboto, etc." />
         </div>
+      </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {colorFields.map(({ key, label }) => (
-            <div key={key}>
-              <label className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
-              <div className="flex gap-2">
-                <input type="color" value={form[key] as string}
-                  onChange={(e) => setForm({ ...form, [key]: e.target.value })}
-                  className="h-10 w-12 bg-gray-800 border border-gray-700 rounded cursor-pointer" />
-                <input type="text" value={form[key] as string}
-                  onChange={(e) => setForm({ ...form, [key]: e.target.value })}
-                  className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-sm focus:outline-none focus:border-emerald-500" />
+      {/* Colores por sección */}
+      {colorSections.map((section) => (
+        <div key={section.title} className="bg-gray-900 border border-gray-800 rounded-lg p-6 space-y-4">
+          <h3 className="text-lg font-semibold text-white mb-2">{section.title}</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {section.fields.map(({ key, label }) => (
+              <div key={key}>
+                <label className="block text-sm font-medium text-gray-300 mb-1">{label}</label>
+                <div className="flex gap-2">
+                  <input type="color" value={form[key] as string}
+                    onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                    className="h-10 w-12 bg-gray-800 border border-gray-700 rounded cursor-pointer" />
+                  <input type="text" value={form[key] as string}
+                    onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                    className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white font-mono text-sm focus:outline-none focus:border-emerald-500" />
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
+          {section.title === "Footer" && (
+            <label className="flex items-center gap-3 cursor-pointer pt-2">
+              <input type="checkbox" checked={form.footerEnabled}
+                onChange={(e) => setForm({ ...form, footerEnabled: e.target.checked })}
+                className="w-4 h-4 bg-gray-800 border-gray-700 rounded text-emerald-600 focus:ring-emerald-500" />
+              <span className="text-sm text-gray-300">Mostrar footer</span>
+            </label>
+          )}
         </div>
+      ))}
 
-        <label className="flex items-center gap-3 cursor-pointer pt-2">
-          <input type="checkbox" checked={form.footerEnabled}
-            onChange={(e) => setForm({ ...form, footerEnabled: e.target.checked })}
-            className="w-4 h-4 bg-gray-800 border-gray-700 rounded text-emerald-600 focus:ring-emerald-500" />
-          <span className="text-sm text-gray-300">Mostrar footer</span>
-        </label>
+      {/* Preview */}
+      <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-white mb-4">Vista previa</h3>
+        <div className="rounded-lg overflow-hidden border border-gray-700">
+          {/* Header preview */}
+          <div className="px-4 py-3 flex items-center justify-between"
+            style={{ backgroundColor: form.headerBg, color: form.headerText }}>
+            <span className="font-bold">Mi Tienda</span>
+            <span className="text-sm px-3 py-1 rounded-full"
+              style={{ backgroundColor: form.buttonBg, color: form.buttonText }}>
+              Carrito
+            </span>
+          </div>
+          {/* Body preview */}
+          <div className="p-4 space-y-3" style={{ backgroundColor: form.bodyBg }}>
+            <p className="font-bold" style={{ color: form.titleText }}>Título de ejemplo</p>
+            <p className="text-sm" style={{ color: form.generalText }}>Este es un texto de ejemplo para ver cómo quedan los colores.</p>
+            {/* Card preview */}
+            <div className="rounded-lg p-3" style={{ backgroundColor: form.panelBg }}>
+              <p className="font-medium text-sm" style={{ color: form.titleText }}>Producto</p>
+              <p className="text-xs mt-1" style={{ color: form.generalText }}>Descripción del producto</p>
+              <button className="mt-2 text-xs px-3 py-1 rounded-lg font-medium"
+                style={{ backgroundColor: form.buttonBg, color: form.buttonText }}>
+                Agregar
+              </button>
+            </div>
+          </div>
+          {/* Footer preview */}
+          {form.footerEnabled && (
+            <div className="px-4 py-2 text-xs text-center"
+              style={{ backgroundColor: form.footerBg, color: form.footerText }}>
+              Footer de ejemplo
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Save Button */}
