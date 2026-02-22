@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useBranchId } from "../../hooks/useBranchId";
+import { useAuth } from "../../store/authContext";
 import type { StyleConfig } from "../../types";
 
 type StyleFormData = Omit<StyleConfig, "fontUrl"> & {
@@ -32,7 +33,10 @@ const DEFAULT_STYLE: StyleFormData = {
 
 export default function StylesPage() {
   const { apiFetch } = useApi();
+  const { token } = useAuth();
   const { branchId, branches, setBranchId, isMaster, loading: branchLoading } = useBranchId();
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const faviconInputRef = useRef<HTMLInputElement>(null);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -40,6 +44,7 @@ export default function StylesPage() {
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<StyleFormData>(DEFAULT_STYLE);
   const [newBanner, setNewBanner] = useState("");
+  const [uploading, setUploading] = useState<"logo" | "favicon" | null>(null);
 
   useEffect(() => {
     if (!branchId) {
@@ -114,6 +119,30 @@ export default function StylesPage() {
 
   function removeBanner(index: number) {
     setForm({ ...form, banners: form.banners.filter((_, i) => i !== index) });
+  }
+
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>, field: "logo" | "favicon") {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setUploading(field);
+      const formData = new FormData();
+      formData.append("image", file);
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      if (!res.ok) throw new Error("Error al subir imagen");
+      const data = await res.json();
+      setForm((prev) => ({ ...prev, [field]: data.url }));
+    } catch (err: any) {
+      alert(err.message || "Error al subir imagen");
+    } finally {
+      setUploading(null);
+      if (field === "logo" && logoInputRef.current) logoInputRef.current.value = "";
+      if (field === "favicon" && faviconInputRef.current) faviconInputRef.current.value = "";
+    }
   }
 
   if (branchLoading || loading) {
@@ -216,29 +245,100 @@ export default function StylesPage() {
       )}
 
       {/* Logo y Favicon */}
-      <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 space-y-4">
+      <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 space-y-6">
         <h3 className="text-lg font-semibold text-white mb-2">Logo y Favicon</h3>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          {/* Logo */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">URL del Logo</label>
-            <input type="text" value={form.logo}
-              onChange={(e) => setForm({ ...form, logo: e.target.value })}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-              placeholder="https://..." />
-            {form.logo && (
-              <img src={form.logo} alt="Logo preview" className="mt-2 h-12 object-contain rounded bg-gray-800 p-1" />
-            )}
+            <label className="block text-sm font-medium text-gray-300 mb-2">Logo</label>
+            <p className="text-xs text-gray-500 mb-2">Se muestra en el header. Máximo 110px de ancho.</p>
+            <div className="flex items-start gap-4">
+              <div className="w-28 h-20 bg-gray-800 rounded-lg border border-gray-700 flex items-center justify-center overflow-hidden shrink-0">
+                {form.logo ? (
+                  <img src={form.logo} alt="Logo" className="max-w-full max-h-full object-contain" />
+                ) : (
+                  <svg className="w-8 h-8 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                )}
+              </div>
+              <div className="flex-1 space-y-2">
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => handleImageUpload(e, "logo")}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => logoInputRef.current?.click()}
+                  disabled={uploading === "logo"}
+                  className="w-full px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                  </svg>
+                  {uploading === "logo" ? "Subiendo..." : "Subir imagen"}
+                </button>
+                <input type="text" value={form.logo}
+                  onChange={(e) => setForm({ ...form, logo: e.target.value })}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-emerald-500"
+                  placeholder="o pegar URL..." />
+                {form.logo && (
+                  <button onClick={() => setForm({ ...form, logo: "" })}
+                    className="text-xs text-red-400 hover:text-red-300">
+                    Quitar logo
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
+
+          {/* Favicon */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1">URL del Favicon</label>
-            <input type="text" value={form.favicon}
-              onChange={(e) => setForm({ ...form, favicon: e.target.value })}
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-              placeholder="https://..." />
-            {form.favicon && (
-              <img src={form.favicon} alt="Favicon preview" className="mt-2 h-8 object-contain rounded bg-gray-800 p-1" />
-            )}
+            <label className="block text-sm font-medium text-gray-300 mb-2">Favicon</label>
+            <p className="text-xs text-gray-500 mb-2">Icono del navegador. Recomendado: 32x32 px.</p>
+            <div className="flex items-start gap-4">
+              <div className="w-16 h-16 bg-gray-800 rounded-lg border border-gray-700 flex items-center justify-center overflow-hidden shrink-0">
+                {form.favicon ? (
+                  <img src={form.favicon} alt="Favicon" className="max-w-full max-h-full object-contain" />
+                ) : (
+                  <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                )}
+              </div>
+              <div className="flex-1 space-y-2">
+                <input
+                  ref={faviconInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => handleImageUpload(e, "favicon")}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => faviconInputRef.current?.click()}
+                  disabled={uploading === "favicon"}
+                  className="w-full px-3 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                  </svg>
+                  {uploading === "favicon" ? "Subiendo..." : "Subir imagen"}
+                </button>
+                <input type="text" value={form.favicon}
+                  onChange={(e) => setForm({ ...form, favicon: e.target.value })}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-emerald-500"
+                  placeholder="o pegar URL..." />
+                {form.favicon && (
+                  <button onClick={() => setForm({ ...form, favicon: "" })}
+                    className="text-xs text-red-400 hover:text-red-300">
+                    Quitar favicon
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>

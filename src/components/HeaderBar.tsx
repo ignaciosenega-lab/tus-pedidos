@@ -18,13 +18,20 @@ export default function HeaderBar({ onOpenCart }: Props) {
       style={{ backgroundColor: "var(--header-bg)", color: "var(--header-text)" }}
     >
       <div className="max-w-5xl mx-auto flex items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           {businessConfig.logo && (
-            <img src={businessConfig.logo} alt={businessConfig.title} className="h-8 w-8 object-contain rounded" />
+            <img
+              src={businessConfig.logo}
+              alt={businessConfig.title}
+              className="object-contain"
+              style={{ maxWidth: "110px", maxHeight: "40px" }}
+            />
           )}
-          <h1 className="text-lg font-bold tracking-wide">
-            {businessConfig.title || "Tus Pedidos"}
-          </h1>
+          {!businessConfig.logo && (
+            <h1 className="text-lg font-bold tracking-wide">
+              {businessConfig.title || "Tus Pedidos"}
+            </h1>
+          )}
         </div>
 
         <button
