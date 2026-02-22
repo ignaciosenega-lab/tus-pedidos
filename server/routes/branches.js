@@ -250,6 +250,41 @@ router.get("/:id/state", (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════
+   BRANCH CATALOG (read-only for branch_admin)
+   ══════════════════════════════════════════════════ */
+
+// GET /api/branches/:id/catalog — products list with overrides merged
+router.get("/:id/catalog", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+
+  const products = db.prepare("SELECT * FROM products ORDER BY id").all();
+  const categories = db.prepare("SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order, id").all();
+
+  // Load branch overrides
+  const overrides = {};
+  db.prepare("SELECT * FROM branch_product_overrides WHERE branch_id = ?")
+    .all(branchId)
+    .forEach((o) => { overrides[o.product_id] = o; });
+
+  // Merge products with overrides
+  const merged = products.map((p) => {
+    const ov = overrides[p.product_id || p.id] || {};
+    const variants = db.prepare("SELECT * FROM product_variants WHERE product_id = ? ORDER BY sort_order, id").all(p.id);
+    return {
+      ...p,
+      badges: safeParseJson(p.badges, []),
+      gallery: safeParseJson(p.gallery, []),
+      variants,
+      is_available: ov.is_available !== undefined ? ov.is_available : 1,
+      has_override: !!overrides[p.id],
+    };
+  });
+
+  res.json({ products: merged, categories });
+});
+
+/* ══════════════════════════════════════════════════
    BRANCH OVERRIDES
    ══════════════════════════════════════════════════ */
 
