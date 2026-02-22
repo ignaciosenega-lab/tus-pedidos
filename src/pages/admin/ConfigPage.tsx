@@ -73,7 +73,8 @@ export default function ConfigPage() {
       setEmail(data.email || "");
       setDescription(data.description || "");
       setIsOpen(!!data.is_open);
-      setPayment({ ...DEFAULT_PAYMENT, ...(data.payment_config || {}) });
+      const pc = typeof data.payment_config === "object" && data.payment_config ? data.payment_config : {};
+      setPayment({ ...DEFAULT_PAYMENT, ...pc });
     } catch (err: any) {
       setError(err.message || "Error al cargar configuración");
     } finally {
@@ -97,7 +98,7 @@ export default function ConfigPage() {
           email,
           description,
           is_open: isOpen,
-          payment_config: JSON.stringify(payment),
+          payment_config: payment,
         }),
       });
       setSuccess(true);

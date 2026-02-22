@@ -32,8 +32,8 @@ export function useBranchId() {
     apiFetch<Branch[]>("/api/branches")
       .then((data) => {
         setBranches(data);
-        if (data.length > 0 && !selectedBranchId) {
-          setSelectedBranchId(data[0].id);
+        if (data.length > 0) {
+          setSelectedBranchId((prev) => prev ?? data[0].id);
         }
       })
       .catch((err) => {

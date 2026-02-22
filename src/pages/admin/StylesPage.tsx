@@ -62,11 +62,11 @@ export default function StylesPage() {
       setLoading(true);
       setError(null);
       const data = await apiFetch<any>(`/api/branches/${branchId}`);
-      const sc = data.style_config || {};
+      const sc = typeof data.style_config === "object" && data.style_config ? data.style_config : {};
       setForm({
         logo: data.logo || "",
         favicon: data.favicon || "",
-        banners: data.banners || [],
+        banners: Array.isArray(data.banners) ? data.banners : [],
         fontFamily: sc.fontFamily || "",
         headerBg: sc.headerBg || DEFAULT_STYLE.headerBg,
         headerText: sc.headerText || DEFAULT_STYLE.headerText,
