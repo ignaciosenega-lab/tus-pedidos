@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useBranchId } from "../../hooks/useBranchId";
 
@@ -6,7 +6,7 @@ interface DeliveryZone {
   id: number;
   branch_id: number;
   name: string;
-  polygon: any[];
+  polygon: number[][];
   cost: number;
   is_active: number;
   color: string;
@@ -19,9 +19,45 @@ interface ZoneFormData {
   is_active: boolean;
 }
 
+const COLOR_PALETTE = [
+  "#3B82F6", "#EF4444", "#10B981", "#F59E0B", "#8B5CF6",
+  "#EC4899", "#06B6D4", "#F97316", "#6366F1", "#14B8A6",
+];
+
+function parseKml(kmlText: string): { name: string; polygon: number[][] }[] {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(kmlText, "text/xml");
+  const placemarks = doc.querySelectorAll("Placemark");
+  const zones: { name: string; polygon: number[][] }[] = [];
+
+  placemarks.forEach((pm) => {
+    const nameEl = pm.querySelector("name");
+    const coordsEl = pm.querySelector("coordinates");
+    if (!coordsEl) return;
+
+    const name = nameEl?.textContent?.trim() || "Zona importada";
+    const raw = coordsEl.textContent?.trim() || "";
+    const points = raw
+      .split(/\s+/)
+      .filter(Boolean)
+      .map((coord) => {
+        const [lng, lat] = coord.split(",").map(Number);
+        return [lat, lng];
+      })
+      .filter(([lat, lng]) => !isNaN(lat) && !isNaN(lng));
+
+    if (points.length >= 3) {
+      zones.push({ name, polygon: points });
+    }
+  });
+
+  return zones;
+}
+
 export default function DeliveryZonesPage() {
   const { apiFetch } = useApi();
   const { branchId, branches, setBranchId, isMaster, loading: branchLoading } = useBranchId();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [zones, setZones] = useState<DeliveryZone[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,6 +65,7 @@ export default function DeliveryZonesPage() {
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingZone, setEditingZone] = useState<DeliveryZone | null>(null);
+  const [importing, setImporting] = useState(false);
   const [formData, setFormData] = useState<ZoneFormData>({
     name: "",
     cost: 0,
@@ -122,6 +159,47 @@ export default function DeliveryZonesPage() {
     }
   }
 
+  async function handleKmlImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setImporting(true);
+      const text = await file.text();
+      const parsed = parseKml(text);
+
+      if (parsed.length === 0) {
+        alert("No se encontraron polígonos válidos en el archivo KML.\nAsegurate de que el archivo tenga al menos un polígono con 3 o más puntos.");
+        return;
+      }
+
+      let created = 0;
+      for (let i = 0; i < parsed.length; i++) {
+        const zone = parsed[i];
+        const color = COLOR_PALETTE[i % COLOR_PALETTE.length];
+        await apiFetch(`/api/branches/${branchId}/zones`, {
+          method: "POST",
+          body: JSON.stringify({
+            name: zone.name,
+            polygon: zone.polygon,
+            cost: 0,
+            is_active: true,
+            color,
+          }),
+        });
+        created++;
+      }
+
+      alert(`Se importaron ${created} zona${created !== 1 ? "s" : ""} correctamente.\nRecordá asignarles un costo de envío.`);
+      loadZones();
+    } catch (err: any) {
+      alert(err.message || "Error al importar archivo KML");
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
   if (branchLoading || loading) {
     return (
       <div className="max-w-6xl">
@@ -168,6 +246,23 @@ export default function DeliveryZonesPage() {
               ))}
             </select>
           )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".kml,.xml"
+            onChange={handleKmlImport}
+            className="hidden"
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+            {importing ? "Importando..." : "Importar KML"}
+          </button>
           <button onClick={openCreateModal}
             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors">
             + Nueva Zona
@@ -175,9 +270,31 @@ export default function DeliveryZonesPage() {
         </div>
       </div>
 
+      {/* KML help */}
+      <div className="bg-blue-900/20 border border-blue-900/40 rounded-lg p-4 mb-6">
+        <div className="flex items-start gap-3">
+          <svg className="w-5 h-5 text-blue-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <div className="text-sm">
+            <p className="text-blue-300 font-medium mb-1">Importar zonas desde Google My Maps</p>
+            <ol className="text-blue-400/80 space-y-0.5 list-decimal list-inside">
+              <li>Abrí <span className="text-blue-300">Google My Maps</span> y dibujá tus polígonos de zona</li>
+              <li>Hacé clic en los 3 puntos del menú y seleccioná <span className="text-blue-300">"Exportar a KML/KMZ"</span></li>
+              <li>Elegí <span className="text-blue-300">"Exportar como KML"</span> (no KMZ)</li>
+              <li>Subí el archivo .kml con el botón <span className="text-blue-300">"Importar KML"</span></li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
       {zones.length === 0 ? (
         <div className="bg-gray-900 border border-gray-800 rounded-lg p-8 text-center">
-          <p className="text-gray-500">No hay zonas de envío configuradas</p>
+          <svg className="w-12 h-12 mx-auto mb-3 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447 2.724A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+          </svg>
+          <p className="text-gray-500 mb-2">No hay zonas de envío configuradas</p>
+          <p className="text-gray-600 text-sm">Creá una zona manualmente o importá un archivo KML</p>
         </div>
       ) : (
         <div className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
@@ -187,6 +304,7 @@ export default function DeliveryZonesPage() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Nombre</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Costo</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Color</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Polígono</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Estado</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Acciones</th>
               </tr>
@@ -201,6 +319,18 @@ export default function DeliveryZonesPage() {
                       <div className="w-5 h-5 rounded border border-gray-600" style={{ backgroundColor: zone.color }} />
                       <span className="text-xs text-gray-400 font-mono">{zone.color}</span>
                     </div>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-400">
+                    {zone.polygon && zone.polygon.length > 0 ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-900/30 text-emerald-400 text-xs">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447 2.724A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                        </svg>
+                        {zone.polygon.length} puntos
+                      </span>
+                    ) : (
+                      <span className="text-gray-600 text-xs">Sin polígono</span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <button onClick={() => toggleActive(zone)}
@@ -277,6 +407,14 @@ export default function DeliveryZonesPage() {
                   </div>
                 </div>
               </div>
+
+              {editingZone && editingZone.polygon && editingZone.polygon.length > 0 && (
+                <div className="bg-gray-800 rounded-lg p-3">
+                  <p className="text-sm text-gray-400">
+                    <span className="text-emerald-400 font-medium">{editingZone.polygon.length} puntos</span> en el polígono
+                  </p>
+                </div>
+              )}
 
               <label className="flex items-center gap-2">
                 <input type="checkbox" checked={formData.is_active}

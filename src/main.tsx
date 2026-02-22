@@ -64,7 +64,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="cupones" element={<CouponsPage />} />
               <Route path="configuracion" element={<ConfigPage />} />
               <Route path="operacion" element={<OperationsPage />} />
-              <Route path="estilos" element={<StylesPage />} />
+              <Route path="estilos" element={<MasterOnly><StylesPage /></MasterOnly>} />
               <Route path="zonas-envio" element={<DeliveryZonesPage />} />
             </Route>
           </Routes>
