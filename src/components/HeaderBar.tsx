@@ -24,7 +24,7 @@ export default function HeaderBar({ onOpenCart }: Props) {
               src={businessConfig.logo}
               alt={businessConfig.title}
               className="object-contain"
-              style={{ maxWidth: "110px", maxHeight: "40px" }}
+              style={{ maxWidth: "220px", maxHeight: "80px" }}
             />
           )}
           {!businessConfig.logo && (

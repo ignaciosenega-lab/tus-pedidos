@@ -252,7 +252,7 @@ export default function StylesPage() {
           {/* Logo */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">Logo</label>
-            <p className="text-xs text-gray-500 mb-2">Se muestra en el header. Máximo 110px de ancho.</p>
+            <p className="text-xs text-gray-500 mb-2">Se muestra en el header. Máximo 220px de ancho.</p>
             <div className="flex items-start gap-4">
               <div className="w-28 h-20 bg-gray-800 rounded-lg border border-gray-700 flex items-center justify-center overflow-hidden shrink-0">
                 {form.logo ? (
