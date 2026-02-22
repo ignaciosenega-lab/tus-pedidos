@@ -31,6 +31,7 @@ export default function BranchesPage() {
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
   const [formData, setFormData] = useState<BranchFormData>({
     slug: "",
     name: "",
@@ -81,6 +82,7 @@ export default function BranchesPage() {
   }
 
   function openCreateModal() {
+    setEditingBranch(null);
     setFormData({
       slug: "",
       name: "",
@@ -89,6 +91,20 @@ export default function BranchesPage() {
       whatsapp: "",
       email: "",
       is_open: true,
+    });
+    setShowModal(true);
+  }
+
+  function openEditModal(branch: Branch) {
+    setEditingBranch(branch);
+    setFormData({
+      slug: branch.slug,
+      name: branch.name,
+      address: branch.address || "",
+      phone: branch.phone || "",
+      whatsapp: branch.whatsapp || "",
+      email: branch.email || "",
+      is_open: !!branch.is_open,
     });
     setShowModal(true);
   }
@@ -102,14 +118,21 @@ export default function BranchesPage() {
 
     try {
       setSaving(true);
-      await apiFetch("/api/branches", {
-        method: "POST",
-        body: JSON.stringify(formData),
-      });
+      if (editingBranch) {
+        await apiFetch(`/api/branches/${editingBranch.id}`, {
+          method: "PUT",
+          body: JSON.stringify(formData),
+        });
+      } else {
+        await apiFetch("/api/branches", {
+          method: "POST",
+          body: JSON.stringify(formData),
+        });
+      }
       setShowModal(false);
       loadBranches();
     } catch (err: any) {
-      alert(err.message || "Error al crear sucursal");
+      alert(err.message || (editingBranch ? "Error al editar sucursal" : "Error al crear sucursal"));
     } finally {
       setSaving(false);
     }
@@ -192,7 +215,7 @@ export default function BranchesPage() {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
                       <button
-                        onClick={() => alert(`Editar sucursal ${branch.id} - próximamente`)}
+                        onClick={() => openEditModal(branch)}
                         className="text-sm text-emerald-400 hover:text-emerald-300 font-medium"
                       >
                         Editar
@@ -217,7 +240,7 @@ export default function BranchesPage() {
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-gray-900 rounded-lg border border-gray-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-gray-900 border-b border-gray-800 px-6 py-4 flex items-center justify-between">
-              <h3 className="text-xl font-bold text-white">Nueva Sucursal</h3>
+              <h3 className="text-xl font-bold text-white">{editingBranch ? "Editar Sucursal" : "Nueva Sucursal"}</h3>
               <button
                 onClick={() => setShowModal(false)}
                 className="text-gray-400 hover:text-white"
@@ -238,9 +261,10 @@ export default function BranchesPage() {
                     type="text"
                     value={formData.slug}
                     onChange={(e) => setFormData({ ...formData, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "") })}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                    className={`w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500 ${editingBranch ? "opacity-50 cursor-not-allowed" : ""}`}
                     placeholder="sucursal-centro"
                     required
+                    disabled={!!editingBranch}
                   />
                   <p className="text-xs text-gray-500 mt-1">URL-friendly (solo minúsculas, números y guiones)</p>
                 </div>
@@ -332,7 +356,7 @@ export default function BranchesPage() {
                   disabled={saving}
                   className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
                 >
-                  {saving ? "Creando..." : "Crear Sucursal"}
+                  {saving ? "Guardando..." : editingBranch ? "Guardar Cambios" : "Crear Sucursal"}
                 </button>
                 <button
                   type="button"
