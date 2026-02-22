@@ -56,7 +56,10 @@ export default function CouponsPage() {
   });
 
   useEffect(() => {
-    if (!branchId) return;
+    if (!branchId) {
+      setLoading(false);
+      return;
+    }
     loadCoupons();
   }, [branchId]);
 

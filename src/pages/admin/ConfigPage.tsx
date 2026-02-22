@@ -53,7 +53,10 @@ export default function ConfigPage() {
   const [payment, setPayment] = useState<PaymentFormData>(DEFAULT_PAYMENT);
 
   useEffect(() => {
-    if (!branchId) return;
+    if (!branchId) {
+      setLoading(false);
+      return;
+    }
     loadBranch();
   }, [branchId]);
 

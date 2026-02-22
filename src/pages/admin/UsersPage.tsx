@@ -21,7 +21,10 @@ export default function UsersPage() {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    if (!branchId) return;
+    if (!branchId) {
+      setLoading(false);
+      return;
+    }
     loadUsers();
   }, [branchId]);
 

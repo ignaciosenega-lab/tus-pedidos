@@ -66,7 +66,10 @@ export default function OperationsPage() {
   const [filter, setFilter] = useState<FilterTab>("active");
 
   useEffect(() => {
-    if (!branchId) return;
+    if (!branchId) {
+      setLoading(false);
+      return;
+    }
     loadOrders();
   }, [branchId]);
 

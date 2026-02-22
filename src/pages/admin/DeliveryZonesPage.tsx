@@ -74,7 +74,10 @@ export default function DeliveryZonesPage() {
   });
 
   useEffect(() => {
-    if (!branchId) return;
+    if (!branchId) {
+      setLoading(false);
+      return;
+    }
     loadZones();
   }, [branchId]);
 

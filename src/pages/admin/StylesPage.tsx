@@ -50,7 +50,10 @@ export default function StylesPage() {
   const [newBanner, setNewBanner] = useState("");
 
   useEffect(() => {
-    if (!branchId) return;
+    if (!branchId) {
+      setLoading(false);
+      return;
+    }
     loadBranch();
   }, [branchId]);
 
@@ -95,8 +98,8 @@ export default function StylesPage() {
         body: JSON.stringify({
           logo,
           favicon,
-          banners: JSON.stringify(banners),
-          style_config: JSON.stringify(styleFields),
+          banners,
+          style_config: styleFields,
         }),
       });
       setSuccess(true);

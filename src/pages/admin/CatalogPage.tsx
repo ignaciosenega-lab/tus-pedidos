@@ -295,7 +295,10 @@ function BranchCatalog() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!branchId) return;
+    if (!branchId) {
+      setLoading(false);
+      return;
+    }
     loadData();
   }, [branchId]);
 

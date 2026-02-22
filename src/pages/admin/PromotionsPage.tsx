@@ -44,7 +44,10 @@ export default function PromotionsPage() {
   });
 
   useEffect(() => {
-    if (!branchId) return;
+    if (!branchId) {
+      setLoading(false);
+      return;
+    }
     loadPromos();
   }, [branchId]);
 

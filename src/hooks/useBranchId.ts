@@ -16,10 +16,15 @@ export function useBranchId() {
     user?.branch_id ?? null
   );
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (user?.role !== "master") {
-      setSelectedBranchId(user?.branch_id ?? null);
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    if (user.role !== "master") {
+      setSelectedBranchId(user.branch_id ?? null);
       setLoading(false);
       return;
     }
@@ -31,7 +36,9 @@ export function useBranchId() {
           setSelectedBranchId(data[0].id);
         }
       })
-      .catch(() => {})
+      .catch((err) => {
+        setError(err.message || "Error al cargar sucursales");
+      })
       .finally(() => setLoading(false));
   }, [user?.role, user?.branch_id]);
 
@@ -41,5 +48,6 @@ export function useBranchId() {
     branches,
     isMaster: user?.role === "master",
     loading,
+    error,
   };
 }
