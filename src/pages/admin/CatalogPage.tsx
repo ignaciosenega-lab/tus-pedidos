@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useAuth } from "../../store/authContext";
 import { useBranchId } from "../../hooks/useBranchId";
 import { formatPrice } from "../../utils/money";
+import { parseMenuCsv } from "../../utils/csvMenuParser";
 
 interface Category {
   id: number;
@@ -59,6 +60,8 @@ function MasterCatalog() {
   const [filterCat, setFilterCat] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<"all" | "alta" | "baja">("all");
   const [error, setError] = useState("");
+  const [importing, setImporting] = useState(false);
+  const csvInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadData();
@@ -115,6 +118,99 @@ function MasterCatalog() {
     }
   }
 
+  async function handleCsvImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImporting(true);
+    setError("");
+
+    try {
+      const text = await file.text();
+
+      // Convert DB categories (numeric id) to the format parseMenuCsv expects (string id)
+      const existingCats = categories.map((c) => ({
+        id: String(c.id),
+        name: c.name,
+      }));
+
+      const result = parseMenuCsv(text, existingCats);
+
+      if (result.rowCount === 0) {
+        setError("El archivo CSV no contiene productos válidos.");
+        return;
+      }
+
+      // 1) Create new categories and build a map: csvStringId → numeric DB id
+      const catIdMap = new Map<string, number>();
+
+      // Map existing categories by name (lowercase) to their numeric id
+      for (const c of categories) {
+        catIdMap.set(c.name.toLowerCase(), c.id);
+      }
+
+      for (const newCat of result.categories) {
+        const created = await apiFetch<{ id: number; name: string }>(
+          "/api/catalog/categories",
+          {
+            method: "POST",
+            body: JSON.stringify({ name: newCat.name }),
+          }
+        );
+        catIdMap.set(newCat.name.toLowerCase(), created.id);
+      }
+
+      // 2) Create products using numeric category IDs
+      let created = 0;
+      for (const prod of result.products) {
+        // Resolve the category name from the parsed product's categoryId
+        const catEntry = [...existingCats, ...result.categories].find(
+          (c) => c.id === prod.categoryId
+        );
+        const numericCatId = catEntry
+          ? catIdMap.get(catEntry.name.toLowerCase())
+          : undefined;
+
+        if (!numericCatId) continue;
+
+        await apiFetch("/api/catalog/products", {
+          method: "POST",
+          body: JSON.stringify({
+            name: prod.name,
+            description: prod.description,
+            category_id: numericCatId,
+            image_url: prod.imageUrl,
+            type: prod.type,
+            base_price: prod.basePrice ?? 0,
+            stock: prod.stock ?? null,
+            badges: prod.badges,
+            is_active: prod.status === "alta",
+            is_featured: prod.featured,
+            is_private: prod.private,
+            gallery: prod.gallery,
+            variants: (prod.variants ?? []).map((v, i) => ({
+              label: v.label,
+              price: v.price,
+              stock: v.stock ?? null,
+              sort_order: i,
+            })),
+          }),
+        });
+        created++;
+      }
+
+      // 3) Reload catalog data
+      await loadData();
+      alert(`Importación exitosa: ${created} productos importados.`);
+    } catch (err: any) {
+      setError("Error al importar CSV: " + err.message);
+    } finally {
+      setImporting(false);
+      // Reset file input so the same file can be re-selected
+      if (csvInputRef.current) csvInputRef.current.value = "";
+    }
+  }
+
   function catName(id: number) {
     return categories.find((c) => c.id === id)?.name ?? `Cat ${id}`;
   }
@@ -137,17 +233,25 @@ function MasterCatalog() {
 
   return (
     <div>
+      <input
+        ref={csvInputRef}
+        type="file"
+        accept=".csv"
+        className="hidden"
+        onChange={handleCsvImport}
+      />
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <h2 className="text-2xl font-bold text-white">Catálogo Global</h2>
         <div className="flex gap-2">
           <button
-            onClick={() => alert("Importar CSV próximamente")}
-            className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
+            onClick={() => csvInputRef.current?.click()}
+            disabled={importing}
+            className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
             </svg>
-            Importar CSV
+            {importing ? "Importando..." : "Importar CSV"}
           </button>
           <button
             onClick={() => alert("Crear producto próximamente")}
