@@ -31,6 +31,17 @@ export default function App() {
     [adminProducts]
   );
 
+  // Only show categories that have at least one visible product
+  const visibleCategories = useMemo(() => {
+    const productCategoryIds = new Set(products.map((p) => p.categoryId));
+    const hasSinTacc = products.some((p) => p.badges?.includes("sin_tacc"));
+    return adminCategories.filter((cat) => {
+      if (cat.id === "sin-tacc") return hasSinTacc;
+      if (cat.id === "all") return true;
+      return productCategoryIds.has(cat.id);
+    });
+  }, [adminCategories, products]);
+
   // UI state
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [search, setSearch] = useState("");
@@ -124,7 +135,7 @@ export default function App() {
         {/* Categories */}
         <section className="mt-4">
           <CategoryChips
-            categories={adminCategories}
+            categories={visibleCategories}
             selected={selectedCategory}
             onSelect={setSelectedCategory}
           />
