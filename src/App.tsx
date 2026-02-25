@@ -31,15 +31,16 @@ export default function App() {
     [adminProducts]
   );
 
-  // Only show categories that have at least one visible product
+  // Only show categories that have at least one visible product, prepend "Todo"
   const visibleCategories = useMemo(() => {
     const productCategoryIds = new Set(products.map((p) => p.categoryId));
     const hasSinTacc = products.some((p) => p.badges?.includes("sin_tacc"));
-    return adminCategories.filter((cat) => {
+    const filtered = adminCategories.filter((cat) => {
+      if (cat.id === "all") return false; // skip if it comes from DB, we add it manually
       if (cat.id === "sin-tacc") return hasSinTacc;
-      if (cat.id === "all") return true;
       return productCategoryIds.has(cat.id);
     });
+    return [{ id: "all", name: "Todo" }, ...filtered];
   }, [adminCategories, products]);
 
   // UI state
