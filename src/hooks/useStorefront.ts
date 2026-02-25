@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import type { AdminProduct, Category, BusinessConfig, StyleConfig } from "../types";
 
 interface StorefrontData {
+  branchId: number | null;
   products: AdminProduct[];
   categories: Category[];
   businessConfig: BusinessConfig;
@@ -49,6 +50,7 @@ export { defaultStyleConfig };
 
 export function useStorefront(): StorefrontData {
   const [data, setData] = useState<StorefrontData>({
+    branchId: null,
     products: [],
     categories: [],
     businessConfig: defaultConfig,
@@ -68,6 +70,7 @@ export function useStorefront(): StorefrontData {
           ? state.styleConfig
           : {};
         setData({
+          branchId: state.branchId || null,
           products: state.products || [],
           categories: state.categories || [],
           businessConfig: state.businessConfig || defaultConfig,

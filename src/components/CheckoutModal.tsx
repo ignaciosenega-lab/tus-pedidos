@@ -14,7 +14,7 @@ interface Props {
 export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
   const { items } = useCart();
   const dispatch = useCartDispatch();
-  const { businessConfig } = useStorefront();
+  const { businessConfig, branchId } = useStorefront();
 
   const [form, setForm] = useState<CheckoutData>({
     name: "",
@@ -84,6 +84,41 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
 
     const message = buildWhatsAppMessage(items, form, businessConfig.address);
     const url = buildWhatsAppUrl(businessConfig.whatsapp || businessConfig.phone, message);
+
+    // Calculate total
+    const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+    // Save order to database (fire-and-forget)
+    if (branchId) {
+      fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          branchId,
+          customerName: form.name,
+          customerPhone: form.phone,
+          deliveryType: form.deliveryType,
+          address: form.address,
+          lat: form.lat,
+          lng: form.lng,
+          floor: form.floor,
+          date: form.date,
+          time: form.time,
+          instructions: form.instructions,
+          paymentMethod: form.paymentMethod,
+          items: items.map((i) => ({
+            productName: i.productName,
+            variantLabel: i.variantLabel,
+            price: i.price,
+            quantity: i.quantity,
+          })),
+          subtotal,
+          deliveryCost: 0,
+          discount: 0,
+          total: subtotal,
+        }),
+      }).catch(() => {});
+    }
 
     window.open(url, "_blank");
     dispatch({ type: "CLEAR" });

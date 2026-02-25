@@ -8,6 +8,7 @@ interface AppUser {
   email: string;
   phone: string;
   address: string;
+  total_spent: number;
   created_at: string;
 }
 
@@ -122,6 +123,7 @@ export default function UsersPage() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Email</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Teléfono</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Dirección</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Total gastado</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Registrado</th>
               </tr>
             </thead>
@@ -132,6 +134,9 @@ export default function UsersPage() {
                   <td className="px-4 py-3 text-sm text-gray-300">{user.email || "-"}</td>
                   <td className="px-4 py-3 text-sm text-gray-300">{user.phone || "-"}</td>
                   <td className="px-4 py-3 text-sm text-gray-400 max-w-xs truncate">{user.address || "-"}</td>
+                  <td className="px-4 py-3 text-sm text-emerald-400 font-medium">
+                    ${user.total_spent ? user.total_spent.toLocaleString("es-AR") : "0"}
+                  </td>
                   <td className="px-4 py-3 text-sm text-gray-400">
                     {user.created_at ? new Date(user.created_at).toLocaleDateString("es-AR") : "-"}
                   </td>

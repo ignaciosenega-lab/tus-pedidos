@@ -110,7 +110,17 @@ export default function App() {
       <HeaderBar onOpenCart={() => setShowCart(true)} />
 
       {/* Main content */}
-      <main className="max-w-5xl mx-auto px-4 pt-20 pb-8">
+      <main className="max-w-7xl mx-auto px-4 pt-20 pb-8">
+        {/* Title */}
+        <section className="mt-6 mb-6">
+          <h1 className="text-3xl font-extrabold italic" style={{ color: "var(--title-text)" }}>
+            Nuestro Menú
+          </h1>
+          <p className="mt-1 opacity-70" style={{ color: "var(--general-text)" }}>
+            {businessConfig.description || "Explorá nuestro menú completo"}
+          </p>
+        </section>
+
         {/* Categories */}
         <section className="mt-4">
           <CategoryChips
@@ -131,7 +141,7 @@ export default function App() {
         </section>
 
         {/* Products grid */}
-        <section className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <section className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredProducts.length === 0 ? (
             <div className="col-span-full text-center py-12 opacity-50">
               No se encontraron productos

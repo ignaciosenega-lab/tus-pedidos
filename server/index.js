@@ -234,6 +234,7 @@ function readStateFromDb(branchSlug) {
   const styleConfig = safeParseJson(branch.style_config, {});
 
   return {
+    branchId: branch.id,
     products,
     categories,
     promotions,
@@ -550,6 +551,65 @@ app.post("/api/state", requireAuth, (req, res) => {
   } catch (e) {
     console.error("Error saving state to DB:", e.message);
     res.status(500).json({ error: "Error guardando datos" });
+  }
+});
+
+/* ══════════════════════════════════════════════════
+   Public order creation (POST /api/orders)
+   Called from the storefront when a customer sends via WhatsApp
+   ══════════════════════════════════════════════════ */
+app.post("/api/orders", (req, res) => {
+  try {
+    const {
+      branchId, customerName, customerPhone, customerEmail,
+      deliveryType, address, lat, lng, floor,
+      date, time, instructions, paymentMethod,
+      items, subtotal, deliveryCost, discount, total, couponCode,
+    } = req.body;
+
+    if (!branchId || !customerName || !customerPhone) {
+      return res.status(400).json({ error: "branchId, customerName y customerPhone son requeridos" });
+    }
+
+    // Upsert customer in app_users by phone
+    const cleanPhone = customerPhone.replace(/\D/g, "");
+    let customer = db.prepare("SELECT * FROM app_users WHERE phone = ?").get(cleanPhone);
+    if (!customer) {
+      db.prepare(
+        "INSERT INTO app_users (name, phone, email, address) VALUES (?, ?, ?, ?)"
+      ).run(customerName, cleanPhone, customerEmail || "", address || "");
+      customer = db.prepare("SELECT * FROM app_users WHERE phone = ?").get(cleanPhone);
+    } else {
+      // Update name/address if they changed
+      db.prepare("UPDATE app_users SET name = ?, address = ? WHERE id = ?")
+        .run(customerName, address || customer.address, customer.id);
+    }
+
+    // Insert order
+    const orderTotal = total || 0;
+    const result = db.prepare(`
+      INSERT INTO orders (
+        branch_id, customer_name, customer_phone,
+        delivery_type, address, lat, lng, floor,
+        date, time, instructions, payment_method,
+        items, subtotal, delivery_cost, discount, total, coupon_code
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      branchId, customerName, cleanPhone,
+      deliveryType || "delivery", address || "", lat || null, lng || null, floor || "",
+      date || "", time || "", instructions || "", paymentMethod || "Efectivo",
+      JSON.stringify(items || []), subtotal || 0, deliveryCost || 0, discount || 0, orderTotal, couponCode || null,
+    );
+
+    // Update total_spent and last_order_date on customer
+    db.prepare(
+      "UPDATE app_users SET total_spent = total_spent + ?, last_order_date = datetime('now') WHERE id = ?"
+    ).run(orderTotal, customer.id);
+
+    res.status(201).json({ ok: true, orderId: result.lastInsertRowid });
+  } catch (e) {
+    console.error("Error creating order:", e.message);
+    res.status(500).json({ error: "Error creando pedido" });
   }
 });
 

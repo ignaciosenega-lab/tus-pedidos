@@ -45,40 +45,45 @@ export default function ProductCard({ product, onOptions, onAdd }: Props) {
       </div>
 
       <div className="p-4 flex flex-col flex-1">
-        <h3 className="font-semibold text-base" style={{ color: "var(--title-text)" }}>
-          {product.name}
-        </h3>
-        <p className="text-sm mt-1 line-clamp-2 flex-1 opacity-70" style={{ color: "var(--general-text)" }}>
+        {/* Name + Price on same line */}
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="font-semibold text-base leading-tight" style={{ color: "var(--title-text)" }}>
+            {product.name}
+          </h3>
+          <span className="font-bold text-base shrink-0" style={{ color: "var(--btn-bg)" }}>
+            {formatPrice(displayPrice)}
+          </span>
+        </div>
+
+        {/* Description */}
+        <p className="text-sm mt-1.5 line-clamp-2 flex-1 opacity-70" style={{ color: "var(--general-text)" }}>
           {product.description}
         </p>
 
-        <div className="mt-3 flex items-center justify-between">
-          <span className="font-bold text-lg" style={{ color: "var(--btn-bg)" }}>
-            {formatPrice(displayPrice)}
-          </span>
-
+        {/* Full-width button */}
+        <div className="mt-3">
           {product.type === "options" ? (
             <button
               onClick={() => onOptions(product)}
-              className="hover:opacity-90 transition-opacity text-sm font-semibold px-4 py-2 rounded-lg"
-              style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
+              className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90"
+              style={{ backgroundColor: "color-mix(in srgb, var(--btn-bg) 15%, transparent)", color: "var(--btn-bg)" }}
             >
-              Opciones
+              + Opciones
             </button>
           ) : (
             <button
               onClick={() => onAdd(product)}
               disabled={isSimpleOutOfStock}
-              className={`text-sm font-semibold px-4 py-2 rounded-lg transition-opacity ${
+              className={`w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity ${
                 isSimpleOutOfStock ? "opacity-40 cursor-not-allowed" : "hover:opacity-90"
               }`}
               style={
                 isSimpleOutOfStock
-                  ? { backgroundColor: "gray", color: "var(--general-text)" }
-                  : { backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }
+                  ? { backgroundColor: "rgba(128,128,128,0.2)", color: "var(--general-text)" }
+                  : { backgroundColor: "color-mix(in srgb, var(--btn-bg) 15%, transparent)", color: "var(--btn-bg)" }
               }
             >
-              {isSimpleOutOfStock ? "Agotado" : "Agregar"}
+              {isSimpleOutOfStock ? "Agotado" : "+ Añadir"}
             </button>
           )}
         </div>
