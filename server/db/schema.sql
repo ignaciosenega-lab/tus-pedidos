@@ -185,6 +185,15 @@ CREATE TABLE IF NOT EXISTS promotion_products (
 );
 
 -- ================================================================
+-- PROMOTION_BRANCHES (cross-branch targeting)
+-- ================================================================
+CREATE TABLE IF NOT EXISTS promotion_branches (
+  promotion_id INTEGER NOT NULL REFERENCES promotions(id) ON DELETE CASCADE,
+  branch_id    INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  PRIMARY KEY (promotion_id, branch_id)
+);
+
+-- ================================================================
 -- COUPONS
 -- ================================================================
 CREATE TABLE IF NOT EXISTS coupons (
@@ -221,6 +230,15 @@ CREATE TABLE IF NOT EXISTS coupon_targets (
 );
 
 CREATE INDEX IF NOT EXISTS idx_coupon_targets_coupon ON coupon_targets(coupon_id);
+
+-- ================================================================
+-- COUPON_BRANCHES (cross-branch targeting)
+-- ================================================================
+CREATE TABLE IF NOT EXISTS coupon_branches (
+  coupon_id INTEGER NOT NULL REFERENCES coupons(id) ON DELETE CASCADE,
+  branch_id INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  PRIMARY KEY (coupon_id, branch_id)
+);
 
 -- ================================================================
 -- DELIVERY_ZONES

@@ -29,6 +29,16 @@ function getDb() {
       db.exec("ALTER TABLE branches ADD COLUMN menu_id INTEGER REFERENCES menus(id)");
     }
 
+    // Migrations: add apply_all_branches to promotions/coupons
+    const promoCols = db.prepare("PRAGMA table_info(promotions)").all().map((c) => c.name);
+    if (!promoCols.includes("apply_all_branches")) {
+      db.exec("ALTER TABLE promotions ADD COLUMN apply_all_branches INTEGER NOT NULL DEFAULT 0");
+    }
+    const couponCols = db.prepare("PRAGMA table_info(coupons)").all().map((c) => c.name);
+    if (!couponCols.includes("apply_all_branches")) {
+      db.exec("ALTER TABLE coupons ADD COLUMN apply_all_branches INTEGER NOT NULL DEFAULT 0");
+    }
+
     // Seed default menu if none exist
     const menuCount = db.prepare("SELECT COUNT(*) as count FROM menus").get();
     if (menuCount.count === 0) {

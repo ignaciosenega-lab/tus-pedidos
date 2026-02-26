@@ -503,7 +503,8 @@ router.get("/:id/promotions", requireAuth, requireBranchAccess("id"), (req, res)
   const promos = db.prepare("SELECT * FROM promotions WHERE branch_id = ? ORDER BY id DESC").all(branchId);
   res.json(promos.map((p) => {
     const products = db.prepare("SELECT product_id FROM promotion_products WHERE promotion_id = ?").all(p.id);
-    return { ...p, productIds: products.map((r) => r.product_id) };
+    const branchRows = db.prepare("SELECT branch_id FROM promotion_branches WHERE promotion_id = ?").all(p.id);
+    return { ...p, productIds: products.map((r) => r.product_id), branch_ids: branchRows.map((r) => r.branch_id) };
   }));
 });
 
@@ -511,16 +512,17 @@ router.get("/:id/promotions", requireAuth, requireBranchAccess("id"), (req, res)
 router.post("/:id/promotions", requireAuth, requireBranchAccess("id"), (req, res) => {
   const db = req.app.locals.db;
   const branchId = Number(req.params.id);
-  const { name, percentage, apply_to_all, date_from, date_to, weekly_repeat, productIds } = req.body;
+  const { name, percentage, apply_to_all, date_from, date_to, weekly_repeat, productIds, apply_all_branches, branch_ids } = req.body;
   if (!name) return res.status(400).json({ error: "Nombre es requerido" });
 
   const result = db.prepare(`
-    INSERT INTO promotions (branch_id, name, percentage, apply_to_all, date_from, date_to, weekly_repeat, is_active)
-    VALUES (@branch_id, @name, @percentage, @apply_to_all, @date_from, @date_to, @weekly_repeat, 1)
+    INSERT INTO promotions (branch_id, name, percentage, apply_to_all, date_from, date_to, weekly_repeat, apply_all_branches, is_active)
+    VALUES (@branch_id, @name, @percentage, @apply_to_all, @date_from, @date_to, @weekly_repeat, @apply_all_branches, 1)
   `).run({
     branch_id: branchId, name, percentage: percentage || 0,
     apply_to_all: apply_to_all ? 1 : 0, date_from: date_from || "",
     date_to: date_to || "", weekly_repeat: weekly_repeat ? 1 : 0,
+    apply_all_branches: apply_all_branches ? 1 : 0,
   });
   const promoId = Number(result.lastInsertRowid);
 
@@ -529,9 +531,16 @@ router.post("/:id/promotions", requireAuth, requireBranchAccess("id"), (req, res
     productIds.forEach((pid) => ins.run(promoId, pid));
   }
 
+  // Save branch targeting
+  if (branch_ids && branch_ids.length > 0) {
+    const insBranch = db.prepare("INSERT INTO promotion_branches (promotion_id, branch_id) VALUES (?, ?)");
+    branch_ids.forEach((bid) => insBranch.run(promoId, bid));
+  }
+
   const created = db.prepare("SELECT * FROM promotions WHERE id = ?").get(promoId);
   const prods = db.prepare("SELECT product_id FROM promotion_products WHERE promotion_id = ?").all(promoId);
-  res.status(201).json({ ...created, productIds: prods.map((r) => r.product_id) });
+  const branchRows = db.prepare("SELECT branch_id FROM promotion_branches WHERE promotion_id = ?").all(promoId);
+  res.status(201).json({ ...created, productIds: prods.map((r) => r.product_id), branch_ids: branchRows.map((r) => r.branch_id) });
 });
 
 // PUT /api/branches/:id/promotions/:promoId
@@ -543,10 +552,11 @@ router.put("/:id/promotions/:promoId", requireAuth, requireBranchAccess("id"), (
   const existing = db.prepare("SELECT * FROM promotions WHERE id = ? AND branch_id = ?").get(promoId, branchId);
   if (!existing) return res.status(404).json({ error: "Promoción no encontrada" });
 
-  const { name, percentage, apply_to_all, date_from, date_to, weekly_repeat, is_active, productIds } = req.body;
+  const { name, percentage, apply_to_all, date_from, date_to, weekly_repeat, is_active, productIds, apply_all_branches, branch_ids } = req.body;
   db.prepare(`
     UPDATE promotions SET name=@name, percentage=@percentage, apply_to_all=@apply_to_all,
-    date_from=@date_from, date_to=@date_to, weekly_repeat=@weekly_repeat, is_active=@is_active WHERE id=@id
+    date_from=@date_from, date_to=@date_to, weekly_repeat=@weekly_repeat, is_active=@is_active,
+    apply_all_branches=@apply_all_branches WHERE id=@id
   `).run({
     id: promoId,
     name: name !== undefined ? name : existing.name,
@@ -556,6 +566,7 @@ router.put("/:id/promotions/:promoId", requireAuth, requireBranchAccess("id"), (
     date_to: date_to !== undefined ? date_to : existing.date_to,
     weekly_repeat: weekly_repeat !== undefined ? (weekly_repeat ? 1 : 0) : existing.weekly_repeat,
     is_active: is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active,
+    apply_all_branches: apply_all_branches !== undefined ? (apply_all_branches ? 1 : 0) : (existing.apply_all_branches || 0),
   });
 
   if (productIds !== undefined) {
@@ -566,9 +577,18 @@ router.put("/:id/promotions/:promoId", requireAuth, requireBranchAccess("id"), (
     }
   }
 
+  if (branch_ids !== undefined) {
+    db.prepare("DELETE FROM promotion_branches WHERE promotion_id = ?").run(promoId);
+    if (branch_ids.length > 0) {
+      const insBranch = db.prepare("INSERT INTO promotion_branches (promotion_id, branch_id) VALUES (?, ?)");
+      branch_ids.forEach((bid) => insBranch.run(promoId, bid));
+    }
+  }
+
   const updated = db.prepare("SELECT * FROM promotions WHERE id = ?").get(promoId);
   const prods = db.prepare("SELECT product_id FROM promotion_products WHERE promotion_id = ?").all(promoId);
-  res.json({ ...updated, productIds: prods.map((r) => r.product_id) });
+  const branchRows = db.prepare("SELECT branch_id FROM promotion_branches WHERE promotion_id = ?").all(promoId);
+  res.json({ ...updated, productIds: prods.map((r) => r.product_id), branch_ids: branchRows.map((r) => r.branch_id) });
 });
 
 // DELETE /api/branches/:id/promotions/:promoId
@@ -578,6 +598,7 @@ router.delete("/:id/promotions/:promoId", requireAuth, requireBranchAccess("id")
   const promoId = Number(req.params.promoId);
 
   db.prepare("DELETE FROM promotion_products WHERE promotion_id = ?").run(promoId);
+  db.prepare("DELETE FROM promotion_branches WHERE promotion_id = ?").run(promoId);
   const result = db.prepare("DELETE FROM promotions WHERE id = ? AND branch_id = ?").run(promoId, branchId);
   if (result.changes === 0) return res.status(404).json({ error: "Promoción no encontrada" });
   res.json({ ok: true });
@@ -592,22 +613,26 @@ router.get("/:id/coupons", requireAuth, requireBranchAccess("id"), (req, res) =>
   const db = req.app.locals.db;
   const branchId = Number(req.params.id);
   const coupons = db.prepare("SELECT * FROM coupons WHERE branch_id = ? ORDER BY id DESC").all(branchId);
-  res.json(coupons.map((c) => ({
-    ...c,
-    active_days: safeParseJson(c.active_days, []),
-  })));
+  res.json(coupons.map((c) => {
+    const branchRows = db.prepare("SELECT branch_id FROM coupon_branches WHERE coupon_id = ?").all(c.id);
+    return {
+      ...c,
+      active_days: safeParseJson(c.active_days, []),
+      branch_ids: branchRows.map((r) => r.branch_id),
+    };
+  }));
 });
 
 // POST /api/branches/:id/coupons
 router.post("/:id/coupons", requireAuth, requireBranchAccess("id"), (req, res) => {
   const db = req.app.locals.db;
   const branchId = Number(req.params.id);
-  const { code, name, type, value, min_order, max_uses, apply_to, active_days, time_from, time_to, date_from, date_to } = req.body;
+  const { code, name, type, value, min_order, max_uses, apply_to, active_days, time_from, time_to, date_from, date_to, apply_all_branches, branch_ids } = req.body;
   if (!code) return res.status(400).json({ error: "Código es requerido" });
 
   const result = db.prepare(`
-    INSERT INTO coupons (branch_id, code, name, type, value, min_order, max_uses, used_count, apply_to, active_days, time_from, time_to, date_from, date_to, is_active)
-    VALUES (@branch_id, @code, @name, @type, @value, @min_order, @max_uses, 0, @apply_to, @active_days, @time_from, @time_to, @date_from, @date_to, 1)
+    INSERT INTO coupons (branch_id, code, name, type, value, min_order, max_uses, used_count, apply_to, active_days, time_from, time_to, date_from, date_to, apply_all_branches, is_active)
+    VALUES (@branch_id, @code, @name, @type, @value, @min_order, @max_uses, 0, @apply_to, @active_days, @time_from, @time_to, @date_from, @date_to, @apply_all_branches, 1)
   `).run({
     branch_id: branchId, code: code.toUpperCase(), name: name || "",
     type: type || "percentage", value: value || 0, min_order: min_order || 0,
@@ -615,10 +640,19 @@ router.post("/:id/coupons", requireAuth, requireBranchAccess("id"), (req, res) =
     active_days: JSON.stringify(active_days || []),
     time_from: time_from || "", time_to: time_to || "",
     date_from: date_from || "", date_to: date_to || "",
+    apply_all_branches: apply_all_branches ? 1 : 0,
   });
 
-  const created = db.prepare("SELECT * FROM coupons WHERE id = ?").get(result.lastInsertRowid);
-  res.status(201).json({ ...created, active_days: safeParseJson(created.active_days, []) });
+  const couponId = Number(result.lastInsertRowid);
+
+  if (branch_ids && branch_ids.length > 0) {
+    const insBranch = db.prepare("INSERT INTO coupon_branches (coupon_id, branch_id) VALUES (?, ?)");
+    branch_ids.forEach((bid) => insBranch.run(couponId, bid));
+  }
+
+  const created = db.prepare("SELECT * FROM coupons WHERE id = ?").get(couponId);
+  const branchRows = db.prepare("SELECT branch_id FROM coupon_branches WHERE coupon_id = ?").all(couponId);
+  res.status(201).json({ ...created, active_days: safeParseJson(created.active_days, []), branch_ids: branchRows.map((r) => r.branch_id) });
 });
 
 // PUT /api/branches/:id/coupons/:couponId
@@ -630,11 +664,12 @@ router.put("/:id/coupons/:couponId", requireAuth, requireBranchAccess("id"), (re
   const existing = db.prepare("SELECT * FROM coupons WHERE id = ? AND branch_id = ?").get(couponId, branchId);
   if (!existing) return res.status(404).json({ error: "Cupón no encontrado" });
 
-  const { code, name, type, value, min_order, max_uses, apply_to, active_days, time_from, time_to, date_from, date_to, is_active } = req.body;
+  const { code, name, type, value, min_order, max_uses, apply_to, active_days, time_from, time_to, date_from, date_to, is_active, apply_all_branches, branch_ids } = req.body;
   db.prepare(`
     UPDATE coupons SET code=@code, name=@name, type=@type, value=@value, min_order=@min_order,
     max_uses=@max_uses, apply_to=@apply_to, active_days=@active_days, time_from=@time_from,
-    time_to=@time_to, date_from=@date_from, date_to=@date_to, is_active=@is_active WHERE id=@id
+    time_to=@time_to, date_from=@date_from, date_to=@date_to, is_active=@is_active,
+    apply_all_branches=@apply_all_branches WHERE id=@id
   `).run({
     id: couponId,
     code: code !== undefined ? code.toUpperCase() : existing.code,
@@ -650,10 +685,20 @@ router.put("/:id/coupons/:couponId", requireAuth, requireBranchAccess("id"), (re
     date_from: date_from !== undefined ? date_from : existing.date_from,
     date_to: date_to !== undefined ? date_to : existing.date_to,
     is_active: is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active,
+    apply_all_branches: apply_all_branches !== undefined ? (apply_all_branches ? 1 : 0) : (existing.apply_all_branches || 0),
   });
 
+  if (branch_ids !== undefined) {
+    db.prepare("DELETE FROM coupon_branches WHERE coupon_id = ?").run(couponId);
+    if (branch_ids.length > 0) {
+      const insBranch = db.prepare("INSERT INTO coupon_branches (coupon_id, branch_id) VALUES (?, ?)");
+      branch_ids.forEach((bid) => insBranch.run(couponId, bid));
+    }
+  }
+
   const updated = db.prepare("SELECT * FROM coupons WHERE id = ?").get(couponId);
-  res.json({ ...updated, active_days: safeParseJson(updated.active_days, []) });
+  const branchRows = db.prepare("SELECT branch_id FROM coupon_branches WHERE coupon_id = ?").all(couponId);
+  res.json({ ...updated, active_days: safeParseJson(updated.active_days, []), branch_ids: branchRows.map((r) => r.branch_id) });
 });
 
 // DELETE /api/branches/:id/coupons/:couponId
@@ -663,6 +708,7 @@ router.delete("/:id/coupons/:couponId", requireAuth, requireBranchAccess("id"), 
   const couponId = Number(req.params.couponId);
 
   db.prepare("DELETE FROM coupon_targets WHERE coupon_id = ?").run(couponId);
+  db.prepare("DELETE FROM coupon_branches WHERE coupon_id = ?").run(couponId);
   const result = db.prepare("DELETE FROM coupons WHERE id = ? AND branch_id = ?").run(couponId, branchId);
   if (result.changes === 0) return res.status(404).json({ error: "Cupón no encontrado" });
   res.json({ ok: true });
@@ -909,8 +955,13 @@ function readBranchState(db, branchId) {
     })
     .filter(Boolean);
 
-  // Branch-specific data
-  const promoRows = db.prepare("SELECT * FROM promotions WHERE branch_id = ? ORDER BY id").all(branchId);
+  // Branch-specific data + cross-branch promotions
+  const promoRows = db.prepare(`
+    SELECT DISTINCT p.* FROM promotions p
+    LEFT JOIN promotion_branches pb ON p.id = pb.promotion_id
+    WHERE p.branch_id = ? OR p.apply_all_branches = 1 OR pb.branch_id = ?
+    ORDER BY p.id
+  `).all(branchId, branchId);
   const promotions = promoRows.map((pr) => {
     const ppRows = db.prepare("SELECT product_id FROM promotion_products WHERE promotion_id = ?").all(pr.id);
     return {
@@ -928,7 +979,13 @@ function readBranchState(db, branchId) {
   // Apply active promotions to product prices
   applyPromotionsToProducts(products, promoRows, db);
 
-  const couponRows = db.prepare("SELECT * FROM coupons WHERE branch_id = ? ORDER BY id").all(branchId);
+  // Branch-specific data + cross-branch coupons
+  const couponRows = db.prepare(`
+    SELECT DISTINCT c.* FROM coupons c
+    LEFT JOIN coupon_branches cb ON c.id = cb.coupon_id
+    WHERE c.branch_id = ? OR c.apply_all_branches = 1 OR cb.branch_id = ?
+    ORDER BY c.id
+  `).all(branchId, branchId);
   const coupons = couponRows.map((c) => {
     const targets = db.prepare("SELECT * FROM coupon_targets WHERE coupon_id = ?").all(c.id);
     const categoryIds = targets.filter((t) => t.target_type === "category").map((t) => String(t.target_id));

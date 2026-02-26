@@ -19,7 +19,11 @@ interface Coupon {
   date_from: string;
   date_to: string;
   is_active: number;
+  apply_all_branches: number;
+  branch_ids: number[];
 }
+
+type BranchScope = "this" | "all" | "selected";
 
 interface CouponFormData {
   code: string;
@@ -31,6 +35,8 @@ interface CouponFormData {
   apply_to: string;
   date_from: string;
   date_to: string;
+  branch_scope: BranchScope;
+  branch_ids: number[];
 }
 
 export default function CouponsPage() {
@@ -53,6 +59,8 @@ export default function CouponsPage() {
     apply_to: "all",
     date_from: "",
     date_to: "",
+    branch_scope: "this",
+    branch_ids: [],
   });
 
   useEffect(() => {
@@ -76,6 +84,12 @@ export default function CouponsPage() {
     }
   }
 
+  function getBranchScope(coupon: Coupon): BranchScope {
+    if (coupon.apply_all_branches) return "all";
+    if (coupon.branch_ids && coupon.branch_ids.length > 0) return "selected";
+    return "this";
+  }
+
   function openCreateModal() {
     setEditingCoupon(null);
     setFormData({
@@ -88,6 +102,8 @@ export default function CouponsPage() {
       apply_to: "all",
       date_from: "",
       date_to: "",
+      branch_scope: "this",
+      branch_ids: [],
     });
     setShowModal(true);
   }
@@ -104,6 +120,8 @@ export default function CouponsPage() {
       apply_to: coupon.apply_to || "all",
       date_from: coupon.date_from || "",
       date_to: coupon.date_to || "",
+      branch_scope: getBranchScope(coupon),
+      branch_ids: coupon.branch_ids || [],
     });
     setShowModal(true);
   }
@@ -115,17 +133,31 @@ export default function CouponsPage() {
       return;
     }
 
+    const payload: any = {
+      code: formData.code,
+      name: formData.name,
+      type: formData.type,
+      value: formData.value,
+      min_order: formData.min_order,
+      max_uses: formData.max_uses,
+      apply_to: formData.apply_to,
+      date_from: formData.date_from,
+      date_to: formData.date_to,
+      apply_all_branches: formData.branch_scope === "all",
+      branch_ids: formData.branch_scope === "selected" ? formData.branch_ids : [],
+    };
+
     try {
       setSaving(true);
       if (editingCoupon) {
         await apiFetch(`/api/branches/${branchId}/coupons/${editingCoupon.id}`, {
           method: "PUT",
-          body: JSON.stringify(formData),
+          body: JSON.stringify(payload),
         });
       } else {
         await apiFetch(`/api/branches/${branchId}/coupons`, {
           method: "POST",
-          body: JSON.stringify(formData),
+          body: JSON.stringify(payload),
         });
       }
       setShowModal(false);
@@ -157,6 +189,29 @@ export default function CouponsPage() {
     } catch (err: any) {
       alert(err.message || "Error al eliminar cupón");
     }
+  }
+
+  function getBranchScopeLabel(coupon: Coupon): string {
+    if (coupon.apply_all_branches) return "Todas las sucursales";
+    if (coupon.branch_ids && coupon.branch_ids.length > 0) {
+      const names = coupon.branch_ids
+        .map((bid) => branches.find((b) => b.id === bid)?.name)
+        .filter(Boolean);
+      return names.length > 0 ? names.join(", ") : `${coupon.branch_ids.length} sucursal(es)`;
+    }
+    return "Solo esta sucursal";
+  }
+
+  function toggleBranchSelection(bid: number) {
+    setFormData((prev) => {
+      const has = prev.branch_ids.includes(bid);
+      return {
+        ...prev,
+        branch_ids: has
+          ? prev.branch_ids.filter((id) => id !== bid)
+          : [...prev.branch_ids, bid],
+      };
+    });
   }
 
   if (branchLoading || loading) {
@@ -224,6 +279,9 @@ export default function CouponsPage() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Código</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Nombre</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Descuento</th>
+                {isMaster && (
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Sucursales</th>
+                )}
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Usos</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Vigencia</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Estado</th>
@@ -242,6 +300,11 @@ export default function CouponsPage() {
                   <td className="px-4 py-3 text-sm text-emerald-400 font-medium">
                     {coupon.type === "percentage" ? `${coupon.value}%` : `$${coupon.value.toLocaleString()}`}
                   </td>
+                  {isMaster && (
+                    <td className="px-4 py-3 text-sm text-gray-400 max-w-[200px] truncate">
+                      {getBranchScopeLabel(coupon)}
+                    </td>
+                  )}
                   <td className="px-4 py-3 text-sm text-gray-300">
                     {coupon.used_count}{coupon.max_uses > 0 ? ` / ${coupon.max_uses}` : " / ∞"}
                   </td>
@@ -282,8 +345,8 @@ export default function CouponsPage() {
       {/* Create/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-900 rounded-lg border border-gray-800 w-full max-w-lg">
-            <div className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
+          <div className="bg-gray-900 rounded-lg border border-gray-800 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="border-b border-gray-800 px-6 py-4 flex items-center justify-between sticky top-0 bg-gray-900 z-10">
               <h3 className="text-xl font-bold text-white">
                 {editingCoupon ? "Editar Cupón" : "Nuevo Cupón"}
               </h3>
@@ -356,7 +419,6 @@ export default function CouponsPage() {
                     onChange={(e) => setFormData({ ...formData, apply_to: e.target.value })}
                     className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
                     <option value="all">Todo el pedido</option>
-                    <option value="delivery">Solo envío</option>
                   </select>
                 </div>
               </div>
@@ -375,6 +437,50 @@ export default function CouponsPage() {
                     className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" />
                 </div>
               </div>
+
+              {/* Branch scope selector (master only) */}
+              {isMaster && branches.length > 1 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">Sucursales afectadas</label>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2">
+                      <input type="radio" name="coupon_branch_scope" value="this"
+                        checked={formData.branch_scope === "this"}
+                        onChange={() => setFormData({ ...formData, branch_scope: "this", branch_ids: [] })}
+                        className="w-4 h-4 text-emerald-600 bg-gray-800 border-gray-700 focus:ring-emerald-500" />
+                      <span className="text-sm text-gray-300">Solo {branches.find((b) => b.id === branchId)?.name || "esta sucursal"}</span>
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input type="radio" name="coupon_branch_scope" value="all"
+                        checked={formData.branch_scope === "all"}
+                        onChange={() => setFormData({ ...formData, branch_scope: "all", branch_ids: [] })}
+                        className="w-4 h-4 text-emerald-600 bg-gray-800 border-gray-700 focus:ring-emerald-500" />
+                      <span className="text-sm text-gray-300">Todas las sucursales</span>
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input type="radio" name="coupon_branch_scope" value="selected"
+                        checked={formData.branch_scope === "selected"}
+                        onChange={() => setFormData({ ...formData, branch_scope: "selected" })}
+                        className="w-4 h-4 text-emerald-600 bg-gray-800 border-gray-700 focus:ring-emerald-500" />
+                      <span className="text-sm text-gray-300">Sucursales específicas</span>
+                    </label>
+                  </div>
+
+                  {formData.branch_scope === "selected" && (
+                    <div className="mt-3 bg-gray-800 rounded-lg border border-gray-700 p-3 space-y-2 max-h-40 overflow-y-auto">
+                      {branches.map((b) => (
+                        <label key={b.id} className="flex items-center gap-2">
+                          <input type="checkbox"
+                            checked={formData.branch_ids.includes(b.id)}
+                            onChange={() => toggleBranchSelection(b.id)}
+                            className="w-4 h-4 bg-gray-700 border-gray-600 rounded text-emerald-600 focus:ring-emerald-500" />
+                          <span className="text-sm text-gray-300">{b.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="flex gap-3 pt-4">
                 <button type="submit" disabled={saving}

@@ -334,8 +334,13 @@ function readStateFromDb(branchSlug) {
     return product;
   }).filter(Boolean);
 
-  // ── Promotions ──
-  const promoRows = db.prepare("SELECT * FROM promotions WHERE branch_id = ? ORDER BY id").all(branch.id);
+  // ── Promotions (own + cross-branch) ──
+  const promoRows = db.prepare(`
+    SELECT DISTINCT p.* FROM promotions p
+    LEFT JOIN promotion_branches pb ON p.id = pb.promotion_id
+    WHERE p.branch_id = ? OR p.apply_all_branches = 1 OR pb.branch_id = ?
+    ORDER BY p.id
+  `).all(branch.id, branch.id);
   const promotions = promoRows.map((pr) => {
     const ppRows = db.prepare("SELECT product_id FROM promotion_products WHERE promotion_id = ?").all(pr.id);
     return {
@@ -353,8 +358,13 @@ function readStateFromDb(branchSlug) {
   // ── Apply active promotions to product prices ──
   applyPromotionsToProducts(products, promoRows, db);
 
-  // ── Coupons ──
-  const couponRows = db.prepare("SELECT * FROM coupons WHERE branch_id = ? ORDER BY id").all(branch.id);
+  // ── Coupons (own + cross-branch) ──
+  const couponRows = db.prepare(`
+    SELECT DISTINCT c.* FROM coupons c
+    LEFT JOIN coupon_branches cb ON c.id = cb.coupon_id
+    WHERE c.branch_id = ? OR c.apply_all_branches = 1 OR cb.branch_id = ?
+    ORDER BY c.id
+  `).all(branch.id, branch.id);
   const coupons = couponRows.map((c) => {
     const targets = db.prepare("SELECT * FROM coupon_targets WHERE coupon_id = ?").all(c.id);
     const categoryIds = targets.filter((t) => t.target_type === "category").map((t) => String(t.target_id));
