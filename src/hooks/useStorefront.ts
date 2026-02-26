@@ -3,6 +3,8 @@ import type { AdminProduct, Category, BusinessConfig, StyleConfig } from "../typ
 
 interface StorefrontData {
   branchId: number | null;
+  isMaster: boolean;
+  branchDomain: string;
   products: AdminProduct[];
   categories: Category[];
   businessConfig: BusinessConfig;
@@ -51,6 +53,8 @@ export { defaultStyleConfig };
 export function useStorefront(): StorefrontData {
   const [data, setData] = useState<StorefrontData>({
     branchId: null,
+    isMaster: false,
+    branchDomain: "",
     products: [],
     categories: [],
     businessConfig: defaultConfig,
@@ -66,11 +70,30 @@ export function useStorefront(): StorefrontData {
           setData((prev) => ({ ...prev, loading: false }));
           return;
         }
+
         const sc = typeof state.styleConfig === "object" && state.styleConfig
           ? state.styleConfig
           : {};
+
+        // Master domain: no branch loaded, just styling info
+        if (state.isMaster) {
+          setData({
+            branchId: null,
+            isMaster: true,
+            branchDomain: state.branchDomain || "",
+            products: [],
+            categories: [],
+            businessConfig: { ...defaultConfig, ...(state.businessConfig || {}) },
+            styleConfig: { ...defaultStyleConfig, ...sc },
+            loading: false,
+          });
+          return;
+        }
+
         setData({
           branchId: state.branchId || null,
+          isMaster: false,
+          branchDomain: "",
           products: state.products || [],
           categories: state.categories || [],
           businessConfig: state.businessConfig || defaultConfig,

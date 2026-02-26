@@ -13,6 +13,7 @@ import CheckoutModal from "./components/CheckoutModal";
 import OutOfStockModal from "./components/OutOfStockModal";
 import StoreClosedBanner from "./components/StoreClosedBanner";
 import ThemeStyles from "./components/ThemeStyles";
+import BranchSelectorPage from "./components/BranchSelectorPage";
 
 type SortOption = "default" | "price-asc" | "price-desc" | "name";
 
@@ -23,7 +24,12 @@ function getProductPrice(p: Product): number {
 
 export default function App() {
   const dispatch = useCartDispatch();
-  const { products: adminProducts, categories: adminCategories, businessConfig } = useStorefront();
+  const { products: adminProducts, categories: adminCategories, businessConfig, isMaster, loading } = useStorefront();
+
+  // Master domain: show branch selector instead of storefront
+  if (!loading && isMaster) {
+    return <BranchSelectorPage />;
+  }
 
   // Only show active (alta), non-private products
   const products: Product[] = useMemo(

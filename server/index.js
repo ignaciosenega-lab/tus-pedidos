@@ -619,12 +619,53 @@ app.use("/api/catalog", catalogRoutes);
 // Branches & Overrides
 app.use("/api/branches", branchesRoutes);
 
+// Public branch listing for branch selector (master domain)
+app.get("/api/branches/public", (req, res) => {
+  res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+  try {
+    const branches = db.prepare("SELECT * FROM branches WHERE is_active = 1 ORDER BY name").all();
+    const result = branches.map((b) => {
+      const openStatus = isCurrentlyOpen(b);
+      return {
+        id: b.id,
+        slug: b.slug,
+        name: b.name,
+        address: b.address,
+        addressUrl: b.address_url,
+        phone: b.phone,
+        whatsapp: b.whatsapp,
+        logo: b.logo,
+        isOpen: openStatus.open,
+        nextOpenTime: openStatus.nextOpen,
+        holidayReason: openStatus.holidayReason,
+      };
+    });
+    res.json({ branches: result, branchDomain: BRANCH_DOMAIN });
+  } catch (e) {
+    console.error("Error listing public branches:", e.message);
+    res.status(500).json({ error: "Error listando sucursales" });
+  }
+});
+
 // Get state (public — storefront needs to read products)
 // Uses subdomain detection: canning.pedidos.jirosushi.com.ar → branchSlug "canning"
 app.get("/api/state", (req, res) => {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate");
   res.set("Pragma", "no-cache");
   try {
+    // If on master domain (no branchSlug), return isMaster flag instead of first branch
+    if (!req.branchSlug) {
+      // Get first branch's style for theming the master page
+      const firstBranch = db.prepare("SELECT * FROM branches WHERE is_active = 1 ORDER BY id LIMIT 1").get();
+      const styleConfig = firstBranch ? safeParseJson(firstBranch.style_config, {}) : {};
+      const businessConfig = firstBranch ? {
+        title: firstBranch.name,
+        logo: firstBranch.logo,
+        favicon: firstBranch.favicon,
+      } : {};
+      return res.json({ isMaster: true, branchDomain: BRANCH_DOMAIN, styleConfig, businessConfig });
+    }
+
     const state = readStateFromDb(req.branchSlug);
     if (!state) {
       return res.json(null);
