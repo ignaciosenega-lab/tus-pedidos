@@ -95,7 +95,12 @@ export default function ProductOptionsModal({
                     <span className="font-medium" style={{ color: "var(--title-text)" }}>
                       {v.label}
                     </span>
-                    <span className="font-bold ml-3" style={{ color: "var(--btn-bg)" }}>
+                    {v.originalPrice != null && v.originalPrice !== v.price && (
+                      <span className="text-xs line-through opacity-50 ml-3" style={{ color: "var(--general-text)" }}>
+                        {formatPrice(v.originalPrice)}
+                      </span>
+                    )}
+                    <span className="font-bold ml-1.5" style={{ color: "var(--btn-bg)" }}>
                       {formatPrice(v.price)}
                     </span>
                   </div>

@@ -13,6 +13,13 @@ export default function ProductCard({ product, onOptions, onAdd }: Props) {
       ? product.basePrice!
       : product.variants?.[0]?.price ?? 0;
 
+  const originalDisplayPrice =
+    product.type === "simple"
+      ? product.originalPrice
+      : product.variants?.[0]?.originalPrice;
+
+  const hasDiscount = originalDisplayPrice != null && originalDisplayPrice !== displayPrice;
+
   const isSimpleOutOfStock =
     product.type === "simple" && product.stock !== undefined && product.stock <= 0;
 
@@ -50,9 +57,16 @@ export default function ProductCard({ product, onOptions, onAdd }: Props) {
           <h3 className="font-semibold text-base leading-tight" style={{ color: "var(--title-text)" }}>
             {product.name}
           </h3>
-          <span className="font-bold text-base shrink-0" style={{ color: "var(--btn-bg)" }}>
-            {formatPrice(displayPrice)}
-          </span>
+          <div className="shrink-0 text-right">
+            {hasDiscount && (
+              <span className="text-xs line-through opacity-50 mr-1.5" style={{ color: "var(--general-text)" }}>
+                {formatPrice(originalDisplayPrice)}
+              </span>
+            )}
+            <span className="font-bold text-base" style={{ color: "var(--btn-bg)" }}>
+              {formatPrice(displayPrice)}
+            </span>
+          </div>
         </div>
 
         {/* Description */}

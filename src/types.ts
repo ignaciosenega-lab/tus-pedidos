@@ -2,6 +2,7 @@ export interface Variant {
   id: string;
   label: string;
   price: number;
+  originalPrice?: number;
   stock: number;
 }
 
@@ -13,6 +14,8 @@ export interface Product {
   imageUrl: string;
   type: "options" | "simple";
   basePrice?: number;
+  originalPrice?: number;
+  activePromotion?: string;
   variants?: Variant[];
   badges?: ("sin_tacc" | "nuevo")[];
   stock?: number; // only for type "simple"

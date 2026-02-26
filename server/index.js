@@ -159,6 +159,73 @@ function applyMenuRule(basePrice, menu) {
 }
 
 /* ══════════════════════════════════════════════════
+   Promotion helpers
+   ══════════════════════════════════════════════════ */
+
+function isPromotionActiveToday(promo) {
+  if (!promo.is_active) return false;
+  const now = new Date();
+  const todayStr = now.toISOString().split("T")[0];
+
+  if (promo.weekly_repeat) {
+    // Weekly: day of week must match date_from's day of week
+    if (promo.date_from) {
+      const fromDate = new Date(promo.date_from + "T12:00:00");
+      if (fromDate.getDay() !== now.getDay()) return false;
+    }
+    if (promo.date_from && todayStr < promo.date_from) return false;
+    if (promo.date_to && todayStr > promo.date_to) return false;
+    return true;
+  } else {
+    // One-time: check date range
+    if (promo.date_from && todayStr < promo.date_from) return false;
+    if (promo.date_to && todayStr > promo.date_to) return false;
+    return true;
+  }
+}
+
+function applyPromotionsToProducts(products, promoRows, db) {
+  // Find active promotions
+  const activePromos = promoRows.filter(isPromotionActiveToday);
+  if (activePromos.length === 0) return;
+
+  // Build product ID sets for each promotion
+  const promoProductSets = {};
+  for (const promo of activePromos) {
+    if (!promo.apply_to_all) {
+      const ppRows = db.prepare("SELECT product_id FROM promotion_products WHERE promotion_id = ?").all(promo.id);
+      promoProductSets[promo.id] = new Set(ppRows.map((r) => String(r.product_id)));
+    }
+  }
+
+  for (const product of products) {
+    // Find best discount for this product
+    let bestDiscount = 0;
+    let bestPromoName = "";
+    for (const promo of activePromos) {
+      const applies = promo.apply_to_all || promoProductSets[promo.id]?.has(product.id);
+      if (applies && promo.percentage > bestDiscount) {
+        bestDiscount = promo.percentage;
+        bestPromoName = promo.name;
+      }
+    }
+    if (bestDiscount > 0) {
+      if (product.basePrice != null) {
+        product.originalPrice = product.basePrice;
+        product.basePrice = Math.round(product.basePrice * (1 - bestDiscount / 100));
+      }
+      if (product.variants) {
+        for (const v of product.variants) {
+          v.originalPrice = v.price;
+          v.price = Math.round(v.price * (1 - bestDiscount / 100));
+        }
+      }
+      product.activePromotion = bestPromoName;
+    }
+  }
+}
+
+/* ══════════════════════════════════════════════════
    DB → AdminState (GET /api/state)
    ══════════════════════════════════════════════════ */
 
@@ -280,6 +347,9 @@ function readStateFromDb(branchSlug) {
       weeklyRepeat: !!pr.weekly_repeat,
     };
   });
+
+  // ── Apply active promotions to product prices ──
+  applyPromotionsToProducts(products, promoRows, db);
 
   // ── Coupons ──
   const couponRows = db.prepare("SELECT * FROM coupons WHERE branch_id = ? ORDER BY id").all(branch.id);
