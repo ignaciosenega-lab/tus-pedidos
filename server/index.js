@@ -616,10 +616,8 @@ app.use("/api/users", usersRoutes);
 // Global Catalog (master only)
 app.use("/api/catalog", catalogRoutes);
 
-// Branches & Overrides
-app.use("/api/branches", branchesRoutes);
-
 // Public branch listing for branch selector (master domain)
+// Must be BEFORE the branches router so /:id doesn't capture "public"
 app.get("/api/branches/public", (req, res) => {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate");
   try {
@@ -646,6 +644,9 @@ app.get("/api/branches/public", (req, res) => {
     res.status(500).json({ error: "Error listando sucursales" });
   }
 });
+
+// Branches & Overrides
+app.use("/api/branches", branchesRoutes);
 
 // Get state (public — storefront needs to read products)
 // Uses subdomain detection: canning.pedidos.jirosushi.com.ar → branchSlug "canning"
