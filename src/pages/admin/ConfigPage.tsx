@@ -103,8 +103,8 @@ export default function ConfigPage() {
       setIsOpen(!!data.is_open);
       const pc = typeof data.payment_config === "object" && data.payment_config ? data.payment_config : {};
       setPayment({ ...DEFAULT_PAYMENT, ...pc });
-      const sc = typeof data.schedule === "object" && data.schedule ? data.schedule : {};
-      setSchedule({ ...DEFAULT_SCHEDULE, ...sc, hours: { ...DEFAULT_SCHEDULE.hours, ...(sc.hours || {}) }, holidays: sc.holidays || [] });
+      const sc: ScheduleData = typeof data.schedule === "object" && data.schedule ? data.schedule : DEFAULT_SCHEDULE;
+      setSchedule({ ...DEFAULT_SCHEDULE, hours: { ...DEFAULT_SCHEDULE.hours, ...(sc.hours || {}) }, holidays: sc.holidays || [] });
     } catch (err: any) {
       setError(err.message || "Error al cargar configuración");
     } finally {
