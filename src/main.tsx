@@ -18,6 +18,7 @@ import OperationsPage from "./pages/admin/OperationsPage";
 import StylesPage from "./pages/admin/StylesPage";
 import DeliveryZonesPage from "./pages/admin/DeliveryZonesPage";
 import MenusPage from "./pages/admin/MenusPage";
+import ResourcesPage from "./pages/admin/ResourcesPage";
 import "./styles/globals.css";
 
 function MasterOnly({ children }: { children: ReactNode }) {
@@ -61,6 +62,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="menus" element={<MasterOnly><MenusPage /></MasterOnly>} />
               <Route path="usuarios" element={<MasterOnly><AdminUsersPage /></MasterOnly>} />
               <Route path="auditoria" element={<MasterOnly><AuditPage /></MasterOnly>} />
+              <Route path="recursos" element={<MasterOnly><ResourcesPage /></MasterOnly>} />
               {/* Branch routes */}
               <Route path="promociones" element={<PromotionsPage />} />
               <Route path="cupones" element={<CouponsPage />} />

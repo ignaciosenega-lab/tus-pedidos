@@ -4,7 +4,9 @@ const path = require("path");
 const fs = require("fs");
 const multer = require("multer");
 const { getDb } = require("./db");
-const { requireAuth } = require("./middleware/auth");
+const os = require("os");
+const { execSync } = require("child_process");
+const { requireAuth, requireRole } = require("./middleware/auth");
 const authRoutes = require("./routes/auth");
 const usersRoutes = require("./routes/users");
 const catalogRoutes = require("./routes/catalog");
@@ -718,6 +720,77 @@ app.use("/api/catalog", catalogRoutes);
 
 // Menus (pricing templates)
 app.use("/api/menus", menusRoutes);
+
+// System resources (master only)
+let prevNetRx = null;
+let prevNetTx = null;
+let prevNetTime = null;
+
+app.get("/api/system/resources", requireAuth, requireRole("master"), (req, res) => {
+  try {
+    // CPU
+    const cpus = os.cpus();
+    const cpuCount = cpus.length;
+    const loadAvg = os.loadavg();
+    const cpuUsage = Math.min(100, Math.round((loadAvg[0] / cpuCount) * 100 * 10) / 10);
+
+    // Memory
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const usedMem = totalMem - freeMem;
+    const memPercent = Math.round((usedMem / totalMem) * 1000) / 10;
+
+    // Disk
+    let diskTotal = 0, diskUsed = 0, diskPercent = 0;
+    try {
+      const dfOut = execSync("df -B1 / 2>/dev/null | tail -1", { encoding: "utf-8" }).trim();
+      const parts = dfOut.split(/\s+/);
+      if (parts.length >= 4) {
+        diskTotal = parseInt(parts[1], 10) || 0;
+        diskUsed = parseInt(parts[2], 10) || 0;
+        diskPercent = diskTotal > 0 ? Math.round((diskUsed / diskTotal) * 1000) / 10 : 0;
+      }
+    } catch { /* ignore on non-linux */ }
+
+    // Network (bytes since last call)
+    let netRxSpeed = 0, netTxSpeed = 0;
+    try {
+      const netOut = execSync("cat /proc/net/dev 2>/dev/null", { encoding: "utf-8" });
+      let totalRx = 0, totalTx = 0;
+      for (const line of netOut.split("\n")) {
+        const match = line.match(/^\s*(\w+):\s+(\d+)(?:\s+\d+){7}\s+(\d+)/);
+        if (match && match[1] !== "lo") {
+          totalRx += parseInt(match[2], 10);
+          totalTx += parseInt(match[3], 10);
+        }
+      }
+      const now = Date.now();
+      if (prevNetRx !== null && prevNetTime !== null) {
+        const elapsed = (now - prevNetTime) / 1000;
+        if (elapsed > 0) {
+          netRxSpeed = Math.max(0, (totalRx - prevNetRx) / elapsed);
+          netTxSpeed = Math.max(0, (totalTx - prevNetTx) / elapsed);
+        }
+      }
+      prevNetRx = totalRx;
+      prevNetTx = totalTx;
+      prevNetTime = now;
+    } catch { /* ignore on non-linux */ }
+
+    // Uptime
+    const uptimeSecs = os.uptime();
+
+    res.json({
+      cpu: { percent: cpuUsage, cores: cpuCount, loadAvg: loadAvg.map((l) => Math.round(l * 100) / 100) },
+      memory: { percent: memPercent, used: usedMem, total: totalMem },
+      disk: { percent: diskPercent, used: diskUsed, total: diskTotal },
+      network: { rxBytesPerSec: Math.round(netRxSpeed), txBytesPerSec: Math.round(netTxSpeed) },
+      uptime: uptimeSecs,
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Error al obtener recursos" });
+  }
+});
 
 // Public branch listing for branch selector (master domain)
 // Must be BEFORE the branches router so /:id doesn't capture "public"

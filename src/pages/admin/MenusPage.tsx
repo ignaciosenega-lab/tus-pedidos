@@ -20,8 +20,6 @@ interface MenuFormData {
 const ROUNDING_LABELS: Record<string, string> = {
   none: "Sin redondeo",
   round_10: "Al $10 más cercano",
-  round_50: "Al $50 más cercano",
-  round_100: "Al $100 más cercano",
 };
 
 export default function MenusPage() {
@@ -267,8 +265,6 @@ export default function MenusPage() {
                 >
                   <option value="none">Sin redondeo</option>
                   <option value="round_10">Al $10 más cercano (ej: $84→$80, $86→$90)</option>
-                  <option value="round_50">Al $50 más cercano (ej: $120→$100, $130→$150)</option>
-                  <option value="round_100">Al $100 más cercano (ej: $840→$800, $860→$900)</option>
                 </select>
               </div>
 
