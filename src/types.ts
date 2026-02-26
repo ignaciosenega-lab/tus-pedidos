@@ -96,6 +96,21 @@ export interface AppUser {
   lastOrderDate: string | null;
 }
 
+export interface DaySchedule {
+  open: string;
+  close: string;
+}
+
+export interface Holiday {
+  date: string;
+  reason: string;
+}
+
+export interface Schedule {
+  hours?: Record<string, DaySchedule | null>;
+  holidays?: Holiday[];
+}
+
 export interface BusinessConfig {
   title: string;
   email: string;
@@ -105,6 +120,10 @@ export interface BusinessConfig {
   description: string;
   phone: string;
   isOpen: boolean;
+  closedReason?: string | null;
+  nextOpenTime?: string | null;
+  holidayReason?: string | null;
+  schedule?: Schedule;
   logo: string;
   favicon: string;
   banners: string[];

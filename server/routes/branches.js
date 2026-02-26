@@ -142,6 +142,7 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
     social_links,
     style_config,
     payment_config,
+    schedule,
   } = req.body;
 
   // Check slug uniqueness if changing
@@ -159,7 +160,7 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
       url = @url, is_open = @is_open, logo = @logo, favicon = @favicon,
       banners = @banners, slider_images = @slider_images, social_links = @social_links,
       style_config = @style_config, payment_config = @payment_config,
-      updated_at = datetime('now')
+      schedule = @schedule, updated_at = datetime('now')
     WHERE id = @id
   `).run({
     id,
@@ -180,6 +181,7 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
     social_links: social_links !== undefined ? JSON.stringify(social_links) : existing.social_links,
     style_config: style_config !== undefined ? JSON.stringify(style_config) : existing.style_config,
     payment_config: payment_config !== undefined ? JSON.stringify(payment_config) : existing.payment_config,
+    schedule: schedule !== undefined ? JSON.stringify(schedule) : existing.schedule,
   });
 
   const updated = db.prepare("SELECT * FROM branches WHERE id = ?").get(id);
@@ -190,6 +192,7 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
     social_links: safeParseJson(updated.social_links, []),
     style_config: safeParseJson(updated.style_config, {}),
     payment_config: safeParseJson(updated.payment_config, {}),
+    schedule: safeParseJson(updated.schedule, {}),
   });
 });
 

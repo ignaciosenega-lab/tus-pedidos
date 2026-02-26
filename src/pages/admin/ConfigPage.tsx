@@ -2,6 +2,21 @@ import { useState, useEffect } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useBranchId } from "../../hooks/useBranchId";
 
+interface DayHours {
+  open: string;
+  close: string;
+}
+
+interface Holiday {
+  date: string;
+  reason: string;
+}
+
+interface ScheduleData {
+  hours: Record<string, DayHours | null>;
+  holidays: Holiday[];
+}
+
 interface BranchData {
   id: number;
   name: string;
@@ -13,6 +28,7 @@ interface BranchData {
   description: string;
   is_open: number;
   payment_config: PaymentFormData;
+  schedule: ScheduleData;
 }
 
 interface PaymentFormData {
@@ -33,6 +49,17 @@ const DEFAULT_PAYMENT: PaymentFormData = {
   deliveryCost: 0,
 };
 
+const DAYS = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"] as const;
+const DAY_LABELS: Record<string, string> = {
+  lunes: "Lunes", martes: "Martes", miercoles: "Miércoles", jueves: "Jueves",
+  viernes: "Viernes", sabado: "Sábado", domingo: "Domingo",
+};
+
+const DEFAULT_SCHEDULE: ScheduleData = {
+  hours: Object.fromEntries(DAYS.map((d) => [d, null])),
+  holidays: [],
+};
+
 export default function ConfigPage() {
   const { apiFetch } = useApi();
   const { branchId, branches, setBranchId, isMaster, loading: branchLoading } = useBranchId();
@@ -51,6 +78,7 @@ export default function ConfigPage() {
   const [description, setDescription] = useState("");
   const [isOpen, setIsOpen] = useState(true);
   const [payment, setPayment] = useState<PaymentFormData>(DEFAULT_PAYMENT);
+  const [schedule, setSchedule] = useState<ScheduleData>(DEFAULT_SCHEDULE);
 
   useEffect(() => {
     if (!branchId) {
@@ -75,6 +103,8 @@ export default function ConfigPage() {
       setIsOpen(!!data.is_open);
       const pc = typeof data.payment_config === "object" && data.payment_config ? data.payment_config : {};
       setPayment({ ...DEFAULT_PAYMENT, ...pc });
+      const sc = typeof data.schedule === "object" && data.schedule ? data.schedule : {};
+      setSchedule({ ...DEFAULT_SCHEDULE, ...sc, hours: { ...DEFAULT_SCHEDULE.hours, ...(sc.hours || {}) }, holidays: sc.holidays || [] });
     } catch (err: any) {
       setError(err.message || "Error al cargar configuración");
     } finally {
@@ -99,6 +129,7 @@ export default function ConfigPage() {
           description,
           is_open: isOpen,
           payment_config: payment,
+          schedule,
         }),
       });
       setSuccess(true);
@@ -265,6 +296,133 @@ export default function ConfigPage() {
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
               min="0" step="50" />
           </div>
+        </div>
+      </div>
+
+      {/* Horarios */}
+      <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 space-y-4">
+        <h3 className="text-lg font-semibold text-white mb-2">Horarios de Atención</h3>
+        <p className="text-sm text-gray-400">Configurá los horarios de apertura y cierre para cada día. Si no activás un día, la sucursal estará cerrada ese día.</p>
+
+        <div className="space-y-3">
+          {DAYS.map((day) => {
+            const dayHours = schedule.hours[day];
+            const enabled = dayHours !== null;
+            return (
+              <div key={day} className="flex items-center gap-3">
+                <label className="flex items-center gap-2 w-32 shrink-0 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={(e) => {
+                      const newHours = { ...schedule.hours };
+                      newHours[day] = e.target.checked ? { open: "19:00", close: "23:00" } : null;
+                      setSchedule({ ...schedule, hours: newHours });
+                    }}
+                    className="w-4 h-4 bg-gray-800 border-gray-700 rounded text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <span className={`text-sm ${enabled ? "text-white font-medium" : "text-gray-500"}`}>
+                    {DAY_LABELS[day]}
+                  </span>
+                </label>
+                {enabled && dayHours && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="time"
+                      value={dayHours.open}
+                      onChange={(e) => {
+                        const newHours = { ...schedule.hours };
+                        newHours[day] = { ...dayHours, open: e.target.value };
+                        setSchedule({ ...schedule, hours: newHours });
+                      }}
+                      className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-emerald-500"
+                    />
+                    <span className="text-gray-500 text-sm">a</span>
+                    <input
+                      type="time"
+                      value={dayHours.close}
+                      onChange={(e) => {
+                        const newHours = { ...schedule.hours };
+                        newHours[day] = { ...dayHours, close: e.target.value };
+                        setSchedule({ ...schedule, hours: newHours });
+                      }}
+                      className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                )}
+                {!enabled && (
+                  <span className="text-sm text-gray-600 italic">Cerrado</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Fechas Especiales de Cierre */}
+      <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 space-y-4">
+        <h3 className="text-lg font-semibold text-white mb-2">Fechas Especiales de Cierre</h3>
+        <p className="text-sm text-gray-400">Agregá fechas en las que la sucursal estará cerrada (feriados, vacaciones, etc.)</p>
+
+        {schedule.holidays.length > 0 && (
+          <div className="space-y-2">
+            {schedule.holidays.map((holiday, idx) => (
+              <div key={idx} className="flex items-center gap-3 bg-gray-800 rounded-lg px-4 py-2.5">
+                <span className="text-sm text-white font-medium">
+                  {holiday.date ? new Date(holiday.date + "T12:00:00").toLocaleDateString("es-AR", { day: "numeric", month: "long", year: "numeric" }) : ""}
+                </span>
+                <span className="text-sm text-gray-400 flex-1">{holiday.reason}</span>
+                <button
+                  onClick={() => {
+                    const newHolidays = schedule.holidays.filter((_, i) => i !== idx);
+                    setSchedule({ ...schedule, holidays: newHolidays });
+                  }}
+                  className="text-red-400 hover:text-red-300 text-sm font-medium"
+                >
+                  Eliminar
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-end gap-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1">Fecha</label>
+            <input
+              type="date"
+              id="holiday-date"
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-300 mb-1">Motivo</label>
+            <input
+              type="text"
+              id="holiday-reason"
+              placeholder="Ej: Navidad, Vacaciones..."
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+          <button
+            onClick={() => {
+              const dateInput = document.getElementById("holiday-date") as HTMLInputElement;
+              const reasonInput = document.getElementById("holiday-reason") as HTMLInputElement;
+              if (!dateInput.value || !reasonInput.value) {
+                alert("Completá la fecha y el motivo");
+                return;
+              }
+              setSchedule({
+                ...schedule,
+                holidays: [...schedule.holidays, { date: dateInput.value, reason: reasonInput.value }],
+              });
+              dateInput.value = "";
+              reasonInput.value = "";
+            }}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors shrink-0"
+          >
+            + Agregar
+          </button>
         </div>
       </div>
 

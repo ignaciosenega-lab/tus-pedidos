@@ -48,6 +48,97 @@ app.use((req, _res, next) => {
 });
 
 /* ══════════════════════════════════════════════════
+   Schedule helpers
+   ══════════════════════════════════════════════════ */
+
+const DAY_NAMES = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
+
+function isCurrentlyOpen(branch) {
+  // Manual override: if admin toggled off, always closed
+  if (!branch.is_open) return { open: false, reason: "manual", nextOpen: null, holidayReason: null };
+
+  const schedule = safeParseJson(branch.schedule, {});
+  const hours = schedule.hours;
+  const holidays = schedule.holidays || [];
+
+  // If no schedule configured, use manual toggle only
+  if (!hours || Object.keys(hours).length === 0) {
+    return { open: !!branch.is_open, reason: "manual", nextOpen: null, holidayReason: null };
+  }
+
+  const tz = branch.timezone || "America/Argentina/Buenos_Aires";
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" });
+  const todayStr = formatter.format(now); // "YYYY-MM-DD"
+
+  // Check holidays
+  const holiday = holidays.find((h) => h.date === todayStr);
+  if (holiday) {
+    // Find next open day after today
+    const nextOpen = findNextOpenTime(hours, holidays, tz, now);
+    return { open: false, reason: "holiday", nextOpen, holidayReason: holiday.reason };
+  }
+
+  // Get current time in branch timezone
+  const timeFmt = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false });
+  const currentTime = timeFmt.format(now).replace(/^24:/, "00:");
+  const dayFmt = new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "long" });
+  const dayIndex = now.toLocaleDateString("en-US", { timeZone: tz, weekday: "narrow" });
+  // Use getDay() equivalent via timezone
+  const dayOfWeek = new Date(now.toLocaleString("en-US", { timeZone: tz })).getDay();
+  const dayName = DAY_NAMES[dayOfWeek];
+
+  const daySchedule = hours[dayName];
+  if (!daySchedule) {
+    // Closed today by schedule
+    const nextOpen = findNextOpenTime(hours, holidays, tz, now);
+    return { open: false, reason: "schedule", nextOpen, holidayReason: null };
+  }
+
+  // Check if current time is within open hours
+  const { open: openTime, close: closeTime } = daySchedule;
+  let isWithinHours = false;
+
+  if (closeTime > openTime) {
+    // Same day: e.g. 19:00 - 23:30
+    isWithinHours = currentTime >= openTime && currentTime < closeTime;
+  } else {
+    // Crosses midnight: e.g. 19:00 - 00:30
+    isWithinHours = currentTime >= openTime || currentTime < closeTime;
+  }
+
+  if (isWithinHours) {
+    return { open: true, reason: "schedule", nextOpen: null, holidayReason: null };
+  }
+
+  // Currently closed, find when it opens
+  let nextOpen = null;
+  if (currentTime < openTime) {
+    // Opens later today
+    nextOpen = openTime;
+  } else {
+    nextOpen = findNextOpenTime(hours, holidays, tz, now);
+  }
+
+  return { open: false, reason: "schedule", nextOpen, holidayReason: null };
+}
+
+function findNextOpenTime(hours, holidays, tz, now) {
+  const formatter = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" });
+  for (let i = 1; i <= 7; i++) {
+    const future = new Date(now.getTime() + i * 86400000);
+    const futureStr = formatter.format(future);
+    // Skip holidays
+    if (holidays.some((h) => h.date === futureStr)) continue;
+    const futureDow = new Date(future.toLocaleString("en-US", { timeZone: tz })).getDay();
+    const dayName = DAY_NAMES[futureDow];
+    const daySchedule = hours[dayName];
+    if (daySchedule) return daySchedule.open;
+  }
+  return null;
+}
+
+/* ══════════════════════════════════════════════════
    DB → AdminState (GET /api/state)
    ══════════════════════════════════════════════════ */
 
@@ -213,6 +304,8 @@ function readStateFromDb(branchSlug) {
   }));
 
   // ── Business Config (from branch) ──
+  const openStatus = isCurrentlyOpen(branch);
+  const schedule = safeParseJson(branch.schedule, {});
   const businessConfig = {
     title: branch.name,
     email: branch.email,
@@ -221,7 +314,11 @@ function readStateFromDb(branchSlug) {
     url: branch.url,
     description: branch.description,
     phone: branch.phone,
-    isOpen: !!branch.is_open,
+    isOpen: openStatus.open,
+    closedReason: openStatus.open ? null : openStatus.reason,
+    nextOpenTime: openStatus.nextOpen,
+    holidayReason: openStatus.holidayReason,
+    schedule,
     logo: branch.logo,
     favicon: branch.favicon,
     banners: safeParseJson(branch.banners, []),
