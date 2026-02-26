@@ -621,7 +621,7 @@ app.use("/api/catalog", catalogRoutes);
 app.get("/api/branches/public", (req, res) => {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate");
   try {
-    const branches = db.prepare("SELECT * FROM branches WHERE is_active = 1 ORDER BY name").all();
+    const branches = db.prepare("SELECT * FROM branches WHERE is_active = 1 AND slug != 'master' ORDER BY name").all();
     const result = branches.map((b) => {
       const openStatus = isCurrentlyOpen(b);
       return {
