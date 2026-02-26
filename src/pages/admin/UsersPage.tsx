@@ -10,6 +10,7 @@ interface AppUser {
   address: string;
   total_spent: number;
   created_at: string;
+  registered_at?: string;
 }
 
 export default function UsersPage() {
@@ -20,20 +21,26 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [viewAll, setViewAll] = useState(false);
 
   useEffect(() => {
-    if (!branchId) {
+    if (!branchId && !viewAll) {
       setLoading(false);
       return;
     }
     loadUsers();
-  }, [branchId]);
+  }, [branchId, viewAll]);
 
   async function loadUsers() {
     try {
       setLoading(true);
       setError(null);
-      const data = await apiFetch<AppUser[]>(`/api/branches/${branchId}/customers`);
+      const effectiveBranchId = branchId || branches[0]?.id;
+      if (!effectiveBranchId) return;
+      const url = viewAll && isMaster
+        ? `/api/branches/${effectiveBranchId}/customers?all=1`
+        : `/api/branches/${effectiveBranchId}/customers`;
+      const data = await apiFetch<AppUser[]>(url);
       setUsers(data);
     } catch (err: any) {
       setError(err.message || "Error al cargar clientes");
@@ -63,7 +70,7 @@ export default function UsersPage() {
     );
   }
 
-  if (!branchId) {
+  if (!branchId && !viewAll) {
     return (
       <div className="max-w-6xl">
         <div className="bg-yellow-900/20 border border-yellow-900/50 rounded-lg p-4 text-yellow-400">
@@ -86,13 +93,27 @@ export default function UsersPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-2xl font-bold text-white mb-1">Clientes</h2>
-          <p className="text-gray-400">Clientes registrados en la tienda ({users.length})</p>
+          <p className="text-gray-400">
+            {viewAll
+              ? `Todos los clientes (${users.length})`
+              : `Clientes de ${branches.find((b) => b.id === branchId)?.name || "esta sucursal"} (${users.length})`}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           {isMaster && branches.length > 0 && (
-            <select value={branchId}
-              onChange={(e) => setBranchId(Number(e.target.value))}
-              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm">
+            <select
+              value={viewAll ? "all" : String(branchId)}
+              onChange={(e) => {
+                if (e.target.value === "all") {
+                  setViewAll(true);
+                } else {
+                  setViewAll(false);
+                  setBranchId(Number(e.target.value));
+                }
+              }}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+            >
+              <option value="all">Todas las sucursales</option>
               {branches.map((b) => (
                 <option key={b.id} value={b.id}>{b.name}</option>
               ))}
@@ -138,7 +159,9 @@ export default function UsersPage() {
                     ${user.total_spent ? user.total_spent.toLocaleString("es-AR") : "0"}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-400">
-                    {user.created_at ? new Date(user.created_at).toLocaleDateString("es-AR") : "-"}
+                    {(user.registered_at || user.created_at)
+                      ? new Date(user.registered_at || user.created_at).toLocaleDateString("es-AR")
+                      : "-"}
                   </td>
                 </tr>
               ))}

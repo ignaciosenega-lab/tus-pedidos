@@ -702,11 +702,33 @@ router.patch("/:id/orders/:orderId/status", requireAuth, requireBranchAccess("id
    APP USERS (Customers)
    ══════════════════════════════════════════════════ */
 
-// GET /api/branches/:id/customers (global customers list, scoped via branch access)
+// GET /api/branches/:id/customers (customers who ordered from this branch)
 router.get("/:id/customers", requireAuth, requireBranchAccess("id"), (req, res) => {
   const db = req.app.locals.db;
-  const users = db.prepare("SELECT * FROM app_users ORDER BY id DESC").all();
-  res.json(users);
+  const branchId = Number(req.params.id);
+
+  // If ?all=1 and user is master, return all customers
+  if (req.query.all === "1" && req.user?.role === "master") {
+    const users = db.prepare("SELECT * FROM app_users ORDER BY id DESC").all();
+    return res.json(users);
+  }
+
+  // Return only customers who have placed orders in this branch
+  const users = db.prepare(`
+    SELECT u.*, SUM(o.total) as branch_spent, MAX(o.created_at) as last_branch_order
+    FROM app_users u
+    INNER JOIN orders o ON u.phone = o.customer_phone AND o.branch_id = ?
+    GROUP BY u.id
+    ORDER BY last_branch_order DESC
+  `).all(branchId);
+
+  // Override total_spent with branch-specific total
+  const result = users.map((u) => ({
+    ...u,
+    total_spent: u.branch_spent || 0,
+  }));
+
+  res.json(result);
 });
 
 /* ── Helper ──────────────────────────────────── */
