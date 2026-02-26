@@ -121,6 +121,8 @@ export default function App() {
       <ThemeStyles />
       <HeaderBar onOpenCart={() => setShowCart(true)} />
 
+      {!businessConfig.isOpen && <StoreClosedBanner />}
+
       {/* Main content */}
       <main className="max-w-7xl mx-auto px-4 pt-20 pb-8">
         {/* Title */}
@@ -202,7 +204,6 @@ export default function App() {
         <OutOfStockModal onClose={() => setShowOutOfStock(false)} />
       )}
 
-      {!businessConfig.isOpen && <StoreClosedBanner />}
     </div>
   );
 }
