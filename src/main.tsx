@@ -19,6 +19,7 @@ import StylesPage from "./pages/admin/StylesPage";
 import DeliveryZonesPage from "./pages/admin/DeliveryZonesPage";
 import MenusPage from "./pages/admin/MenusPage";
 import ResourcesPage from "./pages/admin/ResourcesPage";
+import MetricsPage from "./pages/admin/MetricsPage";
 import "./styles/globals.css";
 
 function MasterOnly({ children }: { children: ReactNode }) {
@@ -70,6 +71,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="operacion" element={<OperationsPage />} />
               <Route path="estilos" element={<MasterOnly><StylesPage /></MasterOnly>} />
               <Route path="zonas-envio" element={<DeliveryZonesPage />} />
+              <Route path="metricas" element={<MetricsPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

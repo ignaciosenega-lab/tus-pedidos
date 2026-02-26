@@ -107,6 +107,7 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
           instructions: form.instructions,
           paymentMethod: form.paymentMethod,
           items: items.map((i) => ({
+            productId: i.productId,
             productName: i.productName,
             variantLabel: i.variantLabel,
             price: i.price,

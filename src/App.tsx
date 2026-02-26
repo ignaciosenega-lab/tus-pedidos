@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import type { Product } from "./types";
 import { useCartDispatch } from "./store/cartContext";
 import { useStorefront } from "./hooks/useStorefront";
@@ -22,9 +22,35 @@ function getProductPrice(p: Product): number {
   return p.variants?.[0]?.price ?? 0;
 }
 
+function getSessionId(): string {
+  let sid = sessionStorage.getItem("_tp_sid");
+  if (!sid) {
+    sid = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    sessionStorage.setItem("_tp_sid", sid);
+  }
+  return sid;
+}
+
+function trackEvent(branchId: number, eventType: string, productId?: string) {
+  fetch("/api/analytics/event", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ branchId, eventType, productId, sessionId: getSessionId() }),
+  }).catch(() => {});
+}
+
 export default function App() {
   const dispatch = useCartDispatch();
-  const { products: adminProducts, categories: adminCategories, businessConfig, isMaster, loading } = useStorefront();
+  const { products: adminProducts, categories: adminCategories, businessConfig, isMaster, loading, branchId } = useStorefront();
+
+  // Track session once per page load
+  const sessionTracked = useRef(false);
+  useEffect(() => {
+    if (branchId && !sessionTracked.current) {
+      sessionTracked.current = true;
+      trackEvent(branchId, "session");
+    }
+  }, [branchId]);
 
   // Only show active (alta), non-private products
   const products: Product[] = useMemo(
@@ -98,6 +124,8 @@ export default function App() {
       return;
     }
 
+    if (branchId) trackEvent(branchId, "product_view", product.id);
+
     dispatch({
       type: "ADD_ITEM",
       payload: {
@@ -112,7 +140,13 @@ export default function App() {
     setShowCart(true);
   }
 
+  function handleOpenOptions(product: Product) {
+    if (branchId) trackEvent(branchId, "product_view", product.id);
+    setOptionsProduct(product);
+  }
+
   function handleOpenCheckout() {
+    if (branchId) trackEvent(branchId, "checkout_start");
     setShowCart(false);
     setShowCheckout(true);
   }
@@ -176,7 +210,7 @@ export default function App() {
               <ProductCard
                 key={product.id}
                 product={product}
-                onOptions={setOptionsProduct}
+                onOptions={handleOpenOptions}
                 onAdd={handleAddSimple}
               />
             ))

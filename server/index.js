@@ -938,6 +938,26 @@ app.post("/api/orders", (req, res) => {
   }
 });
 
+/* ══════════════════════════════════════════════════
+   Analytics event tracking (public, called from storefront)
+   ══════════════════════════════════════════════════ */
+app.post("/api/analytics/event", (req, res) => {
+  try {
+    const { branchId, eventType, productId, sessionId } = req.body;
+    const validTypes = ["session", "product_view", "checkout_start"];
+    if (!branchId || !validTypes.includes(eventType)) {
+      return res.status(400).json({ error: "Invalid event" });
+    }
+    db.prepare(
+      "INSERT INTO analytics_events (branch_id, event_type, product_id, session_id) VALUES (?, ?, ?, ?)"
+    ).run(branchId, eventType, productId || null, sessionId || "");
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("Error tracking event:", e.message);
+    res.status(500).json({ error: "Error" });
+  }
+});
+
 // Upload image (admin only)
 const storage = multer.diskStorage({
   destination: UPLOADS_DIR,

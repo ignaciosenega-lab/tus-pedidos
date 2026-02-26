@@ -715,6 +715,119 @@ router.delete("/:id/coupons/:couponId", requireAuth, requireBranchAccess("id"), 
 });
 
 /* ══════════════════════════════════════════════════
+   METRICS
+   ══════════════════════════════════════════════════ */
+
+// GET /api/branches/:id/metrics/funnel?from=&to=
+router.get("/:id/metrics/funnel", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+  const dateFrom = req.query.from || "";
+  const dateTo = req.query.to || "";
+
+  let dateFilter = "";
+  const params = [branchId];
+  if (dateFrom) {
+    dateFilter += " AND created_at >= ?";
+    params.push(dateFrom);
+  }
+  if (dateTo) {
+    dateFilter += " AND created_at < date(?, '+1 day')";
+    params.push(dateTo);
+  }
+
+  const sessions = db.prepare(
+    `SELECT COUNT(DISTINCT session_id) as count FROM analytics_events WHERE branch_id = ? AND event_type = 'session'${dateFilter}`
+  ).get(...params).count;
+
+  const productViews = db.prepare(
+    `SELECT COUNT(*) as count FROM analytics_events WHERE branch_id = ? AND event_type = 'product_view'${dateFilter}`
+  ).get(...params).count;
+
+  const checkoutStarts = db.prepare(
+    `SELECT COUNT(*) as count FROM analytics_events WHERE branch_id = ? AND event_type = 'checkout_start'${dateFilter}`
+  ).get(...params).count;
+
+  const orders = db.prepare(
+    `SELECT COUNT(*) as count FROM orders WHERE branch_id = ?${dateFilter}`
+  ).get(...params).count;
+
+  res.json({ sessions, productViews, checkoutStarts, orders });
+});
+
+// GET /api/branches/:id/metrics/products?from=&to=
+router.get("/:id/metrics/products", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+  const dateFrom = req.query.from || "";
+  const dateTo = req.query.to || "";
+
+  let dateFilter = "";
+  const params = [branchId];
+  if (dateFrom) {
+    dateFilter += " AND created_at >= ?";
+    params.push(dateFrom);
+  }
+  if (dateTo) {
+    dateFilter += " AND created_at < date(?, '+1 day')";
+    params.push(dateTo);
+  }
+
+  // Product views from analytics
+  const viewRows = db.prepare(
+    `SELECT product_id, COUNT(*) as views FROM analytics_events WHERE branch_id = ? AND event_type = 'product_view' AND product_id IS NOT NULL${dateFilter} GROUP BY product_id`
+  ).all(...params);
+  const viewMap = {};
+  viewRows.forEach((r) => { viewMap[String(r.product_id)] = r.views; });
+
+  // Product sales from orders
+  const orderRows = db.prepare(
+    `SELECT items FROM orders WHERE branch_id = ?${dateFilter}`
+  ).all(...params);
+
+  // Aggregate sales per product
+  const salesMap = {};
+  for (const row of orderRows) {
+    const items = safeParseJson(row.items, []);
+    for (const item of items) {
+      const key = item.productId || item.productName;
+      if (!salesMap[key]) {
+        salesMap[key] = { productId: item.productId || null, productName: item.productName, unitsSold: 0, purchases: 0, revenue: 0 };
+      }
+      salesMap[key].unitsSold += item.quantity || 0;
+      salesMap[key].purchases += 1;
+      salesMap[key].revenue += (item.price || 0) * (item.quantity || 0);
+    }
+  }
+
+  // Merge views + sales, and enrich with product names from DB
+  const allProducts = db.prepare("SELECT id, name FROM products").all();
+  const productNameMap = {};
+  allProducts.forEach((p) => { productNameMap[String(p.id)] = p.name; });
+
+  // Build result set from all products that have either views or sales
+  const allKeys = new Set([...Object.keys(viewMap), ...Object.keys(salesMap)]);
+  const result = [];
+  for (const key of allKeys) {
+    const sale = salesMap[key] || { productId: null, productName: key, unitsSold: 0, purchases: 0, revenue: 0 };
+    const views = viewMap[key] || 0;
+    const productName = productNameMap[key] || sale.productName || `Producto ${key}`;
+    result.push({
+      productId: key,
+      productName,
+      views,
+      unitsSold: sale.unitsSold,
+      purchases: sale.purchases,
+      revenue: Math.round(sale.revenue),
+    });
+  }
+
+  // Sort by revenue descending
+  result.sort((a, b) => b.revenue - a.revenue);
+  res.json(result);
+});
+
+/* ══════════════════════════════════════════════════
    ORDERS
    ══════════════════════════════════════════════════ */
 

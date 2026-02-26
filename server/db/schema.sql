@@ -340,3 +340,18 @@ CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_branch ON audit_logs(branch_id);
 CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_logs(entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_audit_date ON audit_logs(created_at);
+
+-- ================================================================
+-- ANALYTICS_EVENTS (storefront tracking)
+-- ================================================================
+CREATE TABLE IF NOT EXISTS analytics_events (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  branch_id  INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  event_type TEXT    NOT NULL,
+  product_id INTEGER,
+  session_id TEXT    NOT NULL DEFAULT '',
+  created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_ae_branch_type ON analytics_events(branch_id, event_type);
+CREATE INDEX IF NOT EXISTS idx_ae_branch_date ON analytics_events(branch_id, created_at);
