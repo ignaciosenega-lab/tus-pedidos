@@ -19,9 +19,9 @@ interface MenuFormData {
 
 const ROUNDING_LABELS: Record<string, string> = {
   none: "Sin redondeo",
-  round_10: "A $10",
-  round_50: "A $50",
-  round_100: "A $100",
+  round_10: "Al $10 más cercano",
+  round_50: "Al $50 más cercano",
+  round_100: "Al $100 más cercano",
 };
 
 export default function MenusPage() {
@@ -266,9 +266,9 @@ export default function MenusPage() {
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
                 >
                   <option value="none">Sin redondeo</option>
-                  <option value="round_10">Redondear a $10</option>
-                  <option value="round_50">Redondear a $50</option>
-                  <option value="round_100">Redondear a $100</option>
+                  <option value="round_10">Al $10 más cercano (ej: $84→$80, $86→$90)</option>
+                  <option value="round_50">Al $50 más cercano (ej: $120→$100, $130→$150)</option>
+                  <option value="round_100">Al $100 más cercano (ej: $840→$800, $860→$900)</option>
                 </select>
               </div>
 
