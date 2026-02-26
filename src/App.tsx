@@ -26,11 +26,6 @@ export default function App() {
   const dispatch = useCartDispatch();
   const { products: adminProducts, categories: adminCategories, businessConfig, isMaster, loading } = useStorefront();
 
-  // Master domain: show branch selector instead of storefront
-  if (!loading && isMaster) {
-    return <BranchSelectorPage />;
-  }
-
   // Only show active (alta), non-private products
   const products: Product[] = useMemo(
     () => adminProducts.filter((p) => p.status === "alta" && !p.private),
@@ -120,6 +115,11 @@ export default function App() {
   function handleOpenCheckout() {
     setShowCart(false);
     setShowCheckout(true);
+  }
+
+  // Master domain: show branch selector instead of storefront
+  if (!loading && isMaster) {
+    return <BranchSelectorPage />;
   }
 
   return (
