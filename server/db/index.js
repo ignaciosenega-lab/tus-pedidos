@@ -23,6 +23,18 @@ function getDb() {
     const schema = fs.readFileSync(SCHEMA_PATH, "utf-8");
     db.exec(schema);
 
+    // Migrations: add columns that can't be in CREATE IF NOT EXISTS
+    const branchCols = db.prepare("PRAGMA table_info(branches)").all().map((c) => c.name);
+    if (!branchCols.includes("menu_id")) {
+      db.exec("ALTER TABLE branches ADD COLUMN menu_id INTEGER REFERENCES menus(id)");
+    }
+
+    // Seed default menu if none exist
+    const menuCount = db.prepare("SELECT COUNT(*) as count FROM menus").get();
+    if (menuCount.count === 0) {
+      db.prepare("INSERT INTO menus (name, price_rule, price_value, rounding) VALUES ('Menú Genérico', 'none', 0, 'none')").run();
+    }
+
     // Seed master user if no users exist
     const userCount = db.prepare("SELECT COUNT(*) as count FROM users").get();
     if (userCount.count === 0) {

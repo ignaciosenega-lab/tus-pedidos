@@ -9,6 +9,7 @@ const authRoutes = require("./routes/auth");
 const usersRoutes = require("./routes/users");
 const catalogRoutes = require("./routes/catalog");
 const branchesRoutes = require("./routes/branches");
+const menusRoutes = require("./routes/menus");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -139,6 +140,25 @@ function findNextOpenTime(hours, holidays, tz, now) {
 }
 
 /* ══════════════════════════════════════════════════
+   Menu price rule helpers
+   ══════════════════════════════════════════════════ */
+
+function applyMenuRule(basePrice, menu) {
+  if (!menu || menu.price_rule === "none") return basePrice;
+  let price = basePrice;
+  if (menu.price_rule === "percentage") {
+    price = basePrice * (1 + menu.price_value / 100);
+  }
+  // Rounding
+  switch (menu.rounding) {
+    case "round_10":  price = Math.round(price / 10) * 10; break;
+    case "round_50":  price = Math.round(price / 50) * 50; break;
+    case "round_100": price = Math.round(price / 100) * 100; break;
+  }
+  return price;
+}
+
+/* ══════════════════════════════════════════════════
    DB → AdminState (GET /api/state)
    ══════════════════════════════════════════════════ */
 
@@ -150,6 +170,11 @@ function readStateFromDb(branchSlug) {
   if (!branch) return null;
 
   const branchId = branch.id;
+
+  // ── Load menu for this branch (if any) ──
+  const menu = branch.menu_id
+    ? db.prepare("SELECT * FROM menus WHERE id = ?").get(branch.menu_id)
+    : null;
 
   // ── Categories (with branch visibility filter) ──
   const catRows = db.prepare("SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order, id").all();
@@ -189,10 +214,13 @@ function readStateFromDb(branchSlug) {
         const vAvailable = vOverride?.is_available !== null && vOverride?.is_available !== undefined
           ? vOverride.is_available : 1;
         if (!vAvailable) return null;
+        const vPrice = vOverride?.price_override != null
+          ? vOverride.price_override
+          : applyMenuRule(v.price, menu);
         return {
           id: String(v.id),
           label: v.label,
-          price: vOverride?.price_override != null ? vOverride.price_override : v.price,
+          price: vPrice,
           stock: v.stock != null ? v.stock : 0,
         };
       })
@@ -207,7 +235,9 @@ function readStateFromDb(branchSlug) {
         price: t.price,
       }));
 
-    const basePrice = override?.price_override != null ? override.price_override : p.base_price;
+    const basePrice = override?.price_override != null
+      ? override.price_override
+      : applyMenuRule(p.base_price, menu);
 
     const product = {
       id: String(p.id),
@@ -615,6 +645,9 @@ app.use("/api/users", usersRoutes);
 
 // Global Catalog (master only)
 app.use("/api/catalog", catalogRoutes);
+
+// Menus (pricing templates)
+app.use("/api/menus", menusRoutes);
 
 // Public branch listing for branch selector (master domain)
 // Must be BEFORE the branches router so /:id doesn't capture "public"

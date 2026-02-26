@@ -143,6 +143,7 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
     style_config,
     payment_config,
     schedule,
+    menu_id,
   } = req.body;
 
   // Check slug uniqueness if changing
@@ -160,7 +161,7 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
       url = @url, is_open = @is_open, logo = @logo, favicon = @favicon,
       banners = @banners, slider_images = @slider_images, social_links = @social_links,
       style_config = @style_config, payment_config = @payment_config,
-      schedule = @schedule, updated_at = datetime('now')
+      schedule = @schedule, menu_id = @menu_id, updated_at = datetime('now')
     WHERE id = @id
   `).run({
     id,
@@ -182,6 +183,7 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
     style_config: style_config !== undefined ? JSON.stringify(style_config) : existing.style_config,
     payment_config: payment_config !== undefined ? JSON.stringify(payment_config) : existing.payment_config,
     schedule: schedule !== undefined ? JSON.stringify(schedule) : existing.schedule,
+    menu_id: menu_id !== undefined ? menu_id : existing.menu_id,
   });
 
   const updated = db.prepare("SELECT * FROM branches WHERE id = ?").get(id);
@@ -709,9 +711,28 @@ router.get("/:id/customers", requireAuth, requireBranchAccess("id"), (req, res) 
 
 /* ── Helper ──────────────────────────────────── */
 
+function applyMenuRule(basePrice, menu) {
+  if (!menu || menu.price_rule === "none") return basePrice;
+  let price = basePrice;
+  if (menu.price_rule === "percentage") {
+    price = basePrice * (1 + menu.price_value / 100);
+  }
+  switch (menu.rounding) {
+    case "round_10":  price = Math.round(price / 10) * 10; break;
+    case "round_50":  price = Math.round(price / 50) * 50; break;
+    case "round_100": price = Math.round(price / 100) * 100; break;
+  }
+  return price;
+}
+
 function readBranchState(db, branchId) {
   const branch = db.prepare("SELECT * FROM branches WHERE id = ?").get(branchId);
   if (!branch) return null;
+
+  // Load menu for this branch (if any)
+  const menu = branch.menu_id
+    ? db.prepare("SELECT * FROM menus WHERE id = ?").get(branch.menu_id)
+    : null;
 
   // Categories (global, with visibility filter)
   const catRows = db.prepare("SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order, id").all();
@@ -746,7 +767,9 @@ function readBranchState(db, branchId) {
     .map((p) => {
       const override = productOverrides[p.id];
       const isAvailable = override?.is_available !== null && override?.is_available !== undefined ? override.is_available : 1;
-      const basePrice = override?.price_override !== null && override?.price_override !== undefined ? override.price_override : p.base_price;
+      const basePrice = override?.price_override !== null && override?.price_override !== undefined
+        ? override.price_override
+        : applyMenuRule(p.base_price, menu);
 
       if (!isAvailable) return null; // Skip unavailable products
       if (!p.is_active) return null; // Skip globally inactive products
@@ -762,7 +785,9 @@ function readBranchState(db, branchId) {
           return {
             id: String(v.id),
             label: v.label,
-            price: vOverride?.price_override !== null && vOverride?.price_override !== undefined ? vOverride.price_override : v.price,
+            price: vOverride?.price_override !== null && vOverride?.price_override !== undefined
+              ? vOverride.price_override
+              : applyMenuRule(v.price, menu),
             stock: v.stock,
           };
         })

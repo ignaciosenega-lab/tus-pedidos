@@ -17,6 +17,7 @@ import ConfigPage from "./pages/admin/ConfigPage";
 import OperationsPage from "./pages/admin/OperationsPage";
 import StylesPage from "./pages/admin/StylesPage";
 import DeliveryZonesPage from "./pages/admin/DeliveryZonesPage";
+import MenusPage from "./pages/admin/MenusPage";
 import "./styles/globals.css";
 
 function MasterOnly({ children }: { children: ReactNode }) {
@@ -57,6 +58,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="clientes" element={<UsersPage />} />
               {/* Master-only routes */}
               <Route path="sucursales" element={<MasterOnly><BranchesPage /></MasterOnly>} />
+              <Route path="menus" element={<MasterOnly><MenusPage /></MasterOnly>} />
               <Route path="usuarios" element={<MasterOnly><AdminUsersPage /></MasterOnly>} />
               <Route path="auditoria" element={<MasterOnly><AuditPage /></MasterOnly>} />
               {/* Branch routes */}

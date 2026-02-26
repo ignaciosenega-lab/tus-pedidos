@@ -39,6 +39,18 @@ CREATE INDEX IF NOT EXISTS idx_branches_slug ON branches(slug);
 CREATE INDEX IF NOT EXISTS idx_branches_active ON branches(is_active);
 
 -- ================================================================
+-- MENUS (pricing templates)
+-- ================================================================
+CREATE TABLE IF NOT EXISTS menus (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT    NOT NULL,
+  price_rule  TEXT    NOT NULL DEFAULT 'none' CHECK (price_rule IN ('none', 'percentage')),
+  price_value REAL    NOT NULL DEFAULT 0,
+  rounding    TEXT    NOT NULL DEFAULT 'none' CHECK (rounding IN ('none', 'round_10', 'round_50', 'round_100')),
+  created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ================================================================
 -- CATEGORIES (global catalog)
 -- ================================================================
 CREATE TABLE IF NOT EXISTS categories (

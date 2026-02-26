@@ -11,6 +11,7 @@ interface Branch {
   email: string;
   is_open: number;
   is_active: number;
+  menu_id: number | null;
   created_at: string;
 }
 
@@ -22,11 +23,18 @@ interface BranchFormData {
   whatsapp: string;
   email: string;
   is_open: boolean;
+  menu_id: number | null;
+}
+
+interface Menu {
+  id: number;
+  name: string;
 }
 
 export default function BranchesPage() {
   const { apiFetch } = useApi();
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [menus, setMenus] = useState<Menu[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -40,10 +48,12 @@ export default function BranchesPage() {
     whatsapp: "",
     email: "",
     is_open: true,
+    menu_id: null,
   });
 
   useEffect(() => {
     loadBranches();
+    loadMenus();
   }, []);
 
   async function loadBranches() {
@@ -56,6 +66,15 @@ export default function BranchesPage() {
       setError(err.message || "Error al cargar sucursales");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadMenus() {
+    try {
+      const data = await apiFetch<Menu[]>("/api/menus");
+      setMenus(data);
+    } catch {
+      // ignore
     }
   }
 
@@ -91,6 +110,7 @@ export default function BranchesPage() {
       whatsapp: "",
       email: "",
       is_open: true,
+      menu_id: null,
     });
     setShowModal(true);
   }
@@ -105,6 +125,7 @@ export default function BranchesPage() {
       whatsapp: branch.whatsapp || "",
       email: branch.email || "",
       is_open: !!branch.is_open,
+      menu_id: branch.menu_id,
     });
     setShowModal(true);
   }
@@ -188,6 +209,7 @@ export default function BranchesPage() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Nombre</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Dirección</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Teléfono</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Menú</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Abierta</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Acciones</th>
               </tr>
@@ -200,6 +222,9 @@ export default function BranchesPage() {
                   <td className="px-4 py-3 text-sm text-white font-medium">{branch.name}</td>
                   <td className="px-4 py-3 text-sm text-gray-400">{branch.address || "-"}</td>
                   <td className="px-4 py-3 text-sm text-gray-400">{branch.phone || "-"}</td>
+                  <td className="px-4 py-3 text-sm text-gray-400">
+                    {menus.find((m) => m.id === branch.menu_id)?.name || "-"}
+                  </td>
                   <td className="px-4 py-3">
                     <button
                       onClick={() => toggleOpen(branch.id, branch.is_open)}
@@ -336,6 +361,21 @@ export default function BranchesPage() {
                   className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
                   placeholder="sucursal@ejemplo.com"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Menú</label>
+                <select
+                  value={formData.menu_id ?? ""}
+                  onChange={(e) => setFormData({ ...formData, menu_id: e.target.value ? Number(e.target.value) : null })}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="">Sin menú</option>
+                  {menus.map((m) => (
+                    <option key={m.id} value={m.id}>{m.name}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Define la lista de precios de esta sucursal</p>
               </div>
 
               <div>
