@@ -16,6 +16,8 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
   const dispatch = useCartDispatch();
   const { businessConfig, branchId } = useStorefront();
 
+  const dateOptions = getDateOptions();
+
   const [form, setForm] = useState<CheckoutData>({
     name: "",
     phone: "",
@@ -24,15 +26,13 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
     lat: null,
     lng: null,
     floor: "",
-    date: "",
+    date: dateOptions[0]?.value || "",
     time: "",
     instructions: "",
     paymentMethod: "Efectivo",
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
-
-  const dateOptions = getDateOptions();
   const timeSlots = getTimeSlots();
 
   function updateField<K extends keyof CheckoutData>(
@@ -270,7 +270,6 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
               className="w-full border border-white/10 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:border-transparent"
               style={{ ...inputStyle, "--tw-ring-color": "var(--btn-bg)" } as React.CSSProperties}
             >
-              <option value="">Lo antes posible</option>
               {dateOptions.map((d) => (
                 <option key={d.value} value={d.value}>
                   {d.label}
