@@ -749,7 +749,7 @@ router.get("/:id/metrics/funnel", requireAuth, requireBranchAccess("id"), (req, 
   ).get(...params).count;
 
   const orders = db.prepare(
-    `SELECT COUNT(*) as count FROM orders WHERE branch_id = ?${dateFilter}`
+    `SELECT COUNT(*) as count FROM analytics_events WHERE branch_id = ? AND event_type = 'order_placed'${dateFilter}`
   ).get(...params).count;
 
   res.json({ sessions, productViews, checkoutStarts, orders });

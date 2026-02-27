@@ -88,6 +88,16 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
     // Calculate total
     const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
+    // Track order_placed analytics event
+    if (branchId) {
+      const sid = sessionStorage.getItem("_tp_sid") || "";
+      fetch("/api/analytics/event", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ branchId, eventType: "order_placed", sessionId: sid }),
+      }).catch(() => {});
+    }
+
     // Save order to database (fire-and-forget)
     if (branchId) {
       fetch("/api/orders", {
