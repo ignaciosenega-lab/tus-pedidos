@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useBranchId } from "../../hooks/useBranchId";
 
-type Tab = "funnel" | "products";
+type Tab = "funnel" | "products" | "patterns";
 
 interface FunnelData {
   sessions: number;
@@ -18,6 +18,22 @@ interface ProductMetric {
   unitsSold: number;
   purchases: number;
   revenue: number;
+}
+
+interface DayData {
+  day: number;
+  label: string;
+  count: number;
+}
+
+interface HourData {
+  hour: number;
+  count: number;
+}
+
+interface PatternsData {
+  byDay: DayData[];
+  byHour: HourData[];
 }
 
 type SortKey = "productName" | "views" | "unitsSold" | "purchases" | "revenue";
@@ -37,6 +53,7 @@ export default function MetricsPage() {
   const [funnelData, setFunnelData] = useState<FunnelData | null>(null);
   const [productData, setProductData] = useState<ProductMetric[]>([]);
   const [loading, setLoading] = useState(false);
+  const [patternsData, setPatternsData] = useState<PatternsData | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("revenue");
   const [sortAsc, setSortAsc] = useState(false);
 
@@ -49,11 +66,16 @@ export default function MetricsPage() {
           `/api/branches/${branchId}/metrics/funnel?from=${dateFrom}&to=${dateTo}`
         );
         setFunnelData(data);
-      } else {
+      } else if (tab === "products") {
         const data = await apiFetch<ProductMetric[]>(
           `/api/branches/${branchId}/metrics/products?from=${dateFrom}&to=${dateTo}`
         );
         setProductData(data);
+      } else {
+        const data = await apiFetch<PatternsData>(
+          `/api/branches/${branchId}/metrics/patterns?from=${dateFrom}&to=${dateTo}`
+        );
+        setPatternsData(data);
       }
     } catch {
       // silently fail
@@ -129,6 +151,16 @@ export default function MetricsPage() {
           }`}
         >
           Performance productos
+        </button>
+        <button
+          onClick={() => { setTab("patterns"); setPatternsData(null); }}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            tab === "patterns"
+              ? "bg-emerald-600 text-white"
+              : "bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700"
+          }`}
+        >
+          Días y Horarios
         </button>
       </div>
 
@@ -230,6 +262,57 @@ export default function MetricsPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Patterns Tab */}
+      {tab === "patterns" && (
+        <>
+          {!patternsData ? (
+            <div className="bg-gray-900 border border-gray-800 rounded-lg p-8 text-center">
+              <p className="text-gray-500">Seleccioná un rango de fechas y hacé click en "Generar Métricas"</p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Orders by day of week */}
+              <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+                <p className="text-sm font-medium text-gray-400 mb-4">Pedidos por día de la semana</p>
+                <div className="space-y-3">
+                  {/* Show Monday first: reorder [1,2,3,4,5,6,0] */}
+                  {[1, 2, 3, 4, 5, 6, 0].map((i) => {
+                    const d = patternsData.byDay[i];
+                    const maxDay = Math.max(...patternsData.byDay.map((x) => x.count), 1);
+                    return (
+                      <FunnelBar key={d.day} label={d.label} value={d.count} max={maxDay} color="bg-emerald-500" />
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Orders by hour */}
+              <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
+                <p className="text-sm font-medium text-gray-400 mb-4">Pedidos por hora del día</p>
+                <div className="flex items-end gap-1 overflow-x-auto pb-2" style={{ height: 220 }}>
+                  {patternsData.byHour.map((h) => {
+                    const maxHour = Math.max(...patternsData.byHour.map((x) => x.count), 1);
+                    const pct = (h.count / maxHour) * 100;
+                    return (
+                      <div key={h.hour} className="flex flex-col items-center flex-1 min-w-[28px]">
+                        <span className="text-[10px] text-gray-400 mb-1">{h.count || ""}</span>
+                        <div className="w-full flex-1 flex items-end">
+                          <div
+                            className="w-full bg-emerald-500 rounded-t transition-all duration-500"
+                            style={{ height: `${Math.max(pct, h.count > 0 ? 4 : 0)}%` }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-gray-500 mt-1">{h.hour}h</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           )}
         </>

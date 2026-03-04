@@ -827,6 +827,45 @@ router.get("/:id/metrics/products", requireAuth, requireBranchAccess("id"), (req
   res.json(result);
 });
 
+// GET /api/branches/:id/metrics/patterns?from=&to=
+router.get("/:id/metrics/patterns", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+  const dateFrom = req.query.from || "";
+  const dateTo = req.query.to || "";
+
+  let dateFilter = "";
+  const params = [branchId];
+  if (dateFrom) {
+    dateFilter += " AND created_at >= ?";
+    params.push(dateFrom);
+  }
+  if (dateTo) {
+    dateFilter += " AND created_at < date(?, '+1 day')";
+    params.push(dateTo);
+  }
+
+  const dayNames = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
+  // Orders by day of week
+  const dayRows = db.prepare(
+    `SELECT CAST(strftime('%w', created_at) AS INTEGER) as dow, COUNT(*) as count FROM orders WHERE branch_id = ?${dateFilter} GROUP BY dow ORDER BY dow`
+  ).all(...params);
+  const dayMap = {};
+  dayRows.forEach((r) => { dayMap[r.dow] = r.count; });
+  const byDay = dayNames.map((label, i) => ({ day: i, label, count: dayMap[i] || 0 }));
+
+  // Orders by hour
+  const hourRows = db.prepare(
+    `SELECT CAST(strftime('%H', created_at) AS INTEGER) as hour, COUNT(*) as count FROM orders WHERE branch_id = ?${dateFilter} GROUP BY hour ORDER BY hour`
+  ).all(...params);
+  const hourMap = {};
+  hourRows.forEach((r) => { hourMap[r.hour] = r.count; });
+  const byHour = Array.from({ length: 24 }, (_, h) => ({ hour: h, count: hourMap[h] || 0 }));
+
+  res.json({ byDay, byHour });
+});
+
 /* ══════════════════════════════════════════════════
    ORDERS
    ══════════════════════════════════════════════════ */
