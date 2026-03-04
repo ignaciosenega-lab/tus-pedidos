@@ -32,6 +32,13 @@ export default function HeaderBar({ onOpenCart }: Props) {
               {businessConfig.title || "Tus Pedidos"}
             </h1>
           )}
+          <div className="hidden sm:flex items-center gap-3 ml-4 text-xs opacity-70" style={{ color: "var(--header-text)" }}>
+            <span className="flex items-center gap-1"><span className="font-bold">1.</span> Agregá productos</span>
+            <span style={{ opacity: 0.4 }}>›</span>
+            <span className="flex items-center gap-1"><span className="font-bold">2.</span> Finalizar pedido</span>
+            <span style={{ opacity: 0.4 }}>›</span>
+            <span className="flex items-center gap-1"><span className="font-bold">3.</span> Te redirige a WhatsApp</span>
+          </div>
         </div>
 
         <button
