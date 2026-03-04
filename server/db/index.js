@@ -45,6 +45,19 @@ function getDb() {
       db.exec("ALTER TABLE app_users ADD COLUMN neighborhood TEXT NOT NULL DEFAULT ''");
     }
 
+    // Backfill neighborhood from existing addresses
+    const emptyNeighborhood = db.prepare("SELECT id, address FROM app_users WHERE neighborhood = '' AND address != ''").all();
+    if (emptyNeighborhood.length > 0) {
+      const updateStmt = db.prepare("UPDATE app_users SET neighborhood = ? WHERE id = ?");
+      for (const row of emptyNeighborhood) {
+        const parts = row.address.split(",").map((s) => s.trim());
+        if (parts.length >= 2) {
+          const hood = parts[1].replace(/^[A-Z]\d{4}[A-Z]{0,3}\s*/i, "").trim();
+          if (hood) updateStmt.run(hood, row.id);
+        }
+      }
+    }
+
     // Seed default menu if none exist
     const menuCount = db.prepare("SELECT COUNT(*) as count FROM menus").get();
     if (menuCount.count === 0) {
