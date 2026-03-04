@@ -898,16 +898,19 @@ app.post("/api/orders", (req, res) => {
 
     // Upsert customer in app_users by phone
     const cleanPhone = customerPhone.replace(/\D/g, "");
+    // Extract neighborhood from address (second part of comma-separated Google address)
+    const addrParts = (address || "").split(",").map((s) => s.trim());
+    const neighborhood = addrParts.length >= 2 ? addrParts[1] : "";
     let customer = db.prepare("SELECT * FROM app_users WHERE phone = ?").get(cleanPhone);
     if (!customer) {
       db.prepare(
-        "INSERT INTO app_users (name, phone, email, address) VALUES (?, ?, ?, ?)"
-      ).run(customerName, cleanPhone, customerEmail || "", address || "");
+        "INSERT INTO app_users (name, phone, email, address, neighborhood) VALUES (?, ?, ?, ?, ?)"
+      ).run(customerName, cleanPhone, customerEmail || "", address || "", neighborhood);
       customer = db.prepare("SELECT * FROM app_users WHERE phone = ?").get(cleanPhone);
     } else {
-      // Update name/address if they changed
-      db.prepare("UPDATE app_users SET name = ?, address = ? WHERE id = ?")
-        .run(customerName, address || customer.address, customer.id);
+      // Update name/address/neighborhood if they changed
+      db.prepare("UPDATE app_users SET name = ?, address = ?, neighborhood = ? WHERE id = ?")
+        .run(customerName, address || customer.address, neighborhood || customer.neighborhood, customer.id);
     }
 
     // Insert order

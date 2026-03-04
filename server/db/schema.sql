@@ -313,6 +313,7 @@ CREATE TABLE IF NOT EXISTS app_users (
   email           TEXT    NOT NULL DEFAULT '',
   phone           TEXT    NOT NULL DEFAULT '',
   address         TEXT    NOT NULL DEFAULT '',
+  neighborhood    TEXT    NOT NULL DEFAULT '',
   status          TEXT    NOT NULL DEFAULT 'activo'
                   CHECK (status IN ('activo', 'inactivo', 'bloqueado')),
   total_spent     REAL    NOT NULL DEFAULT 0,

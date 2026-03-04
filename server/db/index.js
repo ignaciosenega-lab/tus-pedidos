@@ -39,6 +39,12 @@ function getDb() {
       db.exec("ALTER TABLE coupons ADD COLUMN apply_all_branches INTEGER NOT NULL DEFAULT 0");
     }
 
+    // Migration: add neighborhood to app_users
+    const appUserCols = db.prepare("PRAGMA table_info(app_users)").all().map((c) => c.name);
+    if (!appUserCols.includes("neighborhood")) {
+      db.exec("ALTER TABLE app_users ADD COLUMN neighborhood TEXT NOT NULL DEFAULT ''");
+    }
+
     // Seed default menu if none exist
     const menuCount = db.prepare("SELECT COUNT(*) as count FROM menus").get();
     if (menuCount.count === 0) {
