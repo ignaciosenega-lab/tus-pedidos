@@ -868,13 +868,19 @@ router.get("/:id/customers", requireAuth, requireBranchAccess("id"), (req, res) 
 
   // If ?all=1 and user is master, return all customers
   if (req.query.all === "1" && req.user?.role === "master") {
-    const users = db.prepare("SELECT * FROM app_users ORDER BY id DESC").all();
+    const users = db.prepare(`
+      SELECT u.*, COALESCE(s.order_count, 0) as order_count
+      FROM app_users u
+      LEFT JOIN (SELECT customer_phone, COUNT(*) as order_count FROM orders GROUP BY customer_phone) s
+        ON u.phone = s.customer_phone
+      ORDER BY u.id DESC
+    `).all();
     return res.json(users);
   }
 
   // Return only customers who have placed orders in this branch
   const users = db.prepare(`
-    SELECT u.*, SUM(o.total) as branch_spent, MAX(o.created_at) as last_branch_order
+    SELECT u.*, SUM(o.total) as branch_spent, COUNT(o.id) as order_count, MAX(o.created_at) as last_branch_order
     FROM app_users u
     INNER JOIN orders o ON u.phone = o.customer_phone AND o.branch_id = ?
     GROUP BY u.id
