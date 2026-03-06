@@ -109,12 +109,20 @@ export default function PromotionsPage() {
 
   async function loadCatalog() {
     try {
-      const [cats, prods] = await Promise.all([
-        apiFetch<CatalogCategory[]>("/api/catalog/categories"),
-        apiFetch<CatalogProduct[]>("/api/catalog/products"),
-      ]);
-      setCategories(cats);
-      setProducts(prods);
+      if (isMaster) {
+        const [cats, prods] = await Promise.all([
+          apiFetch<CatalogCategory[]>("/api/catalog/categories"),
+          apiFetch<CatalogProduct[]>("/api/catalog/products"),
+        ]);
+        setCategories(cats);
+        setProducts(prods);
+      } else if (branchId) {
+        const data = await apiFetch<{ products: CatalogProduct[]; categories: CatalogCategory[] }>(
+          `/api/branches/${branchId}/catalog`
+        );
+        setCategories(data.categories);
+        setProducts(data.products);
+      }
     } catch {
       // silently fail
     }

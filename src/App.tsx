@@ -12,6 +12,7 @@ import CartModal from "./components/CartModal";
 import CheckoutModal from "./components/CheckoutModal";
 import OutOfStockModal from "./components/OutOfStockModal";
 import StoreClosedBanner from "./components/StoreClosedBanner";
+import PromoBanner from "./components/PromoBanner";
 import ThemeStyles from "./components/ThemeStyles";
 import BranchSelectorPage from "./components/BranchSelectorPage";
 
@@ -41,7 +42,7 @@ function trackEvent(branchId: number, eventType: string, productId?: string) {
 
 export default function App() {
   const dispatch = useCartDispatch();
-  const { products: adminProducts, categories: adminCategories, businessConfig, isMaster, loading, branchId } = useStorefront();
+  const { products: adminProducts, categories: adminCategories, activePromotions, businessConfig, isMaster, loading, branchId } = useStorefront();
 
   // Track session once per page load
   const sessionTracked = useRef(false);
@@ -179,6 +180,13 @@ export default function App() {
             {businessConfig.description || "Explorá nuestro menú completo"}
           </p>
         </section>
+
+        {/* Promo banner */}
+        {activePromotions.length > 0 && (
+          <section className="mt-4">
+            <PromoBanner promotions={activePromotions} />
+          </section>
+        )}
 
         {/* Categories */}
         <section className="mt-4">

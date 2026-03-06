@@ -378,6 +378,16 @@ function readStateFromDb(branchSlug) {
     };
   });
 
+  // ── Active promotions (for storefront banner) ──
+  const activePromotions = promoRows
+    .filter(isPromotionActiveToday)
+    .map((pr) => ({
+      id: String(pr.id),
+      name: pr.name,
+      percentage: pr.percentage,
+      timeTo: pr.time_to || null,
+    }));
+
   // ── Apply active promotions to product prices ──
   applyPromotionsToProducts(products, promoRows, db);
 
@@ -471,6 +481,7 @@ function readStateFromDb(branchSlug) {
     products,
     categories,
     promotions,
+    activePromotions,
     coupons,
     deliveryZones,
     users,
