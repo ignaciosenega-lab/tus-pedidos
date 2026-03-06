@@ -3,9 +3,13 @@ import { useApi } from "../../hooks/useApi";
 import { useBranchId } from "../../hooks/useBranchId";
 
 interface OrderItem {
-  name: string;
-  qty: number;
+  productName: string;
+  variantLabel?: string;
+  quantity: number;
   price: number;
+  // legacy fields
+  name?: string;
+  qty?: number;
 }
 
 interface Order {
@@ -15,7 +19,8 @@ interface Order {
   customer_phone: string;
   customer_email: string;
   customer_address: string;
-  delivery_method: string;
+  delivery_type: string;
+  delivery_method?: string;
   payment_method: string;
   items: OrderItem[];
   subtotal: number;
@@ -229,12 +234,12 @@ export default function OperationsPage() {
                   <div>
                     <span className="text-gray-500">Entrega:</span>{" "}
                     <span className="text-gray-300">
-                      {order.delivery_method === "delivery" ? "Envío" : "Retiro"}
+                      {(order.delivery_type || order.delivery_method) === "delivery" ? "Envío" : "Retiro"}
                     </span>
                   </div>
                 </div>
 
-                {order.customer_address && order.delivery_method === "delivery" && (
+                {order.customer_address && (order.delivery_type || order.delivery_method) === "delivery" && (
                   <div className="text-sm mb-3">
                     <span className="text-gray-500">Dirección:</span>{" "}
                     <span className="text-gray-300">{order.customer_address}</span>
@@ -244,14 +249,19 @@ export default function OperationsPage() {
                 {/* Items */}
                 <div className="bg-gray-800/50 rounded-lg p-3 mb-3">
                   <div className="space-y-1">
-                    {(order.items || []).map((item, i) => (
-                      <div key={i} className="flex justify-between text-sm">
-                        <span className="text-gray-300">
-                          {item.qty}x {item.name}
-                        </span>
-                        <span className="text-gray-400">${(item.price * item.qty).toLocaleString()}</span>
-                      </div>
-                    ))}
+                    {(order.items || []).map((item, i) => {
+                      const name = item.productName || item.name || "Producto";
+                      const qty = item.quantity || item.qty || 1;
+                      const variant = item.variantLabel ? ` (${item.variantLabel})` : "";
+                      return (
+                        <div key={i} className="flex justify-between text-sm">
+                          <span className="text-gray-300">
+                            {qty}x {name}{variant}
+                          </span>
+                          <span className="text-gray-400">${(item.price * qty).toLocaleString()}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                   {order.delivery_cost > 0 && (
                     <div className="flex justify-between text-sm mt-2 pt-2 border-t border-gray-700">
