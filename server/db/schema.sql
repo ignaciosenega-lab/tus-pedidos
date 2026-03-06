@@ -365,3 +365,95 @@ CREATE TABLE IF NOT EXISTS analytics_events (
 
 CREATE INDEX IF NOT EXISTS idx_ae_branch_type ON analytics_events(branch_id, event_type);
 CREATE INDEX IF NOT EXISTS idx_ae_branch_date ON analytics_events(branch_id, created_at);
+
+-- ================================================================
+-- CAMPAIGN_NUMBERS (WhatsApp sender numbers via Twilio)
+-- ================================================================
+CREATE TABLE IF NOT EXISTS campaign_numbers (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  phone           TEXT    NOT NULL UNIQUE,
+  friendly_name   TEXT    NOT NULL DEFAULT '',
+  twilio_sid      TEXT    NOT NULL DEFAULT '',
+  daily_limit     INTEGER NOT NULL DEFAULT 200,
+  sent_today      INTEGER NOT NULL DEFAULT 0,
+  last_reset_date TEXT    NOT NULL DEFAULT '',
+  status          TEXT    NOT NULL DEFAULT 'active'
+                  CHECK (status IN ('active','paused','blocked')),
+  created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ================================================================
+-- CAMPAIGN_CONTACTS
+-- ================================================================
+CREATE TABLE IF NOT EXISTS campaign_contacts (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  phone        TEXT    NOT NULL UNIQUE,
+  name         TEXT    NOT NULL DEFAULT '',
+  custom_vars  TEXT    NOT NULL DEFAULT '{}',
+  source       TEXT    NOT NULL DEFAULT 'manual'
+               CHECK (source IN ('manual','import','customer')),
+  opted_out    INTEGER NOT NULL DEFAULT 0,
+  opted_out_at TEXT,
+  branch_id    INTEGER REFERENCES branches(id) ON DELETE SET NULL,
+  created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_cc_phone ON campaign_contacts(phone);
+
+-- ================================================================
+-- CAMPAIGNS
+-- ================================================================
+CREATE TABLE IF NOT EXISTS campaigns (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  branch_id         INTEGER REFERENCES branches(id) ON DELETE SET NULL,
+  name              TEXT    NOT NULL,
+  template_sid      TEXT    NOT NULL DEFAULT '',
+  message_body      TEXT    NOT NULL DEFAULT '',
+  greeting_variants TEXT    NOT NULL DEFAULT '[]',
+  status            TEXT    NOT NULL DEFAULT 'draft'
+                    CHECK (status IN ('draft','scheduled','running','paused','completed','cancelled')),
+  scheduled_at      TEXT,
+  started_at        TEXT,
+  completed_at      TEXT,
+  total_contacts    INTEGER NOT NULL DEFAULT 0,
+  sent_count        INTEGER NOT NULL DEFAULT 0,
+  delivered_count   INTEGER NOT NULL DEFAULT 0,
+  read_count        INTEGER NOT NULL DEFAULT 0,
+  failed_count      INTEGER NOT NULL DEFAULT 0,
+  replied_count     INTEGER NOT NULL DEFAULT 0,
+  created_by        INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  created_at        TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_campaigns_status ON campaigns(status);
+
+-- ================================================================
+-- CAMPAIGN_CONTACT_LISTS (junction)
+-- ================================================================
+CREATE TABLE IF NOT EXISTS campaign_contact_lists (
+  campaign_id INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  contact_id  INTEGER NOT NULL REFERENCES campaign_contacts(id) ON DELETE CASCADE,
+  PRIMARY KEY (campaign_id, contact_id)
+);
+
+-- ================================================================
+-- CAMPAIGN_MESSAGES (send log)
+-- ================================================================
+CREATE TABLE IF NOT EXISTS campaign_messages (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  campaign_id   INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+  contact_id    INTEGER NOT NULL REFERENCES campaign_contacts(id) ON DELETE CASCADE,
+  number_id     INTEGER REFERENCES campaign_numbers(id) ON DELETE SET NULL,
+  twilio_sid    TEXT,
+  status        TEXT    NOT NULL DEFAULT 'queued'
+                CHECK (status IN ('queued','sent','delivered','read','failed','undelivered')),
+  error_code    TEXT,
+  error_message TEXT,
+  sent_at       TEXT,
+  delivered_at  TEXT,
+  read_at       TEXT,
+  created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_cm_campaign ON campaign_messages(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_cm_status ON campaign_messages(campaign_id, status);

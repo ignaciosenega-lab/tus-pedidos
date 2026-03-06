@@ -12,6 +12,8 @@ const usersRoutes = require("./routes/users");
 const catalogRoutes = require("./routes/catalog");
 const branchesRoutes = require("./routes/branches");
 const menusRoutes = require("./routes/menus");
+const campaignsRoutes = require("./routes/campaigns");
+const { processCampaignQueue } = require("./services/campaignWorker");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -856,6 +858,9 @@ app.get("/api/branches/public", (req, res) => {
 // Branches & Overrides
 app.use("/api/branches", branchesRoutes);
 
+// Campaigns
+app.use("/api/campaigns", campaignsRoutes);
+
 // Get state (public — storefront needs to read products)
 // Uses subdomain detection: canning.pedidos.jirosushi.com.ar → branchSlug "canning"
 app.get("/api/state", (req, res) => {
@@ -1041,6 +1046,73 @@ if (fs.existsSync(publicDir)) {
     res.sendFile(path.join(publicDir, "index.html"));
   });
 }
+
+/* ══════════════════════════════════════════════════
+   Twilio Webhooks (public, no auth)
+   ══════════════════════════════════════════════════ */
+
+// Message status updates (sent/delivered/read/failed)
+app.post("/api/webhooks/twilio/status", (req, res) => {
+  const { MessageSid, MessageStatus } = req.body;
+  if (!MessageSid || !MessageStatus) return res.sendStatus(200);
+
+  const msg = db.prepare("SELECT * FROM campaign_messages WHERE twilio_sid = ?").get(MessageSid);
+  if (!msg) return res.sendStatus(200);
+
+  const statusMap = { sent: "sent", delivered: "delivered", read: "read", failed: "failed", undelivered: "undelivered" };
+  const newStatus = statusMap[MessageStatus];
+  if (!newStatus) return res.sendStatus(200);
+
+  db.prepare("UPDATE campaign_messages SET status = ? WHERE id = ?").run(newStatus, msg.id);
+
+  if (newStatus === "delivered") {
+    db.prepare("UPDATE campaign_messages SET delivered_at = datetime('now') WHERE id = ?").run(msg.id);
+    db.prepare("UPDATE campaigns SET delivered_count = delivered_count + 1 WHERE id = ?").run(msg.campaign_id);
+  } else if (newStatus === "read") {
+    db.prepare("UPDATE campaign_messages SET read_at = datetime('now') WHERE id = ?").run(msg.id);
+    db.prepare("UPDATE campaigns SET read_count = read_count + 1 WHERE id = ?").run(msg.campaign_id);
+  } else if (newStatus === "failed" || newStatus === "undelivered") {
+    db.prepare("UPDATE campaigns SET failed_count = failed_count + 1 WHERE id = ?").run(msg.campaign_id);
+  }
+
+  res.sendStatus(200);
+});
+
+// Incoming messages (opt-out handling)
+app.post("/api/webhooks/twilio/incoming", (req, res) => {
+  const { From, Body } = req.body;
+  if (!From || !Body) return res.sendStatus(200);
+
+  const phone = From.replace("whatsapp:", "").replace(/\D/g, "");
+  const bodyLower = Body.trim().toLowerCase();
+
+  // Check for opt-out keywords
+  if (["stop", "parar", "no", "baja", "cancelar"].includes(bodyLower)) {
+    db.prepare("UPDATE campaign_contacts SET opted_out = 1, opted_out_at = datetime('now') WHERE phone = ?").run(phone);
+  }
+
+  // Increment replied_count on latest campaign for this contact
+  const contact = db.prepare("SELECT id FROM campaign_contacts WHERE phone = ?").get(phone);
+  if (contact) {
+    const latestMsg = db.prepare(
+      "SELECT campaign_id FROM campaign_messages WHERE contact_id = ? ORDER BY id DESC LIMIT 1"
+    ).get(contact.id);
+    if (latestMsg) {
+      db.prepare("UPDATE campaigns SET replied_count = replied_count + 1 WHERE id = ?").run(latestMsg.campaign_id);
+    }
+  }
+
+  res.sendStatus(200);
+});
+
+/* ── Campaign Worker ─────────────────────────── */
+setInterval(() => {
+  try {
+    processCampaignQueue(db);
+  } catch (err) {
+    console.error("Campaign worker error:", err.message);
+  }
+}, 5000);
 
 /* ── Start ────────────────────────────────────── */
 app.listen(PORT, () => {

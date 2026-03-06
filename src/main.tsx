@@ -20,6 +20,9 @@ import DeliveryZonesPage from "./pages/admin/DeliveryZonesPage";
 import MenusPage from "./pages/admin/MenusPage";
 import ResourcesPage from "./pages/admin/ResourcesPage";
 import MetricsPage from "./pages/admin/MetricsPage";
+import CampaignsPage from "./pages/admin/CampaignsPage";
+import CampaignContactsPage from "./pages/admin/CampaignContactsPage";
+import CampaignNumbersPage from "./pages/admin/CampaignNumbersPage";
 import "./styles/globals.css";
 
 function MasterOnly({ children }: { children: ReactNode }) {
@@ -72,6 +75,10 @@ createRoot(document.getElementById("root")!).render(
               <Route path="estilos" element={<MasterOnly><StylesPage /></MasterOnly>} />
               <Route path="zonas-envio" element={<DeliveryZonesPage />} />
               <Route path="metricas" element={<MetricsPage />} />
+              {/* Campaigns */}
+              <Route path="campanas" element={<CampaignsPage />} />
+              <Route path="contactos-campana" element={<CampaignContactsPage />} />
+              <Route path="numeros-campana" element={<MasterOnly><CampaignNumbersPage /></MasterOnly>} />
             </Route>
           </Routes>
         </BrowserRouter>
