@@ -31,6 +31,7 @@ COPY server/index.js ./
 COPY server/db ./db
 COPY server/middleware ./middleware
 COPY server/routes ./routes
+COPY server/services ./services
 
 # Copy built frontend
 COPY --from=frontend /app/dist ./public
