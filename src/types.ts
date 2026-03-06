@@ -85,14 +85,6 @@ export interface Promotion {
   weeklyRepeat: boolean;
 }
 
-export interface ActivePromotion {
-  id: string;
-  name: string;
-  percentage: number;
-  applyScope: "all" | "products" | "categories";
-  categoryIds: string[];
-}
-
 export type UserStatus = "activo" | "inactivo" | "bloqueado";
 
 export interface AppUser {
