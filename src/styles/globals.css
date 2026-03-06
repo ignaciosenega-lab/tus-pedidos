@@ -2,11 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Hide scrollbar for category chips */
-.scrollbar-hide::-webkit-scrollbar {
+/* Hide scrollbar for category chips / tabs */
+.scrollbar-hide::-webkit-scrollbar,
+.no-scrollbar::-webkit-scrollbar {
   display: none;
 }
-.scrollbar-hide {
+.scrollbar-hide,
+.no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }

@@ -381,6 +381,20 @@ function readStateFromDb(branchSlug) {
   // ── Apply active promotions to product prices ──
   applyPromotionsToProducts(products, promoRows, db);
 
+  // ── Active promotions for storefront banners ──
+  const activePromotions = promoRows
+    .filter(isPromotionActiveToday)
+    .map((pr) => {
+      const pcRows = db.prepare("SELECT category_id FROM promotion_categories WHERE promotion_id = ?").all(pr.id);
+      return {
+        id: String(pr.id),
+        name: pr.name,
+        percentage: pr.percentage,
+        applyScope: pr.apply_scope || (pr.apply_to_all ? "all" : "products"),
+        categoryIds: pcRows.map((r) => String(r.category_id)),
+      };
+    });
+
   // ── Coupons (own + cross-branch) ──
   const couponRows = db.prepare(`
     SELECT DISTINCT c.* FROM coupons c
@@ -471,6 +485,7 @@ function readStateFromDb(branchSlug) {
     products,
     categories,
     promotions,
+    activePromotions,
     coupons,
     deliveryZones,
     users,

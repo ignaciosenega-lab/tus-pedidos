@@ -1,12 +1,13 @@
-import { useState, useMemo, useEffect, useRef } from "react";
-import type { Product } from "./types";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import type { Product, Category, ActivePromotion } from "./types";
 import { useCartDispatch } from "./store/cartContext";
 import { useStorefront } from "./hooks/useStorefront";
 
 import HeaderBar from "./components/HeaderBar";
-import CategoryChips from "./components/CategoryChips";
+import CategoryTabs from "./components/CategoryTabs";
 import SearchAndSort from "./components/SearchAndSort";
 import ProductCard from "./components/ProductCard";
+import PromoBanner from "./components/PromoBanner";
 import ProductOptionsModal from "./components/ProductOptionsModal";
 import CartModal from "./components/CartModal";
 import CheckoutModal from "./components/CheckoutModal";
@@ -16,6 +17,10 @@ import ThemeStyles from "./components/ThemeStyles";
 import BranchSelectorPage from "./components/BranchSelectorPage";
 
 type SortOption = "default" | "price-asc" | "price-desc" | "name";
+
+type Section =
+  | { type: "category"; category: Category; products: Product[] }
+  | { type: "promo"; promotion: ActivePromotion };
 
 function getProductPrice(p: Product): number {
   if (p.type === "simple") return p.basePrice ?? 0;
@@ -41,7 +46,15 @@ function trackEvent(branchId: number, eventType: string, productId?: string) {
 
 export default function App() {
   const dispatch = useCartDispatch();
-  const { products: adminProducts, categories: adminCategories, businessConfig, isMaster, loading, branchId } = useStorefront();
+  const {
+    products: adminProducts,
+    categories: adminCategories,
+    activePromotions,
+    businessConfig,
+    isMaster,
+    loading,
+    branchId,
+  } = useStorefront();
 
   // Track session once per page load
   const sessionTracked = useRef(false);
@@ -58,22 +71,19 @@ export default function App() {
     [adminProducts]
   );
 
-  // Only show categories that have at least one visible product, prepend "Todo"
+  // Categories that have at least one visible product (no "all" entry)
   const visibleCategories = useMemo(() => {
     const productCategoryIds = new Set(products.map((p) => p.categoryId));
-    const hasSinTacc = products.some((p) => p.badges?.includes("sin_tacc"));
-    const filtered = adminCategories.filter((cat) => {
-      if (cat.id === "all") return false; // skip if it comes from DB, we add it manually
-      if (cat.id === "sin-tacc") return hasSinTacc;
+    return adminCategories.filter((cat) => {
+      if (cat.id === "all" || cat.id === "sin-tacc") return false;
       return productCategoryIds.has(cat.id);
     });
-    return [{ id: "all", name: "Todo" }, ...filtered];
   }, [adminCategories, products]);
 
   // UI state
-  const [selectedCategory, setSelectedCategory] = useState("all");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortOption>("default");
+  const [activeTabId, setActiveTabId] = useState("");
 
   // Modals
   const [optionsProduct, setOptionsProduct] = useState<Product | null>(null);
@@ -81,42 +91,130 @@ export default function App() {
   const [showCheckout, setShowCheckout] = useState(false);
   const [showOutOfStock, setShowOutOfStock] = useState(false);
 
-  // Filter + sort products
-  const filteredProducts = useMemo(() => {
-    let result = [...products];
-
-    // Category filter
-    if (selectedCategory === "sin-tacc") {
-      result = result.filter((p) => p.badges?.includes("sin_tacc"));
-    } else if (selectedCategory !== "all") {
-      result = result.filter((p) => p.categoryId === selectedCategory);
-    }
-
-    // Search
+  // Build grouped sections with interleaved promo banners
+  const groupedSections = useMemo(() => {
+    // Apply search + sort to all products
+    let filtered = [...products];
     if (search.trim()) {
       const q = search.toLowerCase().trim();
-      result = result.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.description.toLowerCase().includes(q)
+      filtered = filtered.filter(
+        (p) => p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)
       );
     }
-
-    // Sort
     switch (sort) {
       case "price-asc":
-        result.sort((a, b) => getProductPrice(a) - getProductPrice(b));
+        filtered.sort((a, b) => getProductPrice(a) - getProductPrice(b));
         break;
       case "price-desc":
-        result.sort((a, b) => getProductPrice(b) - getProductPrice(a));
+        filtered.sort((a, b) => getProductPrice(b) - getProductPrice(a));
         break;
       case "name":
-        result.sort((a, b) => a.name.localeCompare(b.name));
+        filtered.sort((a, b) => a.name.localeCompare(b.name));
         break;
     }
 
-    return result;
-  }, [products, selectedCategory, search, sort]);
+    // Group by category
+    const byCategory = new Map<string, Product[]>();
+    for (const p of filtered) {
+      if (!byCategory.has(p.categoryId)) byCategory.set(p.categoryId, []);
+      byCategory.get(p.categoryId)!.push(p);
+    }
+
+    // Only categories with products
+    const catsWithProducts = visibleCategories.filter((cat) => byCategory.has(cat.id));
+
+    // Separate promo types
+    const allScopePromos = activePromotions.filter((p) => p.applyScope === "all");
+    const categoryScopePromos = activePromotions.filter((p) => p.applyScope === "categories");
+    const shownPromoIds = new Set<string>();
+
+    const sections: Section[] = [];
+
+    catsWithProducts.forEach((cat, index) => {
+      // "all" scope promos: insert between 1st and 2nd category
+      if (index === 1) {
+        for (const promo of allScopePromos) {
+          if (!shownPromoIds.has(promo.id)) {
+            sections.push({ type: "promo", promotion: promo });
+            shownPromoIds.add(promo.id);
+          }
+        }
+      }
+
+      // Category-specific promos: insert before their target category
+      for (const promo of categoryScopePromos) {
+        if (promo.categoryIds.includes(cat.id) && !shownPromoIds.has(promo.id)) {
+          sections.push({ type: "promo", promotion: promo });
+          shownPromoIds.add(promo.id);
+        }
+      }
+
+      sections.push({ type: "category", category: cat, products: byCategory.get(cat.id)! });
+    });
+
+    // Edge case: only 1 category — still show "all" promos before it
+    if (catsWithProducts.length <= 1) {
+      for (const promo of allScopePromos) {
+        if (!shownPromoIds.has(promo.id)) {
+          sections.unshift({ type: "promo", promotion: promo });
+        }
+      }
+    }
+
+    return sections;
+  }, [products, visibleCategories, activePromotions, search, sort]);
+
+  // Categories currently in view (for tabs)
+  const tabCategories = useMemo(
+    () => groupedSections.filter((s): s is Section & { type: "category" } => s.type === "category").map((s) => s.category),
+    [groupedSections]
+  );
+
+  // Set initial active tab
+  useEffect(() => {
+    if (tabCategories.length > 0 && !activeTabId) {
+      setActiveTabId(tabCategories[0].id);
+    }
+  }, [tabCategories, activeTabId]);
+
+  // Scroll-spy with IntersectionObserver
+  const sectionRefs = useRef<Map<string, HTMLElement | null>>(new Map());
+
+  useEffect(() => {
+    const observers: IntersectionObserver[] = [];
+
+    const timer = setTimeout(() => {
+      for (const cat of tabCategories) {
+        const el = sectionRefs.current.get(cat.id);
+        if (!el) continue;
+
+        const observer = new IntersectionObserver(
+          ([entry]) => {
+            if (entry.isIntersecting) {
+              setActiveTabId(cat.id);
+            }
+          },
+          { rootMargin: "-160px 0px -60% 0px", threshold: 0 }
+        );
+        observer.observe(el);
+        observers.push(observer);
+      }
+    }, 100);
+
+    return () => {
+      clearTimeout(timer);
+      observers.forEach((obs) => obs.disconnect());
+    };
+  }, [tabCategories]);
+
+  // Tab click → smooth scroll
+  const handleTabClick = useCallback((categoryId: string) => {
+    const el = document.getElementById(`cat-${categoryId}`);
+    if (el) {
+      const top = el.getBoundingClientRect().top + window.scrollY - 160;
+      window.scrollTo({ top, behavior: "smooth" });
+    }
+  }, []);
 
   function handleAddSimple(product: Product) {
     if (product.type === "simple" && product.stock !== undefined && product.stock <= 0) {
@@ -156,6 +254,8 @@ export default function App() {
     return <BranchSelectorPage />;
   }
 
+  const hasCategorySections = groupedSections.some((s) => s.type === "category");
+
   return (
     <div className="min-h-screen" style={{ backgroundColor: "var(--body-bg)", color: "var(--general-text)" }}>
       <ThemeStyles />
@@ -180,14 +280,14 @@ export default function App() {
           </p>
         </section>
 
-        {/* Categories */}
-        <section className="mt-4">
-          <CategoryChips
-            categories={visibleCategories}
-            selected={selectedCategory}
-            onSelect={setSelectedCategory}
+        {/* Sticky Category Tabs */}
+        {tabCategories.length > 0 && (
+          <CategoryTabs
+            categories={tabCategories}
+            activeId={activeTabId}
+            onSelect={handleTabClick}
           />
-        </section>
+        )}
 
         {/* Search and sort */}
         <section className="mt-4">
@@ -199,23 +299,40 @@ export default function App() {
           />
         </section>
 
-        {/* Products grid */}
-        <section className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filteredProducts.length === 0 ? (
-            <div className="col-span-full text-center py-12 opacity-50">
-              No se encontraron productos
-            </div>
-          ) : (
-            filteredProducts.map((product) => (
-              <ProductCard
-                key={product.id}
-                product={product}
-                onOptions={handleOpenOptions}
-                onAdd={handleAddSimple}
-              />
-            ))
-          )}
-        </section>
+        {/* Interleaved category sections + promo banners */}
+        {!hasCategorySections ? (
+          <div className="text-center py-12 opacity-50">
+            No se encontraron productos
+          </div>
+        ) : (
+          groupedSections.map((section) => {
+            if (section.type === "promo") {
+              return <PromoBanner key={`promo-${section.promotion.id}`} promotion={section.promotion} />;
+            }
+            return (
+              <section
+                key={section.category.id}
+                id={`cat-${section.category.id}`}
+                ref={(el) => { sectionRefs.current.set(section.category.id, el); }}
+                className="mt-10 scroll-mt-40"
+              >
+                <h2 className="text-2xl font-bold mb-5 flex items-center gap-2" style={{ color: "var(--title-text)" }}>
+                  {section.category.name}
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {section.products.map((product) => (
+                    <ProductCard
+                      key={product.id}
+                      product={product}
+                      onOptions={handleOpenOptions}
+                      onAdd={handleAddSimple}
+                    />
+                  ))}
+                </div>
+              </section>
+            );
+          })
+        )}
       </main>
 
       {/* Modals */}

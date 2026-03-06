@@ -25,14 +25,14 @@ export default function ProductCard({ product, onOptions, onAdd }: Props) {
 
   return (
     <div
-      className="border border-white/10 rounded-xl overflow-hidden flex flex-col"
+      className="border border-white/10 rounded-xl overflow-hidden flex flex-col transition-colors hover:border-white/25"
       style={{ backgroundColor: "var(--panel-bg)" }}
     >
       <div className="relative">
         <img
           src={product.imageUrl}
           alt={product.name}
-          className="w-full h-44 object-cover"
+          className="w-full aspect-video object-cover"
           loading="lazy"
         />
         {product.badges && product.badges.length > 0 && (
@@ -48,6 +48,14 @@ export default function ProductCard({ product, onOptions, onAdd }: Props) {
               </span>
             )}
           </div>
+        )}
+        {product.activePromotion && (
+          <span
+            className="absolute top-2 right-2 text-[10px] font-bold px-2 py-0.5 rounded-full"
+            style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
+          >
+            {product.activePromotion}
+          </span>
         )}
       </div>
 
