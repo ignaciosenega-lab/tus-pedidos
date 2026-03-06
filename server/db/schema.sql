@@ -185,6 +185,15 @@ CREATE TABLE IF NOT EXISTS promotion_products (
 );
 
 -- ================================================================
+-- PROMOTION_CATEGORIES
+-- ================================================================
+CREATE TABLE IF NOT EXISTS promotion_categories (
+  promotion_id INTEGER NOT NULL REFERENCES promotions(id) ON DELETE CASCADE,
+  category_id  INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+  PRIMARY KEY (promotion_id, category_id)
+);
+
+-- ================================================================
 -- PROMOTION_BRANCHES (cross-branch targeting)
 -- ================================================================
 CREATE TABLE IF NOT EXISTS promotion_branches (

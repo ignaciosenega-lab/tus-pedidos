@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useBranchId } from "../../hooks/useBranchId";
+import CustomerMapModal from "../../components/CustomerMapModal";
 
 interface AppUser {
   id: number;
@@ -24,6 +25,9 @@ export default function UsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [viewAll, setViewAll] = useState(false);
+  const [showMap, setShowMap] = useState(false);
+  const [mapData, setMapData] = useState<{ customers: any[]; branchAddress: string } | null>(null);
+  const [mapLoading, setMapLoading] = useState(false);
 
   useEffect(() => {
     if (!branchId && !viewAll) {
@@ -48,6 +52,23 @@ export default function UsersPage() {
       setError(err.message || "Error al cargar clientes");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function openMap() {
+    const effectiveBranchId = branchId || branches[0]?.id;
+    if (!effectiveBranchId) return;
+    setMapLoading(true);
+    try {
+      const data = await apiFetch<{ customers: any[]; branchAddress: string }>(
+        `/api/branches/${effectiveBranchId}/customers/map`
+      );
+      setMapData(data);
+      setShowMap(true);
+    } catch {
+      // silently fail
+    } finally {
+      setMapLoading(false);
     }
   }
 
@@ -124,6 +145,18 @@ export default function UsersPage() {
         </div>
       </div>
 
+      {/* Map button */}
+      <button
+        onClick={openMap}
+        disabled={mapLoading}
+        className="w-full mb-4 flex items-center justify-center gap-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-700 text-white py-3.5 rounded-xl font-semibold text-sm transition-colors"
+      >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l5.447 2.724A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+        </svg>
+        {mapLoading ? "Cargando mapa..." : "Ver mapa de clientes"}
+      </button>
+
       <div className="mb-4">
         <input type="text" value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -174,6 +207,15 @@ export default function UsersPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* Map modal */}
+      {showMap && mapData && (
+        <CustomerMapModal
+          customers={mapData.customers}
+          branchAddress={mapData.branchAddress}
+          onClose={() => setShowMap(false)}
+        />
       )}
     </div>
   );

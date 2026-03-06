@@ -39,6 +39,19 @@ function getDb() {
       db.exec("ALTER TABLE coupons ADD COLUMN apply_all_branches INTEGER NOT NULL DEFAULT 0");
     }
 
+    // Migrations: add apply_scope, time_from, time_to to promotions
+    if (!promoCols.includes("apply_scope")) {
+      db.exec("ALTER TABLE promotions ADD COLUMN apply_scope TEXT NOT NULL DEFAULT 'all'");
+      // Backfill: existing promos with apply_to_all=0 → scope='products'
+      db.exec("UPDATE promotions SET apply_scope = 'products' WHERE apply_to_all = 0");
+    }
+    if (!promoCols.includes("time_from")) {
+      db.exec("ALTER TABLE promotions ADD COLUMN time_from TEXT NOT NULL DEFAULT ''");
+    }
+    if (!promoCols.includes("time_to")) {
+      db.exec("ALTER TABLE promotions ADD COLUMN time_to TEXT NOT NULL DEFAULT ''");
+    }
+
     // Migration: add neighborhood to app_users
     const appUserCols = db.prepare("PRAGMA table_info(app_users)").all().map((c) => c.name);
     if (!appUserCols.includes("neighborhood")) {
@@ -56,6 +69,12 @@ function getDb() {
           if (hood) updateStmt.run(hood, row.id);
         }
       }
+    }
+
+    // Migration: add first_purchase_only to coupons
+    const couponCols2 = db.prepare("PRAGMA table_info(coupons)").all().map((c) => c.name);
+    if (!couponCols2.includes("first_purchase_only")) {
+      db.exec("ALTER TABLE coupons ADD COLUMN first_purchase_only INTEGER NOT NULL DEFAULT 0");
     }
 
     // Seed default menu if none exist

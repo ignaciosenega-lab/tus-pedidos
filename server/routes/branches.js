@@ -504,7 +504,13 @@ router.get("/:id/promotions", requireAuth, requireBranchAccess("id"), (req, res)
   res.json(promos.map((p) => {
     const products = db.prepare("SELECT product_id FROM promotion_products WHERE promotion_id = ?").all(p.id);
     const branchRows = db.prepare("SELECT branch_id FROM promotion_branches WHERE promotion_id = ?").all(p.id);
-    return { ...p, productIds: products.map((r) => r.product_id), branch_ids: branchRows.map((r) => r.branch_id) };
+    const catRows = db.prepare("SELECT category_id FROM promotion_categories WHERE promotion_id = ?").all(p.id);
+    return {
+      ...p,
+      productIds: products.map((r) => r.product_id),
+      branch_ids: branchRows.map((r) => r.branch_id),
+      categoryIds: catRows.map((r) => r.category_id),
+    };
   }));
 });
 
@@ -512,23 +518,32 @@ router.get("/:id/promotions", requireAuth, requireBranchAccess("id"), (req, res)
 router.post("/:id/promotions", requireAuth, requireBranchAccess("id"), (req, res) => {
   const db = req.app.locals.db;
   const branchId = Number(req.params.id);
-  const { name, percentage, apply_to_all, date_from, date_to, weekly_repeat, productIds, apply_all_branches, branch_ids } = req.body;
+  const { name, percentage, apply_to_all, apply_scope, date_from, date_to, weekly_repeat, productIds, categoryIds, apply_all_branches, branch_ids, time_from, time_to } = req.body;
   if (!name) return res.status(400).json({ error: "Nombre es requerido" });
 
+  const effectiveScope = apply_scope || (apply_to_all ? "all" : "products");
+
   const result = db.prepare(`
-    INSERT INTO promotions (branch_id, name, percentage, apply_to_all, date_from, date_to, weekly_repeat, apply_all_branches, is_active)
-    VALUES (@branch_id, @name, @percentage, @apply_to_all, @date_from, @date_to, @weekly_repeat, @apply_all_branches, 1)
+    INSERT INTO promotions (branch_id, name, percentage, apply_to_all, apply_scope, date_from, date_to, weekly_repeat, apply_all_branches, time_from, time_to, is_active)
+    VALUES (@branch_id, @name, @percentage, @apply_to_all, @apply_scope, @date_from, @date_to, @weekly_repeat, @apply_all_branches, @time_from, @time_to, 1)
   `).run({
     branch_id: branchId, name, percentage: percentage || 0,
-    apply_to_all: apply_to_all ? 1 : 0, date_from: date_from || "",
-    date_to: date_to || "", weekly_repeat: weekly_repeat ? 1 : 0,
+    apply_to_all: effectiveScope === "all" ? 1 : 0,
+    apply_scope: effectiveScope,
+    date_from: date_from || "", date_to: date_to || "",
+    weekly_repeat: weekly_repeat ? 1 : 0,
     apply_all_branches: apply_all_branches ? 1 : 0,
+    time_from: time_from || "", time_to: time_to || "",
   });
   const promoId = Number(result.lastInsertRowid);
 
   if (productIds && productIds.length > 0) {
     const ins = db.prepare("INSERT INTO promotion_products (promotion_id, product_id) VALUES (?, ?)");
     productIds.forEach((pid) => ins.run(promoId, pid));
+  }
+  if (categoryIds && categoryIds.length > 0) {
+    const insCat = db.prepare("INSERT INTO promotion_categories (promotion_id, category_id) VALUES (?, ?)");
+    categoryIds.forEach((cid) => insCat.run(promoId, cid));
   }
 
   // Save branch targeting
@@ -540,7 +555,8 @@ router.post("/:id/promotions", requireAuth, requireBranchAccess("id"), (req, res
   const created = db.prepare("SELECT * FROM promotions WHERE id = ?").get(promoId);
   const prods = db.prepare("SELECT product_id FROM promotion_products WHERE promotion_id = ?").all(promoId);
   const branchRows = db.prepare("SELECT branch_id FROM promotion_branches WHERE promotion_id = ?").all(promoId);
-  res.status(201).json({ ...created, productIds: prods.map((r) => r.product_id), branch_ids: branchRows.map((r) => r.branch_id) });
+  const catRows = db.prepare("SELECT category_id FROM promotion_categories WHERE promotion_id = ?").all(promoId);
+  res.status(201).json({ ...created, productIds: prods.map((r) => r.product_id), branch_ids: branchRows.map((r) => r.branch_id), categoryIds: catRows.map((r) => r.category_id) });
 });
 
 // PUT /api/branches/:id/promotions/:promoId
@@ -552,21 +568,26 @@ router.put("/:id/promotions/:promoId", requireAuth, requireBranchAccess("id"), (
   const existing = db.prepare("SELECT * FROM promotions WHERE id = ? AND branch_id = ?").get(promoId, branchId);
   if (!existing) return res.status(404).json({ error: "Promoción no encontrada" });
 
-  const { name, percentage, apply_to_all, date_from, date_to, weekly_repeat, is_active, productIds, apply_all_branches, branch_ids } = req.body;
+  const { name, percentage, apply_to_all, apply_scope, date_from, date_to, weekly_repeat, is_active, productIds, categoryIds, apply_all_branches, branch_ids, time_from, time_to } = req.body;
+
+  const effectiveScope = apply_scope !== undefined ? apply_scope : (existing.apply_scope || "all");
   db.prepare(`
-    UPDATE promotions SET name=@name, percentage=@percentage, apply_to_all=@apply_to_all,
+    UPDATE promotions SET name=@name, percentage=@percentage, apply_to_all=@apply_to_all, apply_scope=@apply_scope,
     date_from=@date_from, date_to=@date_to, weekly_repeat=@weekly_repeat, is_active=@is_active,
-    apply_all_branches=@apply_all_branches WHERE id=@id
+    apply_all_branches=@apply_all_branches, time_from=@time_from, time_to=@time_to WHERE id=@id
   `).run({
     id: promoId,
     name: name !== undefined ? name : existing.name,
     percentage: percentage !== undefined ? percentage : existing.percentage,
-    apply_to_all: apply_to_all !== undefined ? (apply_to_all ? 1 : 0) : existing.apply_to_all,
+    apply_to_all: effectiveScope === "all" ? 1 : 0,
+    apply_scope: effectiveScope,
     date_from: date_from !== undefined ? date_from : existing.date_from,
     date_to: date_to !== undefined ? date_to : existing.date_to,
     weekly_repeat: weekly_repeat !== undefined ? (weekly_repeat ? 1 : 0) : existing.weekly_repeat,
     is_active: is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active,
     apply_all_branches: apply_all_branches !== undefined ? (apply_all_branches ? 1 : 0) : (existing.apply_all_branches || 0),
+    time_from: time_from !== undefined ? time_from : (existing.time_from || ""),
+    time_to: time_to !== undefined ? time_to : (existing.time_to || ""),
   });
 
   if (productIds !== undefined) {
@@ -574,6 +595,14 @@ router.put("/:id/promotions/:promoId", requireAuth, requireBranchAccess("id"), (
     if (productIds.length > 0) {
       const ins = db.prepare("INSERT INTO promotion_products (promotion_id, product_id) VALUES (?, ?)");
       productIds.forEach((pid) => ins.run(promoId, pid));
+    }
+  }
+
+  if (categoryIds !== undefined) {
+    db.prepare("DELETE FROM promotion_categories WHERE promotion_id = ?").run(promoId);
+    if (categoryIds.length > 0) {
+      const insCat = db.prepare("INSERT INTO promotion_categories (promotion_id, category_id) VALUES (?, ?)");
+      categoryIds.forEach((cid) => insCat.run(promoId, cid));
     }
   }
 
@@ -588,7 +617,8 @@ router.put("/:id/promotions/:promoId", requireAuth, requireBranchAccess("id"), (
   const updated = db.prepare("SELECT * FROM promotions WHERE id = ?").get(promoId);
   const prods = db.prepare("SELECT product_id FROM promotion_products WHERE promotion_id = ?").all(promoId);
   const branchRows = db.prepare("SELECT branch_id FROM promotion_branches WHERE promotion_id = ?").all(promoId);
-  res.json({ ...updated, productIds: prods.map((r) => r.product_id), branch_ids: branchRows.map((r) => r.branch_id) });
+  const catRows = db.prepare("SELECT category_id FROM promotion_categories WHERE promotion_id = ?").all(promoId);
+  res.json({ ...updated, productIds: prods.map((r) => r.product_id), branch_ids: branchRows.map((r) => r.branch_id), categoryIds: catRows.map((r) => r.category_id) });
 });
 
 // DELETE /api/branches/:id/promotions/:promoId
@@ -598,6 +628,7 @@ router.delete("/:id/promotions/:promoId", requireAuth, requireBranchAccess("id")
   const promoId = Number(req.params.promoId);
 
   db.prepare("DELETE FROM promotion_products WHERE promotion_id = ?").run(promoId);
+  db.prepare("DELETE FROM promotion_categories WHERE promotion_id = ?").run(promoId);
   db.prepare("DELETE FROM promotion_branches WHERE promotion_id = ?").run(promoId);
   const result = db.prepare("DELETE FROM promotions WHERE id = ? AND branch_id = ?").run(promoId, branchId);
   if (result.changes === 0) return res.status(404).json({ error: "Promoción no encontrada" });
@@ -615,10 +646,13 @@ router.get("/:id/coupons", requireAuth, requireBranchAccess("id"), (req, res) =>
   const coupons = db.prepare("SELECT * FROM coupons WHERE branch_id = ? ORDER BY id DESC").all(branchId);
   res.json(coupons.map((c) => {
     const branchRows = db.prepare("SELECT branch_id FROM coupon_branches WHERE coupon_id = ?").all(c.id);
+    const targets = db.prepare("SELECT * FROM coupon_targets WHERE coupon_id = ?").all(c.id);
     return {
       ...c,
       active_days: safeParseJson(c.active_days, []),
       branch_ids: branchRows.map((r) => r.branch_id),
+      categoryIds: targets.filter((t) => t.target_type === "category").map((t) => t.target_id),
+      productIds: targets.filter((t) => t.target_type === "product").map((t) => t.target_id),
     };
   }));
 });
@@ -627,12 +661,12 @@ router.get("/:id/coupons", requireAuth, requireBranchAccess("id"), (req, res) =>
 router.post("/:id/coupons", requireAuth, requireBranchAccess("id"), (req, res) => {
   const db = req.app.locals.db;
   const branchId = Number(req.params.id);
-  const { code, name, type, value, min_order, max_uses, apply_to, active_days, time_from, time_to, date_from, date_to, apply_all_branches, branch_ids } = req.body;
+  const { code, name, type, value, min_order, max_uses, apply_to, active_days, time_from, time_to, date_from, date_to, apply_all_branches, branch_ids, categoryIds, productIds, first_purchase_only } = req.body;
   if (!code) return res.status(400).json({ error: "Código es requerido" });
 
   const result = db.prepare(`
-    INSERT INTO coupons (branch_id, code, name, type, value, min_order, max_uses, used_count, apply_to, active_days, time_from, time_to, date_from, date_to, apply_all_branches, is_active)
-    VALUES (@branch_id, @code, @name, @type, @value, @min_order, @max_uses, 0, @apply_to, @active_days, @time_from, @time_to, @date_from, @date_to, @apply_all_branches, 1)
+    INSERT INTO coupons (branch_id, code, name, type, value, min_order, max_uses, used_count, apply_to, active_days, time_from, time_to, date_from, date_to, apply_all_branches, first_purchase_only, is_active)
+    VALUES (@branch_id, @code, @name, @type, @value, @min_order, @max_uses, 0, @apply_to, @active_days, @time_from, @time_to, @date_from, @date_to, @apply_all_branches, @first_purchase_only, 1)
   `).run({
     branch_id: branchId, code: code.toUpperCase(), name: name || "",
     type: type || "percentage", value: value || 0, min_order: min_order || 0,
@@ -641,9 +675,19 @@ router.post("/:id/coupons", requireAuth, requireBranchAccess("id"), (req, res) =
     time_from: time_from || "", time_to: time_to || "",
     date_from: date_from || "", date_to: date_to || "",
     apply_all_branches: apply_all_branches ? 1 : 0,
+    first_purchase_only: first_purchase_only ? 1 : 0,
   });
 
   const couponId = Number(result.lastInsertRowid);
+
+  // Save coupon_targets
+  const insTarget = db.prepare("INSERT INTO coupon_targets (coupon_id, target_type, target_id) VALUES (?, ?, ?)");
+  if (apply_to === "categories" && categoryIds && categoryIds.length > 0) {
+    categoryIds.forEach((cid) => insTarget.run(couponId, "category", cid));
+  }
+  if (apply_to === "products" && productIds && productIds.length > 0) {
+    productIds.forEach((pid) => insTarget.run(couponId, "product", pid));
+  }
 
   if (branch_ids && branch_ids.length > 0) {
     const insBranch = db.prepare("INSERT INTO coupon_branches (coupon_id, branch_id) VALUES (?, ?)");
@@ -652,7 +696,14 @@ router.post("/:id/coupons", requireAuth, requireBranchAccess("id"), (req, res) =
 
   const created = db.prepare("SELECT * FROM coupons WHERE id = ?").get(couponId);
   const branchRows = db.prepare("SELECT branch_id FROM coupon_branches WHERE coupon_id = ?").all(couponId);
-  res.status(201).json({ ...created, active_days: safeParseJson(created.active_days, []), branch_ids: branchRows.map((r) => r.branch_id) });
+  const targets = db.prepare("SELECT * FROM coupon_targets WHERE coupon_id = ?").all(couponId);
+  res.status(201).json({
+    ...created,
+    active_days: safeParseJson(created.active_days, []),
+    branch_ids: branchRows.map((r) => r.branch_id),
+    categoryIds: targets.filter((t) => t.target_type === "category").map((t) => t.target_id),
+    productIds: targets.filter((t) => t.target_type === "product").map((t) => t.target_id),
+  });
 });
 
 // PUT /api/branches/:id/coupons/:couponId
@@ -664,12 +715,12 @@ router.put("/:id/coupons/:couponId", requireAuth, requireBranchAccess("id"), (re
   const existing = db.prepare("SELECT * FROM coupons WHERE id = ? AND branch_id = ?").get(couponId, branchId);
   if (!existing) return res.status(404).json({ error: "Cupón no encontrado" });
 
-  const { code, name, type, value, min_order, max_uses, apply_to, active_days, time_from, time_to, date_from, date_to, is_active, apply_all_branches, branch_ids } = req.body;
+  const { code, name, type, value, min_order, max_uses, apply_to, active_days, time_from, time_to, date_from, date_to, is_active, apply_all_branches, branch_ids, categoryIds, productIds, first_purchase_only } = req.body;
   db.prepare(`
     UPDATE coupons SET code=@code, name=@name, type=@type, value=@value, min_order=@min_order,
     max_uses=@max_uses, apply_to=@apply_to, active_days=@active_days, time_from=@time_from,
     time_to=@time_to, date_from=@date_from, date_to=@date_to, is_active=@is_active,
-    apply_all_branches=@apply_all_branches WHERE id=@id
+    apply_all_branches=@apply_all_branches, first_purchase_only=@first_purchase_only WHERE id=@id
   `).run({
     id: couponId,
     code: code !== undefined ? code.toUpperCase() : existing.code,
@@ -686,7 +737,21 @@ router.put("/:id/coupons/:couponId", requireAuth, requireBranchAccess("id"), (re
     date_to: date_to !== undefined ? date_to : existing.date_to,
     is_active: is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active,
     apply_all_branches: apply_all_branches !== undefined ? (apply_all_branches ? 1 : 0) : (existing.apply_all_branches || 0),
+    first_purchase_only: first_purchase_only !== undefined ? (first_purchase_only ? 1 : 0) : (existing.first_purchase_only || 0),
   });
+
+  // Update coupon_targets
+  if (apply_to !== undefined) {
+    db.prepare("DELETE FROM coupon_targets WHERE coupon_id = ?").run(couponId);
+    const insTarget = db.prepare("INSERT INTO coupon_targets (coupon_id, target_type, target_id) VALUES (?, ?, ?)");
+    const finalApplyTo = apply_to !== undefined ? apply_to : existing.apply_to;
+    if (finalApplyTo === "categories" && categoryIds && categoryIds.length > 0) {
+      categoryIds.forEach((cid) => insTarget.run(couponId, "category", cid));
+    }
+    if (finalApplyTo === "products" && productIds && productIds.length > 0) {
+      productIds.forEach((pid) => insTarget.run(couponId, "product", pid));
+    }
+  }
 
   if (branch_ids !== undefined) {
     db.prepare("DELETE FROM coupon_branches WHERE coupon_id = ?").run(couponId);
@@ -698,7 +763,14 @@ router.put("/:id/coupons/:couponId", requireAuth, requireBranchAccess("id"), (re
 
   const updated = db.prepare("SELECT * FROM coupons WHERE id = ?").get(couponId);
   const branchRows = db.prepare("SELECT branch_id FROM coupon_branches WHERE coupon_id = ?").all(couponId);
-  res.json({ ...updated, active_days: safeParseJson(updated.active_days, []), branch_ids: branchRows.map((r) => r.branch_id) });
+  const targets = db.prepare("SELECT * FROM coupon_targets WHERE coupon_id = ?").all(couponId);
+  res.json({
+    ...updated,
+    active_days: safeParseJson(updated.active_days, []),
+    branch_ids: branchRows.map((r) => r.branch_id),
+    categoryIds: targets.filter((t) => t.target_type === "category").map((t) => t.target_id),
+    productIds: targets.filter((t) => t.target_type === "product").map((t) => t.target_id),
+  });
 });
 
 // DELETE /api/branches/:id/coupons/:couponId
@@ -935,6 +1007,33 @@ router.get("/:id/customers", requireAuth, requireBranchAccess("id"), (req, res) 
   res.json(result);
 });
 
+// GET /api/branches/:id/customers/map (customer coordinates for map)
+router.get("/:id/customers/map", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+
+  // Get latest coordinates per customer from orders
+  const customers = db.prepare(`
+    SELECT o.customer_name as name, o.customer_phone as phone, o.lat, o.lng,
+           sub.order_count as orderCount, sub.total_spent as totalSpent
+    FROM orders o
+    INNER JOIN (
+      SELECT customer_phone, COUNT(*) as order_count,
+             ROUND(SUM(total), 2) as total_spent, MAX(id) as last_order_id
+      FROM orders
+      WHERE branch_id = ? AND lat IS NOT NULL AND lat != 0
+      GROUP BY customer_phone
+    ) sub ON o.id = sub.last_order_id
+  `).all(branchId);
+
+  const branch = db.prepare("SELECT address FROM branches WHERE id = ?").get(branchId);
+
+  res.json({
+    customers,
+    branchAddress: branch?.address || "",
+  });
+});
+
 /* ── Helper ──────────────────────────────────── */
 
 function applyMenuRule(basePrice, menu) {
@@ -963,12 +1062,25 @@ function isPromotionActiveToday(promo) {
     }
     if (promo.date_from && todayStr < promo.date_from) return false;
     if (promo.date_to && todayStr > promo.date_to) return false;
-    return true;
   } else {
     if (promo.date_from && todayStr < promo.date_from) return false;
     if (promo.date_to && todayStr > promo.date_to) return false;
-    return true;
   }
+
+  // Time-of-day check
+  if (promo.time_from || promo.time_to) {
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    if (promo.time_from) {
+      const [h, m] = promo.time_from.split(":").map(Number);
+      if (nowMinutes < h * 60 + (m || 0)) return false;
+    }
+    if (promo.time_to) {
+      const [h, m] = promo.time_to.split(":").map(Number);
+      if (nowMinutes >= h * 60 + (m || 0)) return false;
+    }
+  }
+
+  return true;
 }
 
 function applyPromotionsToProducts(products, promoRows, db) {
@@ -976,10 +1088,15 @@ function applyPromotionsToProducts(products, promoRows, db) {
   if (activePromos.length === 0) return;
 
   const promoProductSets = {};
+  const promoCategorySets = {};
   for (const promo of activePromos) {
-    if (!promo.apply_to_all) {
+    const scope = promo.apply_scope || (promo.apply_to_all ? "all" : "products");
+    if (scope === "products") {
       const ppRows = db.prepare("SELECT product_id FROM promotion_products WHERE promotion_id = ?").all(promo.id);
       promoProductSets[promo.id] = new Set(ppRows.map((r) => String(r.product_id)));
+    } else if (scope === "categories") {
+      const pcRows = db.prepare("SELECT category_id FROM promotion_categories WHERE promotion_id = ?").all(promo.id);
+      promoCategorySets[promo.id] = new Set(pcRows.map((r) => String(r.category_id)));
     }
   }
 
@@ -987,7 +1104,15 @@ function applyPromotionsToProducts(products, promoRows, db) {
     let bestDiscount = 0;
     let bestPromoName = "";
     for (const promo of activePromos) {
-      const applies = promo.apply_to_all || promoProductSets[promo.id]?.has(product.id);
+      const scope = promo.apply_scope || (promo.apply_to_all ? "all" : "products");
+      let applies = false;
+      if (scope === "all") {
+        applies = true;
+      } else if (scope === "products") {
+        applies = promoProductSets[promo.id]?.has(product.id) || false;
+      } else if (scope === "categories") {
+        applies = promoCategorySets[promo.id]?.has(product.categoryId) || false;
+      }
       if (applies && promo.percentage > bestDiscount) {
         bestDiscount = promo.percentage;
         bestPromoName = promo.name;

@@ -8,26 +8,48 @@ interface Promotion {
   name: string;
   percentage: number;
   apply_to_all: number;
+  apply_scope: string;
   date_from: string;
   date_to: string;
   weekly_repeat: number;
   is_active: number;
   apply_all_branches: number;
+  time_from: string;
+  time_to: string;
   productIds: number[];
+  categoryIds: number[];
   branch_ids: number[];
 }
 
+interface CatalogProduct {
+  id: number;
+  name: string;
+  category_id: number;
+}
+
+interface CatalogCategory {
+  id: number;
+  name: string;
+}
+
 type BranchScope = "this" | "all" | "selected";
+type ApplyScope = "all" | "categories" | "products";
+type TimeMode = "all_day" | "range";
 
 interface PromoFormData {
   name: string;
   percentage: number;
-  apply_to_all: boolean;
+  apply_scope: ApplyScope;
+  productIds: number[];
+  categoryIds: number[];
   date_from: string;
   date_to: string;
   weekly_repeat: boolean;
   branch_scope: BranchScope;
   branch_ids: number[];
+  time_mode: TimeMode;
+  time_from: string;
+  time_to: string;
 }
 
 export default function PromotionsPage() {
@@ -40,16 +62,29 @@ export default function PromotionsPage() {
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingPromo, setEditingPromo] = useState<Promotion | null>(null);
-  const [formData, setFormData] = useState<PromoFormData>({
-    name: "",
-    percentage: 10,
-    apply_to_all: true,
-    date_from: "",
-    date_to: "",
-    weekly_repeat: false,
-    branch_scope: "this",
-    branch_ids: [],
-  });
+
+  const [categories, setCategories] = useState<CatalogCategory[]>([]);
+  const [products, setProducts] = useState<CatalogProduct[]>([]);
+
+  const [formData, setFormData] = useState<PromoFormData>(defaultForm());
+
+  function defaultForm(): PromoFormData {
+    return {
+      name: "",
+      percentage: 10,
+      apply_scope: "all",
+      productIds: [],
+      categoryIds: [],
+      date_from: "",
+      date_to: "",
+      weekly_repeat: false,
+      branch_scope: "this",
+      branch_ids: [],
+      time_mode: "all_day",
+      time_from: "",
+      time_to: "",
+    };
+  }
 
   useEffect(() => {
     if (!branchId) {
@@ -72,6 +107,19 @@ export default function PromotionsPage() {
     }
   }
 
+  async function loadCatalog() {
+    try {
+      const [cats, prods] = await Promise.all([
+        apiFetch<CatalogCategory[]>("/api/catalog/categories"),
+        apiFetch<CatalogProduct[]>("/api/catalog/products"),
+      ]);
+      setCategories(cats);
+      setProducts(prods);
+    } catch {
+      // silently fail
+    }
+  }
+
   function getBranchScope(promo: Promotion): BranchScope {
     if (promo.apply_all_branches) return "all";
     if (promo.branch_ids && promo.branch_ids.length > 0) return "selected";
@@ -80,31 +128,30 @@ export default function PromotionsPage() {
 
   function openCreateModal() {
     setEditingPromo(null);
-    setFormData({
-      name: "",
-      percentage: 10,
-      apply_to_all: true,
-      date_from: "",
-      date_to: "",
-      weekly_repeat: false,
-      branch_scope: "this",
-      branch_ids: [],
-    });
+    setFormData(defaultForm());
+    loadCatalog();
     setShowModal(true);
   }
 
   function openEditModal(promo: Promotion) {
     setEditingPromo(promo);
+    const scope = (promo.apply_scope || (promo.apply_to_all ? "all" : "products")) as ApplyScope;
     setFormData({
       name: promo.name,
       percentage: promo.percentage,
-      apply_to_all: !!promo.apply_to_all,
+      apply_scope: scope,
+      productIds: promo.productIds || [],
+      categoryIds: promo.categoryIds || [],
       date_from: promo.date_from || "",
       date_to: promo.date_to || "",
       weekly_repeat: !!promo.weekly_repeat,
       branch_scope: getBranchScope(promo),
       branch_ids: promo.branch_ids || [],
+      time_mode: (promo.time_from || promo.time_to) ? "range" : "all_day",
+      time_from: promo.time_from || "",
+      time_to: promo.time_to || "",
     });
+    loadCatalog();
     setShowModal(true);
   }
 
@@ -118,12 +165,17 @@ export default function PromotionsPage() {
     const payload: any = {
       name: formData.name,
       percentage: formData.percentage,
-      apply_to_all: formData.apply_to_all,
+      apply_scope: formData.apply_scope,
+      apply_to_all: formData.apply_scope === "all",
+      productIds: formData.apply_scope === "products" ? formData.productIds : [],
+      categoryIds: formData.apply_scope === "categories" ? formData.categoryIds : [],
       date_from: formData.date_from,
       date_to: formData.date_to,
       weekly_repeat: formData.weekly_repeat,
       apply_all_branches: formData.branch_scope === "all",
       branch_ids: formData.branch_scope === "selected" ? formData.branch_ids : [],
+      time_from: formData.time_mode === "range" ? formData.time_from : "",
+      time_to: formData.time_mode === "range" ? formData.time_to : "",
     };
 
     try {
@@ -181,16 +233,45 @@ export default function PromotionsPage() {
     return "Solo esta sucursal";
   }
 
+  function getScopeLabel(promo: Promotion): string {
+    const scope = promo.apply_scope || (promo.apply_to_all ? "all" : "products");
+    if (scope === "all") return "Todos";
+    if (scope === "categories") return `${promo.categoryIds?.length || 0} categoría(s)`;
+    return `${promo.productIds?.length || 0} producto(s)`;
+  }
+
+  function getTimeLabel(promo: Promotion): string {
+    if (!promo.time_from && !promo.time_to) return "Todo el día";
+    if (promo.time_from && promo.time_to) return `${promo.time_from} a ${promo.time_to}`;
+    if (promo.time_to) return `Hasta ${promo.time_to}`;
+    return `Desde ${promo.time_from}`;
+  }
+
   function toggleBranchSelection(bid: number) {
-    setFormData((prev) => {
-      const has = prev.branch_ids.includes(bid);
-      return {
-        ...prev,
-        branch_ids: has
-          ? prev.branch_ids.filter((id) => id !== bid)
-          : [...prev.branch_ids, bid],
-      };
-    });
+    setFormData((prev) => ({
+      ...prev,
+      branch_ids: prev.branch_ids.includes(bid)
+        ? prev.branch_ids.filter((id) => id !== bid)
+        : [...prev.branch_ids, bid],
+    }));
+  }
+
+  function toggleProductSelection(pid: number) {
+    setFormData((prev) => ({
+      ...prev,
+      productIds: prev.productIds.includes(pid)
+        ? prev.productIds.filter((id) => id !== pid)
+        : [...prev.productIds, pid],
+    }));
+  }
+
+  function toggleCategorySelection(cid: number) {
+    setFormData((prev) => ({
+      ...prev,
+      categoryIds: prev.categoryIds.includes(cid)
+        ? prev.categoryIds.filter((id) => id !== cid)
+        : [...prev.categoryIds, cid],
+    }));
   }
 
   if (branchLoading || loading) {
@@ -257,7 +338,8 @@ export default function PromotionsPage() {
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Nombre</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Descuento</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Productos</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Aplica a</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Horario</th>
                 {isMaster && (
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Sucursales</th>
                 )}
@@ -271,9 +353,8 @@ export default function PromotionsPage() {
                 <tr key={promo.id} className="hover:bg-gray-800/50 transition-colors">
                   <td className="px-4 py-3 text-sm text-white font-medium">{promo.name}</td>
                   <td className="px-4 py-3 text-sm text-emerald-400 font-medium">{promo.percentage}%</td>
-                  <td className="px-4 py-3 text-sm text-gray-300">
-                    {promo.apply_to_all ? "Todos" : `${promo.productIds?.length || 0} productos`}
-                  </td>
+                  <td className="px-4 py-3 text-sm text-gray-300">{getScopeLabel(promo)}</td>
+                  <td className="px-4 py-3 text-sm text-gray-400">{getTimeLabel(promo)}</td>
                   {isMaster && (
                     <td className="px-4 py-3 text-sm text-gray-400 max-w-[200px] truncate">
                       {getBranchScopeLabel(promo)}
@@ -329,6 +410,7 @@ export default function PromotionsPage() {
             </div>
 
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              {/* Name */}
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">
                   Nombre <span className="text-red-400">*</span>
@@ -339,6 +421,7 @@ export default function PromotionsPage() {
                   placeholder="Promo 2x1, Descuento fin de semana..." required />
               </div>
 
+              {/* Percentage */}
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">Descuento (%)</label>
                 <input type="number" value={formData.percentage}
@@ -347,6 +430,73 @@ export default function PromotionsPage() {
                   min="0" max="100" step="1" />
               </div>
 
+              {/* Apply scope */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Aplicar a</label>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2">
+                    <input type="radio" name="apply_scope" value="all"
+                      checked={formData.apply_scope === "all"}
+                      onChange={() => setFormData({ ...formData, apply_scope: "all" })}
+                      className="w-4 h-4 text-emerald-600 bg-gray-800 border-gray-700 focus:ring-emerald-500" />
+                    <span className="text-sm text-gray-300">Todos los productos</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input type="radio" name="apply_scope" value="categories"
+                      checked={formData.apply_scope === "categories"}
+                      onChange={() => setFormData({ ...formData, apply_scope: "categories" })}
+                      className="w-4 h-4 text-emerald-600 bg-gray-800 border-gray-700 focus:ring-emerald-500" />
+                    <span className="text-sm text-gray-300">Categorías específicas</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input type="radio" name="apply_scope" value="products"
+                      checked={formData.apply_scope === "products"}
+                      onChange={() => setFormData({ ...formData, apply_scope: "products" })}
+                      className="w-4 h-4 text-emerald-600 bg-gray-800 border-gray-700 focus:ring-emerald-500" />
+                    <span className="text-sm text-gray-300">Productos específicos</span>
+                  </label>
+                </div>
+
+                {/* Category selector */}
+                {formData.apply_scope === "categories" && (
+                  <div className="mt-3 bg-gray-800 rounded-lg border border-gray-700 p-3 space-y-2 max-h-48 overflow-y-auto">
+                    {categories.length === 0 ? (
+                      <p className="text-xs text-gray-500">Cargando categorías...</p>
+                    ) : (
+                      categories.map((cat) => (
+                        <label key={cat.id} className="flex items-center gap-2">
+                          <input type="checkbox"
+                            checked={formData.categoryIds.includes(cat.id)}
+                            onChange={() => toggleCategorySelection(cat.id)}
+                            className="w-4 h-4 bg-gray-700 border-gray-600 rounded text-emerald-600 focus:ring-emerald-500" />
+                          <span className="text-sm text-gray-300">{cat.name}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                )}
+
+                {/* Product selector */}
+                {formData.apply_scope === "products" && (
+                  <div className="mt-3 bg-gray-800 rounded-lg border border-gray-700 p-3 space-y-2 max-h-48 overflow-y-auto">
+                    {products.length === 0 ? (
+                      <p className="text-xs text-gray-500">Cargando productos...</p>
+                    ) : (
+                      products.map((prod) => (
+                        <label key={prod.id} className="flex items-center gap-2">
+                          <input type="checkbox"
+                            checked={formData.productIds.includes(prod.id)}
+                            onChange={() => toggleProductSelection(prod.id)}
+                            className="w-4 h-4 bg-gray-700 border-gray-600 rounded text-emerald-600 focus:ring-emerald-500" />
+                          <span className="text-sm text-gray-300">{prod.name}</span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Date range */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-1">Desde</label>
@@ -362,20 +512,51 @@ export default function PromotionsPage() {
                 </div>
               </div>
 
-              <div className="space-y-3">
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={formData.apply_to_all}
-                    onChange={(e) => setFormData({ ...formData, apply_to_all: e.target.checked })}
-                    className="w-4 h-4 bg-gray-800 border-gray-700 rounded text-emerald-600 focus:ring-emerald-500" />
-                  <span className="text-sm text-gray-300">Aplicar a todos los productos</span>
-                </label>
-                <label className="flex items-center gap-2">
-                  <input type="checkbox" checked={formData.weekly_repeat}
-                    onChange={(e) => setFormData({ ...formData, weekly_repeat: e.target.checked })}
-                    className="w-4 h-4 bg-gray-800 border-gray-700 rounded text-emerald-600 focus:ring-emerald-500" />
-                  <span className="text-sm text-gray-300">Repetir semanalmente</span>
-                </label>
+              {/* Time range */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Horario</label>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-2">
+                    <input type="radio" name="time_mode" value="all_day"
+                      checked={formData.time_mode === "all_day"}
+                      onChange={() => setFormData({ ...formData, time_mode: "all_day", time_from: "", time_to: "" })}
+                      className="w-4 h-4 text-emerald-600 bg-gray-800 border-gray-700 focus:ring-emerald-500" />
+                    <span className="text-sm text-gray-300">Todo el día</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input type="radio" name="time_mode" value="range"
+                      checked={formData.time_mode === "range"}
+                      onChange={() => setFormData({ ...formData, time_mode: "range" })}
+                      className="w-4 h-4 text-emerald-600 bg-gray-800 border-gray-700 focus:ring-emerald-500" />
+                    <span className="text-sm text-gray-300">Franja horaria</span>
+                  </label>
+                </div>
+
+                {formData.time_mode === "range" && (
+                  <div className="mt-3 grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Desde hora</label>
+                      <input type="time" value={formData.time_from}
+                        onChange={(e) => setFormData({ ...formData, time_from: e.target.value })}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Hasta hora</label>
+                      <input type="time" value={formData.time_to}
+                        onChange={(e) => setFormData({ ...formData, time_to: e.target.value })}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500" />
+                    </div>
+                  </div>
+                )}
               </div>
+
+              {/* Weekly repeat */}
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.weekly_repeat}
+                  onChange={(e) => setFormData({ ...formData, weekly_repeat: e.target.checked })}
+                  className="w-4 h-4 bg-gray-800 border-gray-700 rounded text-emerald-600 focus:ring-emerald-500" />
+                <span className="text-sm text-gray-300">Repetir semanalmente</span>
+              </label>
 
               {/* Branch scope selector (master only) */}
               {isMaster && branches.length > 1 && (

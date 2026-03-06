@@ -170,42 +170,63 @@ function isPromotionActiveToday(promo) {
   const todayStr = now.toISOString().split("T")[0];
 
   if (promo.weekly_repeat) {
-    // Weekly: day of week must match date_from's day of week
     if (promo.date_from) {
       const fromDate = new Date(promo.date_from + "T12:00:00");
       if (fromDate.getDay() !== now.getDay()) return false;
     }
     if (promo.date_from && todayStr < promo.date_from) return false;
     if (promo.date_to && todayStr > promo.date_to) return false;
-    return true;
   } else {
-    // One-time: check date range
     if (promo.date_from && todayStr < promo.date_from) return false;
     if (promo.date_to && todayStr > promo.date_to) return false;
-    return true;
   }
+
+  // Time-of-day check
+  if (promo.time_from || promo.time_to) {
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    if (promo.time_from) {
+      const [h, m] = promo.time_from.split(":").map(Number);
+      if (nowMinutes < h * 60 + (m || 0)) return false;
+    }
+    if (promo.time_to) {
+      const [h, m] = promo.time_to.split(":").map(Number);
+      if (nowMinutes >= h * 60 + (m || 0)) return false;
+    }
+  }
+
+  return true;
 }
 
 function applyPromotionsToProducts(products, promoRows, db) {
-  // Find active promotions
   const activePromos = promoRows.filter(isPromotionActiveToday);
   if (activePromos.length === 0) return;
 
-  // Build product ID sets for each promotion
   const promoProductSets = {};
+  const promoCategorySets = {};
   for (const promo of activePromos) {
-    if (!promo.apply_to_all) {
+    const scope = promo.apply_scope || (promo.apply_to_all ? "all" : "products");
+    if (scope === "products") {
       const ppRows = db.prepare("SELECT product_id FROM promotion_products WHERE promotion_id = ?").all(promo.id);
       promoProductSets[promo.id] = new Set(ppRows.map((r) => String(r.product_id)));
+    } else if (scope === "categories") {
+      const pcRows = db.prepare("SELECT category_id FROM promotion_categories WHERE promotion_id = ?").all(promo.id);
+      promoCategorySets[promo.id] = new Set(pcRows.map((r) => String(r.category_id)));
     }
   }
 
   for (const product of products) {
-    // Find best discount for this product
     let bestDiscount = 0;
     let bestPromoName = "";
     for (const promo of activePromos) {
-      const applies = promo.apply_to_all || promoProductSets[promo.id]?.has(product.id);
+      const scope = promo.apply_scope || (promo.apply_to_all ? "all" : "products");
+      let applies = false;
+      if (scope === "all") {
+        applies = true;
+      } else if (scope === "products") {
+        applies = promoProductSets[promo.id]?.has(product.id) || false;
+      } else if (scope === "categories") {
+        applies = promoCategorySets[promo.id]?.has(product.categoryId) || false;
+      }
       if (applies && promo.percentage > bestDiscount) {
         bestDiscount = promo.percentage;
         bestPromoName = promo.name;
@@ -387,6 +408,7 @@ function readStateFromDb(branchSlug) {
       dateFrom: c.date_from,
       dateTo: c.date_to,
       active: !!c.is_active,
+      firstPurchaseOnly: !!(c.first_purchase_only),
     };
   });
 
@@ -912,6 +934,19 @@ app.post("/api/orders", (req, res) => {
       // Update name/address/neighborhood if they changed
       db.prepare("UPDATE app_users SET name = ?, address = ?, neighborhood = ? WHERE id = ?")
         .run(customerName, address || customer.address, neighborhood || customer.neighborhood, customer.id);
+    }
+
+    // Validate first_purchase_only coupon
+    if (couponCode) {
+      const coupon = db.prepare("SELECT * FROM coupons WHERE code = ? AND is_active = 1").get(couponCode.toUpperCase());
+      if (coupon && coupon.first_purchase_only) {
+        const alreadyUsed = db.prepare(
+          "SELECT COUNT(*) as count FROM orders WHERE customer_phone = ? AND coupon_code = ?"
+        ).get(cleanPhone, couponCode.toUpperCase());
+        if (alreadyUsed.count > 0) {
+          return res.status(400).json({ error: "Este cupón es solo para primera compra y ya fue utilizado" });
+        }
+      }
     }
 
     // Insert order
