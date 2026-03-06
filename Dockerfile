@@ -44,5 +44,6 @@ EXPOSE 3000
 # Environment variables (set via EasyPanel/docker-compose)
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV TZ=America/Argentina/Buenos_Aires
 
 CMD ["node", "index.js"]

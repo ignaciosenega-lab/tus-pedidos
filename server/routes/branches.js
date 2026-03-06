@@ -1053,7 +1053,7 @@ function applyMenuRule(basePrice, menu) {
 function isPromotionActiveToday(promo) {
   if (!promo.is_active) return false;
   const now = new Date();
-  const todayStr = now.toISOString().split("T")[0];
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
   if (promo.weekly_repeat) {
     if (promo.date_from) {
