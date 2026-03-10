@@ -4,6 +4,7 @@ import { useStorefront } from "../hooks/useStorefront";
 import { getDateOptions, getTimeSlots } from "../utils/dateTime";
 import { buildWhatsAppMessage, buildWhatsAppUrl } from "../utils/whatsapp";
 import GoogleAddressPicker from "./GoogleAddressPicker";
+import { findDeliveryZone } from "../utils/kmlParser";
 import type { CheckoutData } from "../types";
 
 interface Props {
@@ -14,7 +15,7 @@ interface Props {
 export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
   const { items } = useCart();
   const dispatch = useCartDispatch();
-  const { businessConfig, branchId } = useStorefront();
+  const { businessConfig, branchId, deliveryZones } = useStorefront();
 
   const dateOptions = getDateOptions();
 
@@ -33,6 +34,7 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [outsideZone, setOutsideZone] = useState(false);
   const timeSlots = getTimeSlots();
 
   function updateField<K extends keyof CheckoutData>(
@@ -45,6 +47,9 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
       delete next[key];
       return next;
     });
+    if (key === "deliveryType" && value === "pickup") {
+      setOutsideZone(false);
+    }
   }
 
   const handleAddressSelect = useCallback(
@@ -60,8 +65,16 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
         delete next.address;
         return next;
       });
+
+      // Check if address is inside a delivery zone
+      if (deliveryZones.length > 0) {
+        const zone = findDeliveryZone(deliveryZones, { lat: result.lat, lng: result.lng });
+        setOutsideZone(!zone);
+      } else {
+        setOutsideZone(false);
+      }
     },
-    []
+    [deliveryZones]
   );
 
   function validate(): boolean {
@@ -250,6 +263,22 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
               />
               {errors.address && (
                 <p className="text-red-400 text-xs">{errors.address}</p>
+              )}
+
+              {outsideZone && (
+                <div className="flex items-start gap-2.5 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3">
+                  <svg className="w-5 h-5 text-yellow-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                  </svg>
+                  <div>
+                    <p className="text-sm font-medium text-yellow-300">
+                      No llegamos a esta dirección
+                    </p>
+                    <p className="text-xs text-yellow-400/80 mt-0.5">
+                      Tu dirección está fuera de nuestra zona de envío. Podés contactar al local por WhatsApp para consultar opciones de entrega.
+                    </p>
+                  </div>
+                </div>
               )}
 
               {/* Piso / Depto / Lote */}

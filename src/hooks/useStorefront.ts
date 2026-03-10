@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import type { AdminProduct, Category, BusinessConfig, StyleConfig, ActivePromotion } from "../types";
+import type { AdminProduct, Category, BusinessConfig, StyleConfig, ActivePromotion, DeliveryZone } from "../types";
 
 interface StorefrontData {
   branchId: number | null;
@@ -8,6 +8,7 @@ interface StorefrontData {
   products: AdminProduct[];
   categories: Category[];
   activePromotions: ActivePromotion[];
+  deliveryZones: DeliveryZone[];
   businessConfig: BusinessConfig;
   styleConfig: StyleConfig;
   loading: boolean;
@@ -59,6 +60,7 @@ export function useStorefront(): StorefrontData {
     products: [],
     categories: [],
     activePromotions: [],
+    deliveryZones: [],
     businessConfig: defaultConfig,
     styleConfig: defaultStyleConfig,
     loading: true,
@@ -86,6 +88,7 @@ export function useStorefront(): StorefrontData {
             products: [],
             categories: [],
             activePromotions: [],
+            deliveryZones: [],
             businessConfig: { ...defaultConfig, ...(state.businessConfig || {}) },
             styleConfig: { ...defaultStyleConfig, ...sc },
             loading: false,
@@ -100,6 +103,7 @@ export function useStorefront(): StorefrontData {
           products: state.products || [],
           categories: state.categories || [],
           activePromotions: state.activePromotions || [],
+          deliveryZones: state.deliveryZones || [],
           businessConfig: state.businessConfig || defaultConfig,
           styleConfig: { ...defaultStyleConfig, ...sc },
           loading: false,
