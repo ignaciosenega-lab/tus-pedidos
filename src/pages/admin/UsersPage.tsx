@@ -60,9 +60,10 @@ export default function UsersPage() {
     if (!effectiveBranchId) return;
     setMapLoading(true);
     try {
-      const data = await apiFetch<{ customers: any[]; branchAddress: string }>(
-        `/api/branches/${effectiveBranchId}/customers/map`
-      );
+      const url = viewAll
+        ? `/api/branches/${effectiveBranchId}/customers/map?all=1`
+        : `/api/branches/${effectiveBranchId}/customers/map`;
+      const data = await apiFetch<{ customers: any[]; branchAddress: string }>(url);
       setMapData(data);
       setShowMap(true);
     } catch {

@@ -1012,6 +1012,25 @@ router.get("/:id/customers/map", requireAuth, requireBranchAccess("id"), (req, r
   const db = req.app.locals.db;
   const branchId = Number(req.params.id);
 
+  // If ?all=1 and user is master, return customers from ALL branches
+  if (req.query.all === "1" && req.user?.role === "master") {
+    const customers = db.prepare(`
+      SELECT o.customer_name as name, o.customer_phone as phone, o.lat, o.lng,
+             sub.order_count as orderCount, sub.total_spent as totalSpent
+      FROM orders o
+      INNER JOIN (
+        SELECT customer_phone, COUNT(*) as order_count,
+               ROUND(SUM(total), 2) as total_spent, MAX(id) as last_order_id
+        FROM orders
+        WHERE lat IS NOT NULL AND lat != 0
+        GROUP BY customer_phone
+      ) sub ON o.id = sub.last_order_id
+    `).all();
+
+    const branch = db.prepare("SELECT address FROM branches WHERE id = ?").get(branchId);
+    return res.json({ customers, branchAddress: branch?.address || "" });
+  }
+
   // Get latest coordinates per customer from orders
   const customers = db.prepare(`
     SELECT o.customer_name as name, o.customer_phone as phone, o.lat, o.lng,
