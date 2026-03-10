@@ -493,7 +493,14 @@ function readStateFromDb(branchSlug) {
   };
 
   const paymentConfig = safeParseJson(branch.payment_config, {});
-  const styleConfig = safeParseJson(branch.style_config, {});
+  let styleConfig = safeParseJson(branch.style_config, {});
+  // Inherit style from master branch if this branch has no custom styles
+  if (Object.keys(styleConfig).length === 0) {
+    const masterBranch = db.prepare("SELECT style_config FROM branches WHERE is_active = 1 ORDER BY id LIMIT 1").get();
+    if (masterBranch) {
+      styleConfig = safeParseJson(masterBranch.style_config, {});
+    }
+  }
 
   return {
     branchId: branch.id,
