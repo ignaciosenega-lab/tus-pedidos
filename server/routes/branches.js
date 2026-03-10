@@ -41,6 +41,7 @@ router.get("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
     social_links: safeParseJson(branch.social_links, []),
     style_config: safeParseJson(branch.style_config, {}),
     payment_config: safeParseJson(branch.payment_config, {}),
+    schedule: safeParseJson(branch.schedule, {}),
   });
 });
 
