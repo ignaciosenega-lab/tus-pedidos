@@ -256,9 +256,18 @@ function applyPromotionsToProducts(products, promoRows, db) {
 
 function readStateFromDb(branchSlug) {
   // If a slug is provided, find that specific branch; otherwise use the first one
-  const branch = branchSlug
-    ? db.prepare("SELECT * FROM branches WHERE slug = ? AND is_active = 1").get(branchSlug)
-    : db.prepare("SELECT * FROM branches WHERE is_active = 1 ORDER BY id LIMIT 1").get();
+  let branch = null;
+  if (branchSlug) {
+    branch = db.prepare("SELECT * FROM branches WHERE slug = ? AND is_active = 1").get(branchSlug);
+    // Fallback: match slug ignoring hyphens (e.g. "laplata" matches "la-plata")
+    if (!branch) {
+      const normalized = branchSlug.replace(/-/g, "");
+      const all = db.prepare("SELECT * FROM branches WHERE is_active = 1").all();
+      branch = all.find((b) => b.slug.replace(/-/g, "") === normalized) || null;
+    }
+  } else {
+    branch = db.prepare("SELECT * FROM branches WHERE is_active = 1 ORDER BY id LIMIT 1").get();
+  }
   if (!branch) return null;
 
   const branchId = branch.id;
