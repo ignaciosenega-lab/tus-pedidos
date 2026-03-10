@@ -461,6 +461,16 @@ function readStateFromDb(branchSlug) {
   // ── Business Config (from branch) ──
   const openStatus = isCurrentlyOpen(branch);
   const schedule = safeParseJson(branch.schedule, {});
+  // Inherit logo/favicon from master branch if not set
+  let logo = branch.logo;
+  let favicon = branch.favicon;
+  if (!logo || !favicon) {
+    const master = db.prepare("SELECT logo, favicon FROM branches WHERE is_active = 1 ORDER BY id LIMIT 1").get();
+    if (master) {
+      if (!logo) logo = master.logo;
+      if (!favicon) favicon = master.favicon;
+    }
+  }
   const businessConfig = {
     title: branch.name,
     email: branch.email,
@@ -474,8 +484,8 @@ function readStateFromDb(branchSlug) {
     nextOpenTime: openStatus.nextOpen,
     holidayReason: openStatus.holidayReason,
     schedule,
-    logo: branch.logo,
-    favicon: branch.favicon,
+    logo,
+    favicon,
     banners: safeParseJson(branch.banners, []),
     whatsapp: branch.whatsapp,
     socialLinks: safeParseJson(branch.social_links, []),
