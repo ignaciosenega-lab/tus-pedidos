@@ -79,7 +79,6 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
   }
 
   function handleSend() {
-    if (!isStoreOpen) return;
     if (!validate()) return;
 
     const message = buildWhatsAppMessage(items, form, businessConfig.address);
@@ -345,14 +344,6 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
             </select>
           </div>
 
-          {/* Store closed warning */}
-          {!isStoreOpen && (
-            <div className="bg-red-900/30 border border-red-800 rounded-lg p-3 text-center">
-              <p className="text-red-400 font-semibold text-sm">
-                Local cerrado - No se pueden enviar pedidos en este momento
-              </p>
-            </div>
-          )}
         </div>
 
         {/* Footer */}
@@ -366,15 +357,8 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
           </button>
           <button
             onClick={handleSend}
-            disabled={!isStoreOpen}
-            className={`flex-1 py-3 rounded-lg font-semibold text-sm transition-opacity ${
-              isStoreOpen ? "hover:opacity-90" : "opacity-40 cursor-not-allowed"
-            }`}
-            style={
-              isStoreOpen
-                ? { backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }
-                : { backgroundColor: "gray", color: "var(--general-text)" }
-            }
+            className="flex-1 py-3 rounded-lg font-semibold text-sm transition-opacity hover:opacity-90"
+            style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
           >
             Enviar!
           </button>
