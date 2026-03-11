@@ -15,7 +15,7 @@ interface Props {
 export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
   const { items } = useCart();
   const dispatch = useCartDispatch();
-  const { businessConfig, branchId, deliveryZones } = useStorefront();
+  const { businessConfig, branchId, deliveryZones, delayMinutes } = useStorefront();
 
   const dateOptions = getDateOptions();
 
@@ -35,7 +35,7 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [outsideZone, setOutsideZone] = useState(false);
-  const timeSlots = getTimeSlots();
+  const timeSlots = getTimeSlots(delayMinutes, form.date);
 
   function updateField<K extends keyof CheckoutData>(
     key: K,
@@ -49,6 +49,16 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
     });
     if (key === "deliveryType" && value === "pickup") {
       setOutsideZone(false);
+    }
+    // Reset time when date changes so an unavailable slot isn't kept
+    if (key === "date") {
+      const newSlots = getTimeSlots(delayMinutes, value as string);
+      setForm((prev) => {
+        if (prev.time && !newSlots.some((s) => s.value === prev.time)) {
+          return { ...prev, [key]: value, time: "" };
+        }
+        return prev;
+      });
     }
   }
 

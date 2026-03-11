@@ -77,6 +77,12 @@ function getDb() {
       db.exec("ALTER TABLE coupons ADD COLUMN first_purchase_only INTEGER NOT NULL DEFAULT 0");
     }
 
+    // Migration: add delay_minutes to branches
+    const branchCols2 = db.prepare("PRAGMA table_info(branches)").all().map((c) => c.name);
+    if (!branchCols2.includes("delay_minutes")) {
+      db.exec("ALTER TABLE branches ADD COLUMN delay_minutes INTEGER NOT NULL DEFAULT 30");
+    }
+
     // Seed default menu if none exist
     const menuCount = db.prepare("SELECT COUNT(*) as count FROM menus").get();
     if (menuCount.count === 0) {

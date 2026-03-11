@@ -514,6 +514,7 @@ function readStateFromDb(branchSlug) {
     businessConfig,
     paymentConfig,
     styleConfig,
+    delayMinutes: branch.delay_minutes || 30,
   };
 }
 

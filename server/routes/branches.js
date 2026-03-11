@@ -145,6 +145,7 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
     payment_config,
     schedule,
     menu_id,
+    delay_minutes,
   } = req.body;
 
   // Check slug uniqueness if changing
@@ -162,7 +163,8 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
       url = @url, is_open = @is_open, logo = @logo, favicon = @favicon,
       banners = @banners, slider_images = @slider_images, social_links = @social_links,
       style_config = @style_config, payment_config = @payment_config,
-      schedule = @schedule, menu_id = @menu_id, updated_at = datetime('now')
+      schedule = @schedule, menu_id = @menu_id, delay_minutes = @delay_minutes,
+      updated_at = datetime('now')
     WHERE id = @id
   `).run({
     id,
@@ -185,6 +187,7 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
     payment_config: payment_config !== undefined ? JSON.stringify(payment_config) : existing.payment_config,
     schedule: schedule !== undefined ? JSON.stringify(schedule) : existing.schedule,
     menu_id: menu_id !== undefined ? menu_id : existing.menu_id,
+    delay_minutes: delay_minutes !== undefined ? delay_minutes : (existing.delay_minutes || 30),
   });
 
   const updated = db.prepare("SELECT * FROM branches WHERE id = ?").get(id);
@@ -1374,6 +1377,7 @@ function readBranchState(db, branchId) {
     businessConfig,
     paymentConfig,
     styleConfig,
+    delayMinutes: branch.delay_minutes || 30,
   };
 }
 

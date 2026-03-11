@@ -9,6 +9,7 @@ interface StorefrontData {
   categories: Category[];
   activePromotions: ActivePromotion[];
   deliveryZones: DeliveryZone[];
+  delayMinutes: number;
   businessConfig: BusinessConfig;
   styleConfig: StyleConfig;
   loading: boolean;
@@ -61,6 +62,7 @@ export function useStorefront(): StorefrontData {
     categories: [],
     activePromotions: [],
     deliveryZones: [],
+    delayMinutes: 30,
     businessConfig: defaultConfig,
     styleConfig: defaultStyleConfig,
     loading: true,
@@ -89,6 +91,7 @@ export function useStorefront(): StorefrontData {
             categories: [],
             activePromotions: [],
             deliveryZones: [],
+            delayMinutes: 30,
             businessConfig: { ...defaultConfig, ...(state.businessConfig || {}) },
             styleConfig: { ...defaultStyleConfig, ...sc },
             loading: false,
@@ -104,6 +107,7 @@ export function useStorefront(): StorefrontData {
           categories: state.categories || [],
           activePromotions: state.activePromotions || [],
           deliveryZones: state.deliveryZones || [],
+          delayMinutes: state.delayMinutes || 30,
           businessConfig: state.businessConfig || defaultConfig,
           styleConfig: { ...defaultStyleConfig, ...sc },
           loading: false,

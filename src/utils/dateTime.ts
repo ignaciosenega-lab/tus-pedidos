@@ -32,8 +32,10 @@ export function getDateOptions(): { value: string; label: string }[] {
   return options;
 }
 
-/** Returns time slot options from 19:00 to 23:00 every 15 min */
-export function getTimeSlots(): { value: string; label: string }[] {
+/** Returns time slot options from 19:00 to 23:00 every 15 min.
+ *  If delayMinutes and selectedDate are provided and the date is today,
+ *  slots earlier than now + delayMinutes are filtered out. */
+export function getTimeSlots(delayMinutes?: number, selectedDate?: string): { value: string; label: string }[] {
   const slots: { value: string; label: string }[] = [];
 
   for (let h = 19; h <= 22; h++) {
@@ -45,6 +47,23 @@ export function getTimeSlots(): { value: string; label: string }[] {
       const end = `${pad(endH)}:${pad(endMin)}`;
       const label = `${start} - ${end}`;
       slots.push({ value: label, label });
+    }
+  }
+
+  // Filter by delay if today is selected
+  if (delayMinutes && selectedDate) {
+    const now = new Date();
+    const todayStr = `${pad(now.getDate())}-${pad(now.getMonth() + 1)}-${now.getFullYear()}`;
+    if (selectedDate === todayStr) {
+      const cutoffMs = now.getTime() + delayMinutes * 60_000;
+      const cutoffH = new Date(cutoffMs).getHours();
+      const cutoffM = new Date(cutoffMs).getMinutes();
+      const cutoffTotal = cutoffH * 60 + cutoffM;
+      return slots.filter((s) => {
+        const [startTime] = s.value.split(" - ");
+        const [sh, sm] = startTime.split(":").map(Number);
+        return sh * 60 + sm >= cutoffTotal;
+      });
     }
   }
 
