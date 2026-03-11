@@ -81,6 +81,7 @@ export default function App() {
   const [showCart, setShowCart] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
   const [showOutOfStock, setShowOutOfStock] = useState(false);
+  const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; name: string; discount: number } | null>(null);
 
   // Filter + sort products
   const filteredProducts = useMemo(() => {
@@ -241,15 +242,18 @@ export default function App() {
 
       {showCart && (
         <CartModal
-          onClose={() => setShowCart(false)}
+          onClose={() => { setShowCart(false); setAppliedCoupon(null); }}
           onCheckout={handleOpenCheckout}
+          appliedCoupon={appliedCoupon}
+          onApplyCoupon={setAppliedCoupon}
         />
       )}
 
       {showCheckout && (
         <CheckoutModal
-          onClose={() => setShowCheckout(false)}
+          onClose={() => { setShowCheckout(false); setAppliedCoupon(null); }}
           isStoreOpen={businessConfig.isOpen}
+          appliedCoupon={appliedCoupon}
         />
       )}
 

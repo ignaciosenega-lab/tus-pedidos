@@ -2,10 +2,17 @@ import type { CartItem, CheckoutData } from "../types";
 import { plainPrice, plainTotal } from "./money";
 import { formatDateTimeForMessage } from "./dateTime";
 
+interface CouponInfo {
+  code: string;
+  name: string;
+  discount: number;
+}
+
 export function buildWhatsAppMessage(
   items: CartItem[],
   checkout: CheckoutData,
-  storeAddress: string
+  storeAddress: string,
+  coupon?: CouponInfo
 ): string {
   // Current order timestamp
   const now = new Date();
@@ -32,7 +39,13 @@ export function buildWhatsAppMessage(
     msg += `${i + 1}- ${label}   $${plainPrice(item.price)} x ${item.quantity} = $ ${plainPrice(subtotal)}\n`;
   });
 
-  msg += `\nTotal a pagar: $${plainTotal(total)}\n`;
+  if (coupon && coupon.discount > 0) {
+    msg += `\nSubtotal: $${plainTotal(total)}\n`;
+    msg += `Cupón ${coupon.code}: -$${plainTotal(coupon.discount)}\n`;
+    msg += `Total a pagar: $${plainTotal(Math.max(0, total - coupon.discount))}\n`;
+  } else {
+    msg += `\nTotal a pagar: $${plainTotal(total)}\n`;
+  }
   msg += `\n`;
   msg += `Forma de pago: ${checkout.paymentMethod}\n`;
 

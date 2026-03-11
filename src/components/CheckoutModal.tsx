@@ -7,12 +7,19 @@ import GoogleAddressPicker from "./GoogleAddressPicker";
 import { findDeliveryZone } from "../utils/kmlParser";
 import type { CheckoutData } from "../types";
 
+interface AppliedCoupon {
+  code: string;
+  name: string;
+  discount: number;
+}
+
 interface Props {
   onClose: () => void;
   isStoreOpen: boolean;
+  appliedCoupon?: AppliedCoupon | null;
 }
 
-export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
+export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon }: Props) {
   const { items } = useCart();
   const dispatch = useCartDispatch();
   const { businessConfig, branchId, deliveryZones, delayMinutes } = useStorefront();
@@ -104,7 +111,9 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
   function handleSend() {
     if (!validate()) return;
 
-    const message = buildWhatsAppMessage(items, form, businessConfig.address);
+    const discount = appliedCoupon?.discount || 0;
+    const couponCode = appliedCoupon?.code || null;
+    const message = buildWhatsAppMessage(items, form, businessConfig.address, appliedCoupon || undefined);
     const url = buildWhatsAppUrl(businessConfig.whatsapp || businessConfig.phone, message);
 
     // Calculate total
@@ -147,8 +156,9 @@ export default function CheckoutModal({ onClose, isStoreOpen }: Props) {
           })),
           subtotal,
           deliveryCost: 0,
-          discount: 0,
-          total: subtotal,
+          discount,
+          total: Math.max(0, subtotal - discount),
+          couponCode,
         }),
       }).catch(() => {});
     }

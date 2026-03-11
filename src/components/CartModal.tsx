@@ -1,15 +1,64 @@
+import { useState } from "react";
 import { useCart, useCartDispatch, cartTotal } from "../store/cartContext";
+import { useStorefront } from "../hooks/useStorefront";
 import { formatPrice, formatTotal } from "../utils/money";
+
+interface AppliedCoupon {
+  code: string;
+  name: string;
+  discount: number;
+}
 
 interface Props {
   onClose: () => void;
   onCheckout: () => void;
+  appliedCoupon: AppliedCoupon | null;
+  onApplyCoupon: (coupon: AppliedCoupon | null) => void;
 }
 
-export default function CartModal({ onClose, onCheckout }: Props) {
+export default function CartModal({ onClose, onCheckout, appliedCoupon, onApplyCoupon }: Props) {
   const { items } = useCart();
   const dispatch = useCartDispatch();
-  const total = cartTotal(items);
+  const { branchId } = useStorefront();
+  const subtotal = cartTotal(items);
+  const total = appliedCoupon ? Math.max(0, subtotal - appliedCoupon.discount) : subtotal;
+
+  const [couponCode, setCouponCode] = useState("");
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponError, setCouponError] = useState("");
+
+  async function applyCoupon() {
+    if (!couponCode.trim() || !branchId) return;
+    setCouponLoading(true);
+    setCouponError("");
+    try {
+      const res = await fetch("/api/coupons/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          branchId,
+          code: couponCode.trim(),
+          subtotal,
+          items: items.map((i) => ({
+            productId: i.productId,
+            quantity: i.quantity,
+            price: i.price,
+          })),
+        }),
+      });
+      const data = await res.json();
+      if (data.valid) {
+        onApplyCoupon({ code: data.coupon.code, name: data.coupon.name, discount: data.coupon.discount });
+        setCouponCode("");
+      } else {
+        setCouponError(data.message || "Cupón inválido");
+      }
+    } catch {
+      setCouponError("Error al validar cupón");
+    } finally {
+      setCouponLoading(false);
+    }
+  }
 
   return (
     <div
@@ -184,16 +233,66 @@ export default function CartModal({ onClose, onCheckout }: Props) {
 
         {/* ── Footer ─────────────────────────────── */}
         {items.length > 0 && (
-          <div className="px-5 pt-3 pb-5 space-y-4">
+          <div className="px-5 pt-3 pb-5 space-y-3">
             {/* Separator */}
             <div className="h-px bg-white/10" />
+
+            {/* Coupon input */}
+            {!appliedCoupon ? (
+              <div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={couponCode}
+                    onChange={(e) => { setCouponCode(e.target.value.toUpperCase()); setCouponError(""); }}
+                    placeholder="Código de cupón"
+                    className="flex-1 border border-white/10 rounded-lg px-3 py-2 text-sm placeholder-current/40 focus:outline-none focus:ring-2 focus:border-transparent"
+                    style={{ backgroundColor: "var(--panel-bg)", color: "var(--general-text)", "--tw-ring-color": "var(--btn-bg)" } as React.CSSProperties}
+                    onKeyDown={(e) => e.key === "Enter" && applyCoupon()}
+                  />
+                  <button
+                    onClick={applyCoupon}
+                    disabled={couponLoading || !couponCode.trim()}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90 disabled:opacity-40"
+                    style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
+                  >
+                    {couponLoading ? "..." : "Aplicar"}
+                  </button>
+                </div>
+                {couponError && (
+                  <p className="text-red-400 text-xs mt-1">{couponError}</p>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center justify-between rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">
+                <div>
+                  <span className="text-sm font-medium" style={{ color: "var(--general-text)" }}>
+                    {appliedCoupon.name}
+                  </span>
+                  <span className="text-xs text-emerald-400 ml-2">-{formatTotal(appliedCoupon.discount)}</span>
+                </div>
+                <button
+                  onClick={() => onApplyCoupon(null)}
+                  className="text-xs text-red-400 hover:text-red-300 font-medium"
+                >
+                  Quitar
+                </button>
+              </div>
+            )}
 
             {/* Total */}
             <div className="flex items-center justify-between">
               <span className="text-lg font-bold" style={{ color: "var(--title-text)" }}>Total</span>
-              <span className="text-2xl font-bold" style={{ color: "var(--btn-bg)" }}>
-                {formatTotal(total)}
-              </span>
+              <div className="text-right">
+                {appliedCoupon && (
+                  <span className="text-sm line-through opacity-50 mr-2" style={{ color: "var(--general-text)" }}>
+                    {formatTotal(subtotal)}
+                  </span>
+                )}
+                <span className="text-2xl font-bold" style={{ color: "var(--btn-bg)" }}>
+                  {formatTotal(total)}
+                </span>
+              </div>
             </div>
 
             {/* Buttons */}

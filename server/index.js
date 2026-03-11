@@ -945,6 +945,109 @@ app.post("/api/state", requireAuth, (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════
+   Public coupon validation (POST /api/coupons/validate)
+   ══════════════════════════════════════════════════ */
+app.post("/api/coupons/validate", (req, res) => {
+  try {
+    const { branchId, code, subtotal, items } = req.body;
+    if (!branchId || !code) {
+      return res.status(400).json({ valid: false, message: "Código requerido" });
+    }
+
+    const coupon = db.prepare(`
+      SELECT DISTINCT c.* FROM coupons c
+      LEFT JOIN coupon_branches cb ON c.id = cb.coupon_id
+      WHERE UPPER(c.code) = UPPER(?) AND c.is_active = 1
+        AND (c.branch_id = ? OR c.apply_all_branches = 1 OR cb.branch_id = ?)
+    `).get(code.trim(), branchId, branchId);
+
+    if (!coupon) {
+      return res.json({ valid: false, message: "Cupón no encontrado o inactivo" });
+    }
+
+    // Check date range
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    if (coupon.date_from && todayStr < coupon.date_from) {
+      return res.json({ valid: false, message: "Este cupón aún no está vigente" });
+    }
+    if (coupon.date_to && todayStr > coupon.date_to) {
+      return res.json({ valid: false, message: "Este cupón ya venció" });
+    }
+
+    // Check active days
+    const activeDays = safeParseJson(coupon.active_days, []);
+    if (activeDays.length > 0 && !activeDays.includes(now.getDay())) {
+      return res.json({ valid: false, message: "Este cupón no aplica hoy" });
+    }
+
+    // Check time range
+    const hhmm = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    if (coupon.time_from && hhmm < coupon.time_from) {
+      return res.json({ valid: false, message: "Este cupón aún no está activo en este horario" });
+    }
+    if (coupon.time_to && hhmm > coupon.time_to) {
+      return res.json({ valid: false, message: "Este cupón ya no está activo en este horario" });
+    }
+
+    // Check max uses
+    if (coupon.max_uses > 0 && coupon.used_count >= coupon.max_uses) {
+      return res.json({ valid: false, message: "Este cupón ya alcanzó el límite de usos" });
+    }
+
+    // Check min order
+    if (coupon.min_order > 0 && (subtotal || 0) < coupon.min_order) {
+      return res.json({ valid: false, message: `Pedido mínimo de $${coupon.min_order} para este cupón` });
+    }
+
+    // Calculate discount based on apply_to
+    let applicableTotal = subtotal || 0;
+    if (coupon.apply_to !== "all" && items && items.length > 0) {
+      const targets = db.prepare("SELECT * FROM coupon_targets WHERE coupon_id = ?").all(coupon.id);
+      const targetCatIds = targets.filter((t) => t.target_type === "category").map((t) => String(t.target_id));
+      const targetProdIds = targets.filter((t) => t.target_type === "product").map((t) => String(t.target_id));
+
+      applicableTotal = items.reduce((sum, item) => {
+        const matchesCat = coupon.apply_to === "categories" && targetCatIds.includes(String(item.categoryId));
+        const matchesProd = coupon.apply_to === "products" && targetProdIds.includes(String(item.productId));
+        if (matchesCat || matchesProd) {
+          return sum + (item.price || 0) * (item.quantity || 1);
+        }
+        return sum;
+      }, 0);
+
+      if (applicableTotal === 0) {
+        return res.json({ valid: false, message: "Este cupón no aplica a los productos de tu pedido" });
+      }
+    }
+
+    let discount = 0;
+    if (coupon.type === "percentage") {
+      discount = Math.round(applicableTotal * coupon.value / 100);
+    } else {
+      discount = Math.min(coupon.value, applicableTotal);
+    }
+
+    res.json({
+      valid: true,
+      coupon: {
+        code: coupon.code,
+        name: coupon.name,
+        type: coupon.type,
+        value: coupon.value,
+        discount,
+      },
+      message: coupon.type === "percentage"
+        ? `${coupon.name} — ${coupon.value}% de descuento`
+        : `${coupon.name} — $${coupon.value} de descuento`,
+    });
+  } catch (e) {
+    console.error("Error validating coupon:", e.message);
+    res.status(500).json({ valid: false, message: "Error validando cupón" });
+  }
+});
+
+/* ══════════════════════════════════════════════════
    Public order creation (POST /api/orders)
    Called from the storefront when a customer sends via WhatsApp
    ══════════════════════════════════════════════════ */
