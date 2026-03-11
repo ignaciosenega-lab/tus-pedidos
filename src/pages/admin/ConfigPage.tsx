@@ -78,7 +78,6 @@ export default function ConfigPage() {
   const [description, setDescription] = useState("");
   const [isOpen, setIsOpen] = useState(true);
   const [payment, setPayment] = useState<PaymentFormData>(DEFAULT_PAYMENT);
-  const [delayMinutes, setDelayMinutes] = useState(30);
   const [schedule, setSchedule] = useState<ScheduleData>(DEFAULT_SCHEDULE);
 
   useEffect(() => {
@@ -104,7 +103,6 @@ export default function ConfigPage() {
       setIsOpen(!!data.is_open);
       const pc = typeof data.payment_config === "object" && data.payment_config ? data.payment_config : {};
       setPayment({ ...DEFAULT_PAYMENT, ...pc });
-      setDelayMinutes((data as any).delay_minutes || 30);
       const sc: ScheduleData = typeof data.schedule === "object" && data.schedule ? data.schedule : DEFAULT_SCHEDULE;
       setSchedule({ ...DEFAULT_SCHEDULE, hours: { ...DEFAULT_SCHEDULE.hours, ...(sc.hours || {}) }, holidays: sc.holidays || [] });
     } catch (err: any) {
@@ -131,7 +129,6 @@ export default function ConfigPage() {
           description,
           is_open: isOpen,
           payment_config: payment,
-          delay_minutes: delayMinutes,
           schedule,
         }),
       });
@@ -300,24 +297,6 @@ export default function ConfigPage() {
               min="0" step="50" />
           </div>
         </div>
-      </div>
-
-      {/* Demora estimada */}
-      <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 space-y-4">
-        <h3 className="text-lg font-semibold text-white mb-2">Demora Estimada</h3>
-        <p className="text-sm text-gray-400">Tiempo mínimo de preparación. En el checkout, los horarios disponibles comenzarán a partir de la hora actual + esta demora.</p>
-        <select
-          value={delayMinutes}
-          onChange={(e) => setDelayMinutes(Number(e.target.value))}
-          className="w-full sm:w-48 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-        >
-          <option value={15}>15 minutos</option>
-          <option value={30}>30 minutos</option>
-          <option value={45}>45 minutos</option>
-          <option value={60}>60 minutos</option>
-          <option value={90}>90 minutos</option>
-          <option value={120}>120 minutos</option>
-        </select>
       </div>
 
       {/* Horarios */}

@@ -69,6 +69,8 @@ export default function OperationsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterTab>("active");
+  const [delayMinutes, setDelayMinutes] = useState(30);
+  const [savingDelay, setSavingDelay] = useState(false);
 
   useEffect(() => {
     if (!branchId) {
@@ -82,12 +84,31 @@ export default function OperationsPage() {
     try {
       setLoading(true);
       setError(null);
-      const data = await apiFetch<Order[]>(`/api/branches/${branchId}/orders`);
-      setOrders(data);
+      const [ordersData, branchData] = await Promise.all([
+        apiFetch<Order[]>(`/api/branches/${branchId}/orders`),
+        apiFetch<any>(`/api/branches/${branchId}`),
+      ]);
+      setOrders(ordersData);
+      setDelayMinutes(branchData.delay_minutes || 30);
     } catch (err: any) {
       setError(err.message || "Error al cargar pedidos");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function saveDelay(value: number) {
+    setDelayMinutes(value);
+    setSavingDelay(true);
+    try {
+      await apiFetch(`/api/branches/${branchId}`, {
+        method: "PUT",
+        body: JSON.stringify({ delay_minutes: value }),
+      });
+    } catch {
+      // silently fail
+    } finally {
+      setSavingDelay(false);
     }
   }
 
@@ -177,6 +198,31 @@ export default function OperationsPage() {
             Actualizar
           </button>
         </div>
+      </div>
+
+      {/* Demora estimada */}
+      <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-6 flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10" />
+            <path d="M12 6v6l4 2" />
+          </svg>
+          <span className="text-sm font-medium text-gray-300">Demora estimada</span>
+        </div>
+        <select
+          value={delayMinutes}
+          onChange={(e) => saveDelay(Number(e.target.value))}
+          disabled={savingDelay}
+          className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-emerald-500 disabled:opacity-50"
+        >
+          <option value={15}>15 min</option>
+          <option value={30}>30 min</option>
+          <option value={45}>45 min</option>
+          <option value={60}>60 min</option>
+          <option value={90}>90 min</option>
+          <option value={120}>120 min</option>
+        </select>
+        <span className="text-xs text-gray-500">Los horarios del checkout se filtran según esta demora</span>
       </div>
 
       {/* Filter Tabs */}
