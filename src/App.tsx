@@ -163,13 +163,19 @@ export default function App() {
       <ThemeStyles />
       <HeaderBar onOpenCart={() => setShowCart(true)} />
 
-      {!businessConfig.isOpen && (
-        <StoreClosedBanner
-          nextOpenTime={businessConfig.nextOpenTime}
-          holidayReason={businessConfig.holidayReason}
-          closedReason={businessConfig.closedReason}
-        />
-      )}
+      {(() => {
+        const pausedUntil = (businessConfig as any).pausedUntil;
+        const isPaused = pausedUntil && new Date(pausedUntil) > new Date();
+        const showBanner = !businessConfig.isOpen || isPaused;
+        if (!showBanner) return null;
+        return (
+          <StoreClosedBanner
+            nextOpenTime={isPaused ? pausedUntil : businessConfig.nextOpenTime}
+            holidayReason={businessConfig.holidayReason}
+            closedReason={isPaused ? "paused" : businessConfig.closedReason}
+          />
+        );
+      })()}
 
       {/* Main content */}
       <main className="max-w-7xl mx-auto px-4 pt-20 pb-8">

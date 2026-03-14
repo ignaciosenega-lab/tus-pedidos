@@ -479,6 +479,12 @@ function readStateFromDb(branchSlug) {
       if (!favicon) favicon = master.favicon;
     }
   }
+  // Direct pause check (redundant safety — also checked in isCurrentlyOpen)
+  const rawPausedUntil = branch.paused_until || null;
+  const isPausedNow = rawPausedUntil && new Date(rawPausedUntil) > new Date();
+  const finalIsOpen = isPausedNow ? false : openStatus.open;
+  const finalReason = isPausedNow ? "paused" : (openStatus.open ? null : openStatus.reason);
+
   const businessConfig = {
     title: branch.name,
     email: branch.email,
@@ -487,12 +493,12 @@ function readStateFromDb(branchSlug) {
     url: branch.url,
     description: branch.description,
     phone: branch.phone,
-    isOpen: openStatus.open,
-    closedReason: openStatus.open ? null : openStatus.reason,
-    nextOpenTime: openStatus.nextOpen,
+    isOpen: finalIsOpen,
+    closedReason: finalReason,
+    nextOpenTime: isPausedNow ? rawPausedUntil : openStatus.nextOpen,
     holidayReason: openStatus.holidayReason,
-    isPaused: openStatus.reason === "paused",
-    pausedUntil: openStatus.reason === "paused" ? branch.paused_until : null,
+    isPaused: !!isPausedNow,
+    pausedUntil: rawPausedUntil,
     schedule,
     logo,
     favicon,
