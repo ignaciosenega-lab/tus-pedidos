@@ -6,16 +6,21 @@ interface Props {
 
 export default function StoreClosedBanner({ nextOpenTime, holidayReason, closedReason }: Props) {
   let message = "EL LOCAL SE ENCUENTRA CERRADO.";
+  let suffix = " PROGRAMÁ TU PEDIDO.";
 
   if (closedReason === "paused") {
-    message = "NO ESTAMOS TOMANDO PEDIDOS EN ESTE MOMENTO.";
+    if (nextOpenTime) {
+      const time = new Date(nextOpenTime).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+      message = `POR ALTA DEMANDA NO ESTAMOS TOMANDO PEDIDOS HASTA LAS ${time}HS.`;
+    } else {
+      message = "POR ALTA DEMANDA NO ESTAMOS TOMANDO PEDIDOS EN ESTE MOMENTO.";
+    }
+    suffix = " DISCULPE LAS MOLESTIAS.";
   } else if (holidayReason) {
     message = `CERRADO POR ${holidayReason.toUpperCase()}.`;
   } else if (nextOpenTime) {
     message = `EL LOCAL SE ENCUENTRA CERRADO Y ABRE A LAS ${nextOpenTime}HS.`;
   }
-
-  const suffix = closedReason === "paused" ? " VOLVEMOS PRONTO." : " PROGRAMÁ TU PEDIDO.";
 
   return (
     <div className="fixed top-[60px] left-0 right-0 z-40 bg-red-700 text-white py-2.5 px-4">
