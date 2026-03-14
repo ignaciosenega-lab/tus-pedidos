@@ -31,8 +31,8 @@ CREATE TABLE IF NOT EXISTS branches (
   social_links  TEXT    NOT NULL DEFAULT '[]',
   style_config  TEXT    NOT NULL DEFAULT '{}',
   payment_config TEXT   NOT NULL DEFAULT '{}',
-  created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
-  updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+  created_at    TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+  updated_at    TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_branches_slug ON branches(slug);
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS menus (
   price_rule  TEXT    NOT NULL DEFAULT 'none' CHECK (price_rule IN ('none', 'percentage')),
   price_value REAL    NOT NULL DEFAULT 0,
   rounding    TEXT    NOT NULL DEFAULT 'none' CHECK (rounding IN ('none', 'round_10', 'round_50', 'round_100')),
-  created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  created_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
 -- ================================================================
@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS categories (
   name        TEXT    NOT NULL,
   sort_order  INTEGER NOT NULL DEFAULT 0,
   is_active   INTEGER NOT NULL DEFAULT 1,
-  created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  created_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
 -- ================================================================
@@ -78,8 +78,8 @@ CREATE TABLE IF NOT EXISTS products (
   is_featured INTEGER NOT NULL DEFAULT 0,
   is_private  INTEGER NOT NULL DEFAULT 0,
   gallery     TEXT    NOT NULL DEFAULT '[]',
-  created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
-  updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  created_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+  updated_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category_id);
@@ -170,7 +170,7 @@ CREATE TABLE IF NOT EXISTS promotions (
   date_to       TEXT    NOT NULL DEFAULT '',
   weekly_repeat INTEGER NOT NULL DEFAULT 0,
   is_active     INTEGER NOT NULL DEFAULT 1,
-  created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+  created_at    TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_promotions_branch ON promotions(branch_id);
@@ -222,7 +222,7 @@ CREATE TABLE IF NOT EXISTS coupons (
   date_from   TEXT    NOT NULL DEFAULT '',
   date_to     TEXT    NOT NULL DEFAULT '',
   is_active   INTEGER NOT NULL DEFAULT 1,
-  created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  created_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_coupons_branch ON coupons(branch_id);
@@ -289,7 +289,7 @@ CREATE TABLE IF NOT EXISTS orders (
   coupon_code     TEXT,
   status          TEXT    NOT NULL DEFAULT 'pending'
                   CHECK (status IN ('pending','confirmed','preparing','ready','delivering','delivered','cancelled')),
-  created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+  created_at      TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_orders_branch ON orders(branch_id);
@@ -308,7 +308,7 @@ CREATE TABLE IF NOT EXISTS users (
   branch_id     INTEGER REFERENCES branches(id) ON DELETE SET NULL,
   display_name  TEXT    NOT NULL DEFAULT '',
   is_active     INTEGER NOT NULL DEFAULT 1,
-  created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+  created_at    TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username);
@@ -327,7 +327,7 @@ CREATE TABLE IF NOT EXISTS app_users (
                   CHECK (status IN ('activo', 'inactivo', 'bloqueado')),
   total_spent     REAL    NOT NULL DEFAULT 0,
   last_order_date TEXT,
-  registered_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+  registered_at   TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
 -- ================================================================
@@ -343,7 +343,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   old_value   TEXT,
   new_value   TEXT,
   ip_address  TEXT,
-  created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  created_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id);
@@ -360,7 +360,7 @@ CREATE TABLE IF NOT EXISTS analytics_events (
   event_type TEXT    NOT NULL,
   product_id INTEGER,
   session_id TEXT    NOT NULL DEFAULT '',
-  created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_ae_branch_type ON analytics_events(branch_id, event_type);
@@ -379,7 +379,7 @@ CREATE TABLE IF NOT EXISTS campaign_numbers (
   last_reset_date TEXT    NOT NULL DEFAULT '',
   status          TEXT    NOT NULL DEFAULT 'active'
                   CHECK (status IN ('active','paused','blocked')),
-  created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+  created_at      TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
 -- ================================================================
@@ -395,7 +395,7 @@ CREATE TABLE IF NOT EXISTS campaign_contacts (
   opted_out    INTEGER NOT NULL DEFAULT 0,
   opted_out_at TEXT,
   branch_id    INTEGER REFERENCES branches(id) ON DELETE SET NULL,
-  created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+  created_at   TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_cc_phone ON campaign_contacts(phone);
@@ -422,7 +422,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
   failed_count      INTEGER NOT NULL DEFAULT 0,
   replied_count     INTEGER NOT NULL DEFAULT 0,
   created_by        INTEGER REFERENCES users(id) ON DELETE SET NULL,
-  created_at        TEXT    NOT NULL DEFAULT (datetime('now'))
+  created_at        TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_campaigns_status ON campaigns(status);
@@ -452,7 +452,7 @@ CREATE TABLE IF NOT EXISTS campaign_messages (
   sent_at       TEXT,
   delivered_at  TEXT,
   read_at       TEXT,
-  created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+  created_at    TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_cm_campaign ON campaign_messages(campaign_id);

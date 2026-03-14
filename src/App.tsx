@@ -167,6 +167,7 @@ export default function App() {
         <StoreClosedBanner
           nextOpenTime={businessConfig.nextOpenTime}
           holidayReason={businessConfig.holidayReason}
+          closedReason={businessConfig.closedReason}
         />
       )}
 

@@ -146,6 +146,7 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
     schedule,
     menu_id,
     delay_minutes,
+    paused_until,
   } = req.body;
 
   // Check slug uniqueness if changing
@@ -163,8 +164,8 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
       url = @url, is_open = @is_open, logo = @logo, favicon = @favicon,
       banners = @banners, slider_images = @slider_images, social_links = @social_links,
       style_config = @style_config, payment_config = @payment_config,
-      schedule = @schedule, menu_id = @menu_id, delay_minutes = @delay_minutes,
-      updated_at = datetime('now')
+      schedule = @schedule, menu_id = @menu_id, delay_minutes = @delay_minutes, paused_until = @paused_until,
+      updated_at = datetime('now', 'localtime')
     WHERE id = @id
   `).run({
     id,
@@ -188,6 +189,7 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
     schedule: schedule !== undefined ? JSON.stringify(schedule) : existing.schedule,
     menu_id: menu_id !== undefined ? menu_id : existing.menu_id,
     delay_minutes: delay_minutes !== undefined ? delay_minutes : (existing.delay_minutes || 30),
+    paused_until: paused_until !== undefined ? paused_until : existing.paused_until,
   });
 
   const updated = db.prepare("SELECT * FROM branches WHERE id = ?").get(id);

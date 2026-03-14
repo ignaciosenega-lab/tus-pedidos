@@ -156,7 +156,7 @@ async function processCampaignQueue(db) {
 
     if (!nextContact) {
       // No more contacts — campaign complete
-      db.prepare("UPDATE campaigns SET status = 'completed', completed_at = datetime('now') WHERE id = ?").run(cid);
+      db.prepare("UPDATE campaigns SET status = 'completed', completed_at = datetime('now', 'localtime') WHERE id = ?").run(cid);
       console.log(`[Campaign ${cid}] Completada`);
       // Clean up state
       delete workerState.lastSendTime[cid];
@@ -196,7 +196,7 @@ async function processCampaignQueue(db) {
     const msgStatus = result.ok ? "sent" : "failed";
     db.prepare(`
       INSERT INTO campaign_messages (campaign_id, contact_id, number_id, twilio_sid, status, error_code, error_message, sent_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
     `).run(cid, nextContact.id, senderNumber.id, result.sid || null, msgStatus, result.code || null, result.error || null);
 
     // Update campaign counters

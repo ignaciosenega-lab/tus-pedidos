@@ -62,6 +62,14 @@ function isCurrentlyOpen(branch) {
   // Manual override: if admin toggled off, always closed
   if (!branch.is_open) return { open: false, reason: "manual", nextOpen: null, holidayReason: null };
 
+  // Check if branch is temporarily paused
+  if (branch.paused_until) {
+    const pausedUntil = new Date(branch.paused_until);
+    if (pausedUntil > new Date()) {
+      return { open: false, reason: "paused", nextOpen: branch.paused_until, holidayReason: null };
+    }
+  }
+
   const schedule = safeParseJson(branch.schedule, {});
   const hours = schedule.hours;
   const holidays = schedule.holidays || [];
@@ -483,6 +491,8 @@ function readStateFromDb(branchSlug) {
     closedReason: openStatus.open ? null : openStatus.reason,
     nextOpenTime: openStatus.nextOpen,
     holidayReason: openStatus.holidayReason,
+    isPaused: openStatus.reason === "paused",
+    pausedUntil: openStatus.reason === "paused" ? branch.paused_until : null,
     schedule,
     logo,
     favicon,
@@ -546,7 +556,7 @@ const writeStateToDb = db.transaction((state, branchSlug) => {
       logo = @logo, favicon = @favicon, banners = @banners,
       slider_images = @slider_images, social_links = @social_links,
       style_config = @style_config, payment_config = @payment_config,
-      updated_at = datetime('now')
+      updated_at = datetime('now', 'localtime')
     WHERE id = @id
   `).run({
     id: branchId,
@@ -1113,7 +1123,7 @@ app.post("/api/orders", (req, res) => {
 
     // Update total_spent and last_order_date on customer
     db.prepare(
-      "UPDATE app_users SET total_spent = total_spent + ?, last_order_date = datetime('now') WHERE id = ?"
+      "UPDATE app_users SET total_spent = total_spent + ?, last_order_date = datetime('now', 'localtime') WHERE id = ?"
     ).run(orderTotal, customer.id);
 
     res.status(201).json({ ok: true, orderId: result.lastInsertRowid });
@@ -1207,10 +1217,10 @@ app.post("/api/webhooks/twilio/status", (req, res) => {
   db.prepare("UPDATE campaign_messages SET status = ? WHERE id = ?").run(newStatus, msg.id);
 
   if (newStatus === "delivered") {
-    db.prepare("UPDATE campaign_messages SET delivered_at = datetime('now') WHERE id = ?").run(msg.id);
+    db.prepare("UPDATE campaign_messages SET delivered_at = datetime('now', 'localtime') WHERE id = ?").run(msg.id);
     db.prepare("UPDATE campaigns SET delivered_count = delivered_count + 1 WHERE id = ?").run(msg.campaign_id);
   } else if (newStatus === "read") {
-    db.prepare("UPDATE campaign_messages SET read_at = datetime('now') WHERE id = ?").run(msg.id);
+    db.prepare("UPDATE campaign_messages SET read_at = datetime('now', 'localtime') WHERE id = ?").run(msg.id);
     db.prepare("UPDATE campaigns SET read_count = read_count + 1 WHERE id = ?").run(msg.campaign_id);
   } else if (newStatus === "failed" || newStatus === "undelivered") {
     db.prepare("UPDATE campaigns SET failed_count = failed_count + 1 WHERE id = ?").run(msg.campaign_id);
@@ -1229,7 +1239,7 @@ app.post("/api/webhooks/twilio/incoming", (req, res) => {
 
   // Check for opt-out keywords
   if (["stop", "parar", "no", "baja", "cancelar"].includes(bodyLower)) {
-    db.prepare("UPDATE campaign_contacts SET opted_out = 1, opted_out_at = datetime('now') WHERE phone = ?").run(phone);
+    db.prepare("UPDATE campaign_contacts SET opted_out = 1, opted_out_at = datetime('now', 'localtime') WHERE phone = ?").run(phone);
   }
 
   // Increment replied_count on latest campaign for this contact

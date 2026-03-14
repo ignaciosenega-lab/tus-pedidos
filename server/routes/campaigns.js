@@ -124,7 +124,7 @@ router.post("/:id/start", requireAuth, (req, res) => {
     const ins = db.prepare("INSERT INTO campaign_contact_lists (campaign_id, contact_id) VALUES (?, ?)");
     for (const c of contacts) ins.run(id, c.id);
 
-    db.prepare("UPDATE campaigns SET total_contacts = ?, started_at = datetime('now'), status = 'running' WHERE id = ?")
+    db.prepare("UPDATE campaigns SET total_contacts = ?, started_at = datetime('now', 'localtime'), status = 'running' WHERE id = ?")
       .run(contacts.length, id);
   } else {
     // Resuming from paused

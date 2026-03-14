@@ -71,6 +71,9 @@ export default function OperationsPage() {
   const [filter, setFilter] = useState<FilterTab>("active");
   const [delayMinutes, setDelayMinutes] = useState(30);
   const [savingDelay, setSavingDelay] = useState(false);
+  const [pausedUntil, setPausedUntil] = useState<string | null>(null);
+  const [pauseDuration, setPauseDuration] = useState("30");
+  const [savingPause, setSavingPause] = useState(false);
 
   useEffect(() => {
     if (!branchId) {
@@ -90,6 +93,7 @@ export default function OperationsPage() {
       ]);
       setOrders(ordersData);
       setDelayMinutes(branchData.delay_minutes || 30);
+      setPausedUntil(branchData.paused_until || null);
     } catch (err: any) {
       setError(err.message || "Error al cargar pedidos");
     } finally {
@@ -109,6 +113,52 @@ export default function OperationsPage() {
       // silently fail
     } finally {
       setSavingDelay(false);
+    }
+  }
+
+  const isPaused = pausedUntil ? new Date(pausedUntil) > new Date() : false;
+
+  function formatPausedTime(iso: string): string {
+    const d = new Date(iso);
+    return d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+  }
+
+  async function pauseOrders() {
+    setSavingPause(true);
+    try {
+      let until: string;
+      if (pauseDuration === "today") {
+        // Rest of the day: 23:59 today
+        const now = new Date();
+        until = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString();
+      } else {
+        const mins = Number(pauseDuration);
+        until = new Date(Date.now() + mins * 60 * 1000).toISOString();
+      }
+      await apiFetch(`/api/branches/${branchId}`, {
+        method: "PUT",
+        body: JSON.stringify({ paused_until: until }),
+      });
+      setPausedUntil(until);
+    } catch {
+      // silently fail
+    } finally {
+      setSavingPause(false);
+    }
+  }
+
+  async function resumeOrders() {
+    setSavingPause(true);
+    try {
+      await apiFetch(`/api/branches/${branchId}`, {
+        method: "PUT",
+        body: JSON.stringify({ paused_until: null }),
+      });
+      setPausedUntil(null);
+    } catch {
+      // silently fail
+    } finally {
+      setSavingPause(false);
     }
   }
 
@@ -223,6 +273,56 @@ export default function OperationsPage() {
           <option value={120}>120 min</option>
         </select>
         <span className="text-xs text-gray-500">Los horarios del checkout se filtran según esta demora</span>
+      </div>
+
+      {/* Pausar pedidos */}
+      <div className={`border rounded-lg p-4 mb-6 ${isPaused ? "bg-red-900/20 border-red-900/50" : "bg-gray-900 border-gray-800"}`}>
+        {isPaused ? (
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="text-sm font-medium text-red-400">
+                Pedidos pausados hasta las {formatPausedTime(pausedUntil!)}
+              </span>
+            </div>
+            <button
+              onClick={resumeOrders}
+              disabled={savingPause}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {savingPause ? "..." : "Reanudar pedidos"}
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-4 flex-wrap">
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="text-sm font-medium text-gray-300">Pausar pedidos</span>
+            </div>
+            <select
+              value={pauseDuration}
+              onChange={(e) => setPauseDuration(e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-emerald-500"
+            >
+              <option value="30">30 minutos</option>
+              <option value="60">1 hora</option>
+              <option value="90">1 hora y media</option>
+              <option value="120">2 horas</option>
+              <option value="today">Resto del día</option>
+            </select>
+            <button
+              onClick={pauseOrders}
+              disabled={savingPause}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {savingPause ? "..." : "Pausar"}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Filter Tabs */}
