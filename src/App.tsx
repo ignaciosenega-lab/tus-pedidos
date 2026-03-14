@@ -81,6 +81,7 @@ export default function App() {
   const [showCart, setShowCart] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
   const [showOutOfStock, setShowOutOfStock] = useState(false);
+  const [showPausedAlert, setShowPausedAlert] = useState(false);
   const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; name: string; discount: number } | null>(null);
 
   // Filter + sort products
@@ -120,7 +121,17 @@ export default function App() {
     return result;
   }, [products, selectedCategory, search, sort]);
 
+  function isStorePaused(): boolean {
+    const pu = (businessConfig as any).pausedUntil;
+    return !!(pu && new Date(pu) > new Date()) || !businessConfig.isOpen && (businessConfig.closedReason === "paused");
+  }
+
   function handleAddSimple(product: Product) {
+    if (isStorePaused()) {
+      setShowPausedAlert(true);
+      return;
+    }
+
     if (product.type === "simple" && product.stock !== undefined && product.stock <= 0) {
       setShowOutOfStock(true);
       return;
@@ -143,6 +154,11 @@ export default function App() {
   }
 
   function handleOpenOptions(product: Product) {
+    if (isStorePaused()) {
+      setShowPausedAlert(true);
+      return;
+    }
+
     if (branchId) trackEvent(branchId, "product_view", product.id);
     setOptionsProduct(product);
   }
@@ -269,6 +285,33 @@ export default function App() {
 
       {showOutOfStock && (
         <OutOfStockModal onClose={() => setShowOutOfStock(false)} />
+      )}
+
+      {showPausedAlert && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60" onClick={() => setShowPausedAlert(false)}>
+          <div className="bg-red-700 text-white rounded-xl p-6 mx-4 max-w-md text-center shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <svg className="w-12 h-12 mx-auto mb-3 opacity-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p className="text-lg font-bold mb-1">
+              {(() => {
+                const pu = (businessConfig as any).pausedUntil;
+                if (pu) {
+                  const time = new Date(pu).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+                  return `POR ALTA DEMANDA NO ESTAMOS TOMANDO PEDIDOS HASTA LAS ${time}HS.`;
+                }
+                return "POR ALTA DEMANDA NO ESTAMOS TOMANDO PEDIDOS EN ESTE MOMENTO.";
+              })()}
+            </p>
+            <p className="text-sm opacity-80 mb-4">DISCULPE LAS MOLESTIAS.</p>
+            <button
+              onClick={() => setShowPausedAlert(false)}
+              className="px-6 py-2 bg-white text-red-700 rounded-lg font-semibold hover:bg-gray-100 transition-colors"
+            >
+              Entendido
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Floating WhatsApp button */}
