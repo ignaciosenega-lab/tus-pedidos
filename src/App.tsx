@@ -163,22 +163,24 @@ export default function App() {
       <ThemeStyles />
       <HeaderBar onOpenCart={() => setShowCart(true)} />
 
-      {(() => {
-        const pausedUntil = (businessConfig as any).pausedUntil;
-        const isPaused = pausedUntil && new Date(pausedUntil) > new Date();
-        const showBanner = !businessConfig.isOpen || isPaused;
-        if (!showBanner) return null;
-        return (
-          <StoreClosedBanner
-            nextOpenTime={isPaused ? pausedUntil : businessConfig.nextOpenTime}
-            holidayReason={businessConfig.holidayReason}
-            closedReason={isPaused ? "paused" : businessConfig.closedReason}
-          />
-        );
-      })()}
+      {/* Content area below fixed header */}
+      <div className="pt-20">
+        {(() => {
+          const pausedUntil = (businessConfig as any).pausedUntil;
+          const isPaused = pausedUntil && new Date(pausedUntil) > new Date();
+          const showBanner = !businessConfig.isOpen || isPaused;
+          if (!showBanner) return null;
+          return (
+            <StoreClosedBanner
+              nextOpenTime={isPaused ? pausedUntil : businessConfig.nextOpenTime}
+              holidayReason={businessConfig.holidayReason}
+              closedReason={isPaused ? "paused" : businessConfig.closedReason}
+            />
+          );
+        })()}
 
       {/* Main content */}
-      <main className="max-w-7xl mx-auto px-4 pt-20 pb-8">
+      <main className="max-w-7xl mx-auto px-4 pb-8">
         {/* Title */}
         <section className="mt-6 mb-6">
           <h1 className="text-3xl font-extrabold italic" style={{ color: "var(--title-text)" }}>
@@ -233,6 +235,7 @@ export default function App() {
           )}
         </section>
       </main>
+      </div>
 
       {/* Modals */}
       {optionsProduct && (
