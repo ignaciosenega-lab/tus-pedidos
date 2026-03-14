@@ -117,91 +117,102 @@ router.post("/", requireAuth, requireRole("master"), (req, res) => {
 
 // PUT /api/branches/:id
 router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
-  const db = req.app.locals.db;
-  const id = Number(req.params.id);
+  try {
+    const db = req.app.locals.db;
+    const id = Number(req.params.id);
 
-  const existing = db.prepare("SELECT * FROM branches WHERE id = ?").get(id);
-  if (!existing) {
-    return res.status(404).json({ error: "Sucursal no encontrada" });
-  }
-
-  const {
-    slug,
-    name,
-    address,
-    address_url,
-    whatsapp,
-    phone,
-    email,
-    description,
-    url,
-    is_open,
-    logo,
-    favicon,
-    banners,
-    slider_images,
-    social_links,
-    style_config,
-    payment_config,
-    schedule,
-    menu_id,
-    delay_minutes,
-    paused_until,
-  } = req.body;
-
-  // Check slug uniqueness if changing
-  if (slug && slug !== existing.slug) {
-    const duplicate = db.prepare("SELECT id FROM branches WHERE slug = ? AND id != ?").get(slug, id);
-    if (duplicate) {
-      return res.status(409).json({ error: "El slug ya existe" });
+    const existing = db.prepare("SELECT * FROM branches WHERE id = ?").get(id);
+    if (!existing) {
+      return res.status(404).json({ error: "Sucursal no encontrada" });
     }
+
+    // Ensure paused_until column exists (auto-migrate)
+    const cols = db.prepare("PRAGMA table_info(branches)").all().map((c) => c.name);
+    if (!cols.includes("paused_until")) {
+      db.exec("ALTER TABLE branches ADD COLUMN paused_until TEXT DEFAULT NULL");
+    }
+
+    const {
+      slug,
+      name,
+      address,
+      address_url,
+      whatsapp,
+      phone,
+      email,
+      description,
+      url,
+      is_open,
+      logo,
+      favicon,
+      banners,
+      slider_images,
+      social_links,
+      style_config,
+      payment_config,
+      schedule,
+      menu_id,
+      delay_minutes,
+      paused_until,
+    } = req.body;
+
+    // Check slug uniqueness if changing
+    if (slug && slug !== existing.slug) {
+      const duplicate = db.prepare("SELECT id FROM branches WHERE slug = ? AND id != ?").get(slug, id);
+      if (duplicate) {
+        return res.status(409).json({ error: "El slug ya existe" });
+      }
+    }
+
+    db.prepare(`
+      UPDATE branches SET
+        slug = @slug, name = @name, address = @address, address_url = @address_url,
+        whatsapp = @whatsapp, phone = @phone, email = @email, description = @description,
+        url = @url, is_open = @is_open, logo = @logo, favicon = @favicon,
+        banners = @banners, slider_images = @slider_images, social_links = @social_links,
+        style_config = @style_config, payment_config = @payment_config,
+        schedule = @schedule, menu_id = @menu_id, delay_minutes = @delay_minutes, paused_until = @paused_until,
+        updated_at = datetime('now', 'localtime')
+      WHERE id = @id
+    `).run({
+      id,
+      slug: slug !== undefined ? slug : existing.slug,
+      name: name !== undefined ? name : existing.name,
+      address: address !== undefined ? address : existing.address,
+      address_url: address_url !== undefined ? address_url : existing.address_url,
+      whatsapp: whatsapp !== undefined ? whatsapp : existing.whatsapp,
+      phone: phone !== undefined ? phone : existing.phone,
+      email: email !== undefined ? email : existing.email,
+      description: description !== undefined ? description : existing.description,
+      url: url !== undefined ? url : existing.url,
+      is_open: is_open !== undefined ? (is_open ? 1 : 0) : existing.is_open,
+      logo: logo !== undefined ? logo : existing.logo,
+      favicon: favicon !== undefined ? favicon : existing.favicon,
+      banners: banners !== undefined ? JSON.stringify(banners) : existing.banners,
+      slider_images: slider_images !== undefined ? JSON.stringify(slider_images) : existing.slider_images,
+      social_links: social_links !== undefined ? JSON.stringify(social_links) : existing.social_links,
+      style_config: style_config !== undefined ? JSON.stringify(style_config) : existing.style_config,
+      payment_config: payment_config !== undefined ? JSON.stringify(payment_config) : existing.payment_config,
+      schedule: schedule !== undefined ? JSON.stringify(schedule) : existing.schedule,
+      menu_id: menu_id !== undefined ? menu_id : existing.menu_id,
+      delay_minutes: delay_minutes !== undefined ? delay_minutes : (existing.delay_minutes || 30),
+      paused_until: paused_until !== undefined ? paused_until : existing.paused_until,
+    });
+
+    const updated = db.prepare("SELECT * FROM branches WHERE id = ?").get(id);
+    res.json({
+      ...updated,
+      banners: safeParseJson(updated.banners, []),
+      slider_images: safeParseJson(updated.slider_images, []),
+      social_links: safeParseJson(updated.social_links, []),
+      style_config: safeParseJson(updated.style_config, {}),
+      payment_config: safeParseJson(updated.payment_config, {}),
+      schedule: safeParseJson(updated.schedule, {}),
+    });
+  } catch (e) {
+    console.error("Error updating branch:", e);
+    res.status(500).json({ error: "Error al actualizar sucursal: " + e.message });
   }
-
-  db.prepare(`
-    UPDATE branches SET
-      slug = @slug, name = @name, address = @address, address_url = @address_url,
-      whatsapp = @whatsapp, phone = @phone, email = @email, description = @description,
-      url = @url, is_open = @is_open, logo = @logo, favicon = @favicon,
-      banners = @banners, slider_images = @slider_images, social_links = @social_links,
-      style_config = @style_config, payment_config = @payment_config,
-      schedule = @schedule, menu_id = @menu_id, delay_minutes = @delay_minutes, paused_until = @paused_until,
-      updated_at = datetime('now', 'localtime')
-    WHERE id = @id
-  `).run({
-    id,
-    slug: slug !== undefined ? slug : existing.slug,
-    name: name !== undefined ? name : existing.name,
-    address: address !== undefined ? address : existing.address,
-    address_url: address_url !== undefined ? address_url : existing.address_url,
-    whatsapp: whatsapp !== undefined ? whatsapp : existing.whatsapp,
-    phone: phone !== undefined ? phone : existing.phone,
-    email: email !== undefined ? email : existing.email,
-    description: description !== undefined ? description : existing.description,
-    url: url !== undefined ? url : existing.url,
-    is_open: is_open !== undefined ? (is_open ? 1 : 0) : existing.is_open,
-    logo: logo !== undefined ? logo : existing.logo,
-    favicon: favicon !== undefined ? favicon : existing.favicon,
-    banners: banners !== undefined ? JSON.stringify(banners) : existing.banners,
-    slider_images: slider_images !== undefined ? JSON.stringify(slider_images) : existing.slider_images,
-    social_links: social_links !== undefined ? JSON.stringify(social_links) : existing.social_links,
-    style_config: style_config !== undefined ? JSON.stringify(style_config) : existing.style_config,
-    payment_config: payment_config !== undefined ? JSON.stringify(payment_config) : existing.payment_config,
-    schedule: schedule !== undefined ? JSON.stringify(schedule) : existing.schedule,
-    menu_id: menu_id !== undefined ? menu_id : existing.menu_id,
-    delay_minutes: delay_minutes !== undefined ? delay_minutes : (existing.delay_minutes || 30),
-    paused_until: paused_until !== undefined ? paused_until : existing.paused_until,
-  });
-
-  const updated = db.prepare("SELECT * FROM branches WHERE id = ?").get(id);
-  res.json({
-    ...updated,
-    banners: safeParseJson(updated.banners, []),
-    slider_images: safeParseJson(updated.slider_images, []),
-    social_links: safeParseJson(updated.social_links, []),
-    style_config: safeParseJson(updated.style_config, {}),
-    payment_config: safeParseJson(updated.payment_config, {}),
-    schedule: safeParseJson(updated.schedule, {}),
-  });
 });
 
 // DELETE /api/branches/:id

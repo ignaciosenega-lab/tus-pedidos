@@ -203,16 +203,27 @@ export default function AdminLayout() {
       {/* Main area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top bar */}
-        <header className="h-16 bg-gray-900 border-b border-gray-800 flex items-center px-4 shrink-0">
+        <header className="h-16 bg-gray-900 border-b border-gray-800 flex items-center justify-between px-4 shrink-0">
+          <div className="flex items-center">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="lg:hidden text-gray-400 hover:text-white mr-3"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+            <h1 className="text-white font-semibold text-lg">Panel de Administración</h1>
+          </div>
           <button
-            onClick={() => setSidebarOpen(true)}
-            className="lg:hidden text-gray-400 hover:text-white mr-3"
+            onClick={handleLogout}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-red-400 hover:text-red-300 hover:bg-gray-800 transition-colors"
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
             </svg>
+            <span className="hidden sm:inline">Cerrar sesión</span>
           </button>
-          <h1 className="text-white font-semibold text-lg">Panel de Administración</h1>
         </header>
 
         {/* Page content */}
