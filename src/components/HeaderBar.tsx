@@ -14,7 +14,7 @@ export default function HeaderBar({ onOpenCart }: Props) {
 
   return (
     <header
-      className="fixed top-0 left-0 right-0 z-50 shadow-lg border-b border-white/10"
+      className="sticky top-0 z-50 shadow-lg border-b border-white/10"
       style={{ backgroundColor: "var(--header-bg)", color: "var(--header-text)" }}
     >
       <div className="max-w-5xl mx-auto flex items-center justify-between px-4 py-3">

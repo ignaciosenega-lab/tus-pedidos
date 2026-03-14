@@ -163,8 +163,8 @@ export default function App() {
       <ThemeStyles />
       <HeaderBar onOpenCart={() => setShowCart(true)} />
 
-      {/* Content area below fixed header */}
-      <div className="pt-20">
+      {/* Content area below sticky header */}
+      <div>
         {(() => {
           const pausedUntil = (businessConfig as any).pausedUntil;
           const isPaused = pausedUntil && new Date(pausedUntil) > new Date();
