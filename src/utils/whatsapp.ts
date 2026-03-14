@@ -67,9 +67,17 @@ export function buildWhatsAppMessage(
   return msg;
 }
 
+/** Normalize an Argentine phone number for WhatsApp API (format: 549XXXXXXXXXX) */
+export function normalizePhoneForWhatsApp(phone: string): string {
+  let digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("549") && digits.length >= 12) return digits; // already correct
+  if (digits.startsWith("54") && !digits.startsWith("549")) return "549" + digits.slice(2); // missing 9
+  if (digits.startsWith("0")) return "549" + digits.slice(1); // local with leading 0
+  return "549" + digits; // local number like 1124879447
+}
+
 export function buildWhatsAppUrl(phone: string, message: string): string {
-  // Sanitize phone: keep only digits (removes +, spaces, dashes, parentheses)
-  const cleanPhone = phone.replace(/\D/g, "");
+  const cleanPhone = normalizePhoneForWhatsApp(phone);
   const encoded = encodeURIComponent(message);
   return `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encoded}`;
 }

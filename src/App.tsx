@@ -15,6 +15,7 @@ import StoreClosedBanner from "./components/StoreClosedBanner";
 import PromoBanner from "./components/PromoBanner";
 import ThemeStyles from "./components/ThemeStyles";
 import BranchSelectorPage from "./components/BranchSelectorPage";
+import { normalizePhoneForWhatsApp } from "./utils/whatsapp";
 
 type SortOption = "default" | "price-asc" | "price-desc" | "name";
 
@@ -317,7 +318,7 @@ export default function App() {
       {/* Floating WhatsApp button */}
       {(businessConfig.whatsapp || businessConfig.phone) && (
         <a
-          href={`https://api.whatsapp.com/send?phone=${(businessConfig.whatsapp || businessConfig.phone).replace(/\D/g, "")}&text=${encodeURIComponent("Hola, tuve un problema para hacer mi pedido.")}`}
+          href={`https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(businessConfig.whatsapp || businessConfig.phone)}&text=${encodeURIComponent("Hola, tuve un problema para hacer mi pedido.")}`}
           target="_blank"
           rel="noopener noreferrer"
           className="fixed bottom-5 right-5 z-50 flex items-center gap-2 bg-[#25D366] rounded-full shadow-lg hover:scale-105 transition-transform pl-4 pr-3 py-2.5"
