@@ -128,7 +128,6 @@ export default function OperationsPage() {
     try {
       let until: string;
       if (pauseDuration === "today") {
-        // Rest of the day: 23:59 today
         const now = new Date();
         until = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString();
       } else {
@@ -140,8 +139,8 @@ export default function OperationsPage() {
         body: JSON.stringify({ paused_until: until }),
       });
       setPausedUntil(until);
-    } catch {
-      // silently fail
+    } catch (err: any) {
+      alert("Error al pausar: " + (err.message || "Error desconocido"));
     } finally {
       setSavingPause(false);
     }
@@ -155,8 +154,8 @@ export default function OperationsPage() {
         body: JSON.stringify({ paused_until: null }),
       });
       setPausedUntil(null);
-    } catch {
-      // silently fail
+    } catch (err: any) {
+      alert("Error al reanudar: " + (err.message || "Error desconocido"));
     } finally {
       setSavingPause(false);
     }
