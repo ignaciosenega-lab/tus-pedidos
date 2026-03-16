@@ -459,10 +459,14 @@ function ProductEditModal({
   onSave: (data: any) => void;
   onClose: () => void;
 }) {
+  const { apiFetch } = useApi();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(product.name);
   const [description, setDescription] = useState(product.description);
   const [categoryId, setCategoryId] = useState(product.category_id);
   const [imageUrl, setImageUrl] = useState(product.image_url);
+  const [imageMode, setImageMode] = useState<"url" | "upload">(product.image_url ? "url" : "url");
+  const [uploading, setUploading] = useState(false);
   const [type, setType] = useState(product.type || "simple");
   const [basePrice, setBasePrice] = useState(product.base_price ?? 0);
   const [stock, setStock] = useState<string>(product.stock != null ? String(product.stock) : "");
@@ -511,6 +515,27 @@ function ProductEditModal({
     setVariants(variants.map((v, i) => (i === idx ? { ...v, [field]: value } : v)));
   }
 
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("image", file);
+      const res = await apiFetch<{ url: string }>("/api/upload", {
+        method: "POST",
+        body: formData,
+        rawBody: true,
+      });
+      setImageUrl(res.url);
+    } catch (err: any) {
+      alert("Error al subir imagen: " + err.message);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
   const inputClass = "w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-600";
   const labelClass = "block text-gray-400 text-xs font-semibold mb-1";
 
@@ -545,10 +570,38 @@ function ProductEditModal({
             </select>
           </div>
 
-          {/* Image URL */}
+          {/* Image */}
           <div>
-            <label className={labelClass}>URL de imagen</label>
-            <input type="text" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} className={inputClass} placeholder="https://..." />
+            <label className={labelClass}>Imagen</label>
+            <div className="flex gap-2 mb-2">
+              <button type="button" onClick={() => setImageMode("url")} className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${imageMode === "url" ? "bg-emerald-600 text-white" : "bg-gray-800 text-gray-400 hover:text-white"}`}>
+                URL
+              </button>
+              <button type="button" onClick={() => setImageMode("upload")} className={`px-3 py-1 rounded text-xs font-semibold transition-colors ${imageMode === "upload" ? "bg-emerald-600 text-white" : "bg-gray-800 text-gray-400 hover:text-white"}`}>
+                Subir archivo
+              </button>
+            </div>
+            {imageMode === "url" ? (
+              <input type="text" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} className={inputClass} placeholder="https://..." />
+            ) : (
+              <div>
+                <input ref={fileInputRef} type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="w-full bg-gray-800 border border-gray-700 border-dashed rounded-lg px-3 py-4 text-sm text-gray-400 hover:text-white hover:border-gray-500 transition-colors disabled:opacity-50"
+                >
+                  {uploading ? "Subiendo..." : "Seleccionar imagen..."}
+                </button>
+              </div>
+            )}
+            {imageUrl && (
+              <div className="mt-2 flex items-center gap-3">
+                <img src={imageUrl} alt="Preview" className="w-12 h-12 rounded-lg object-cover" />
+                <span className="text-gray-500 text-xs truncate flex-1">{imageUrl}</span>
+              </div>
+            )}
           </div>
 
           {/* Type */}

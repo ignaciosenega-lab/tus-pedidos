@@ -3,6 +3,7 @@ import { useAuth } from "../store/authContext";
 
 interface FetchOptions extends RequestInit {
   skipAuth?: boolean;
+  rawBody?: boolean;
 }
 
 export function useApi() {
@@ -10,10 +11,10 @@ export function useApi() {
 
   const apiFetch = useCallback(
     async <T = any>(url: string, options: FetchOptions = {}): Promise<T> => {
-      const { skipAuth, ...fetchOptions } = options;
+      const { skipAuth, rawBody, ...fetchOptions } = options;
 
       const headers: Record<string, string> = {
-        "Content-Type": "application/json",
+        ...(rawBody ? {} : { "Content-Type": "application/json" }),
         ...(fetchOptions.headers as Record<string, string>),
       };
 
