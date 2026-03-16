@@ -83,6 +83,11 @@ function getDb() {
       db.exec("ALTER TABLE branches ADD COLUMN delay_minutes INTEGER NOT NULL DEFAULT 30");
     }
 
+    // Migration: add paused_until to branches
+    if (!branchCols2.includes("paused_until")) {
+      db.exec("ALTER TABLE branches ADD COLUMN paused_until TEXT DEFAULT NULL");
+    }
+
     // Seed default menu if none exist
     const menuCount = db.prepare("SELECT COUNT(*) as count FROM menus").get();
     if (menuCount.count === 0) {
