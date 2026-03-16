@@ -51,6 +51,13 @@ export default function CatalogPage() {
 /* ══════════════════════════════════════════════════
    MASTER CATALOG — full editing (original behavior)
    ══════════════════════════════════════════════════ */
+interface Topping {
+  id?: number;
+  name: string;
+  price: number;
+  sort_order?: number;
+}
+
 function MasterCatalog() {
   const { apiFetch } = useApi();
   const [products, setProducts] = useState<Product[]>([]);
@@ -62,6 +69,8 @@ function MasterCatalog() {
   const [error, setError] = useState("");
   const [importing, setImporting] = useState(false);
   const csvInputRef = useRef<HTMLInputElement>(null);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -115,6 +124,46 @@ function MasterCatalog() {
       setProducts((prev) => prev.filter((p) => p.id !== id));
     } catch (err: any) {
       alert("Error al eliminar: " + err.message);
+    }
+  }
+
+  async function saveProduct(data: {
+    name: string;
+    description: string;
+    category_id: number;
+    image_url: string;
+    type: string;
+    base_price: number;
+    stock: number | null;
+    is_featured: boolean;
+    is_private: boolean;
+    badges: string[];
+    gallery: string[];
+    variants: Array<{ label: string; price: number; stock: number | null; sort_order: number }>;
+    toppings: Array<{ name: string; price: number; sort_order: number }>;
+  }) {
+    setSaving(true);
+    try {
+      if (editingProduct && editingProduct.id) {
+        // Update existing
+        const updated = await apiFetch<Product>(`/api/catalog/products/${editingProduct.id}`, {
+          method: "PUT",
+          body: JSON.stringify(data),
+        });
+        setProducts((prev) => prev.map((p) => (p.id === editingProduct.id ? { ...updated, badges: updated.badges || [], gallery: updated.gallery || [], variants: updated.variants || [] } : p)));
+      } else {
+        // Create new
+        const created = await apiFetch<Product>("/api/catalog/products", {
+          method: "POST",
+          body: JSON.stringify({ ...data, is_active: true }),
+        });
+        setProducts((prev) => [...prev, { ...created, badges: created.badges || [], gallery: created.gallery || [], variants: created.variants || [] }]);
+      }
+      setEditingProduct(null);
+    } catch (err: any) {
+      alert("Error al guardar: " + err.message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -254,7 +303,7 @@ function MasterCatalog() {
             {importing ? "Importando..." : "Importar CSV"}
           </button>
           <button
-            onClick={() => alert("Crear producto próximamente")}
+            onClick={() => setEditingProduct({ id: 0, name: "", description: "", category_id: categories[0]?.id ?? 0, image_url: "", type: "simple", base_price: 0, stock: null, is_active: 1, is_featured: 0, is_private: 0, badges: [], gallery: [], variants: [] })}
             className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
           >
             + Nuevo producto
@@ -348,7 +397,7 @@ function MasterCatalog() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button
-                        onClick={() => alert("Editar producto próximamente")}
+                        onClick={() => setEditingProduct(p)}
                         className="text-gray-400 hover:text-white transition-colors mr-2"
                         title="Editar"
                       >
@@ -379,6 +428,195 @@ function MasterCatalog() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {editingProduct && (
+        <ProductEditModal
+          product={editingProduct}
+          categories={categories}
+          saving={saving}
+          onSave={saveProduct}
+          onClose={() => setEditingProduct(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════
+   PRODUCT EDIT MODAL
+   ══════════════════════════════════════════════════ */
+function ProductEditModal({
+  product,
+  categories,
+  saving,
+  onSave,
+  onClose,
+}: {
+  product: Product;
+  categories: Category[];
+  saving: boolean;
+  onSave: (data: any) => void;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(product.name);
+  const [description, setDescription] = useState(product.description);
+  const [categoryId, setCategoryId] = useState(product.category_id);
+  const [imageUrl, setImageUrl] = useState(product.image_url);
+  const [type, setType] = useState(product.type || "simple");
+  const [basePrice, setBasePrice] = useState(product.base_price ?? 0);
+  const [stock, setStock] = useState<string>(product.stock != null ? String(product.stock) : "");
+  const [isFeatured, setIsFeatured] = useState(!!product.is_featured);
+  const [isPrivate, setIsPrivate] = useState(!!product.is_private);
+  const [variants, setVariants] = useState<Array<{ label: string; price: number; stock: string }>>(
+    product.variants?.map((v) => ({ label: v.label, price: v.price, stock: v.stock != null ? String(v.stock) : "" })) || []
+  );
+
+  const isNew = !product.id;
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) return alert("El nombre es requerido");
+    onSave({
+      name: name.trim(),
+      description: description.trim(),
+      category_id: categoryId,
+      image_url: imageUrl.trim(),
+      type,
+      base_price: type === "simple" ? basePrice : 0,
+      stock: type === "simple" && stock !== "" ? Number(stock) : null,
+      is_featured: isFeatured,
+      is_private: isPrivate,
+      badges: product.badges || [],
+      gallery: product.gallery || [],
+      variants: type === "variable" ? variants.map((v, i) => ({
+        label: v.label,
+        price: v.price,
+        stock: v.stock !== "" ? Number(v.stock) : null,
+        sort_order: i,
+      })) : [],
+      toppings: [],
+    });
+  }
+
+  function addVariant() {
+    setVariants([...variants, { label: "", price: 0, stock: "" }]);
+  }
+
+  function removeVariant(idx: number) {
+    setVariants(variants.filter((_, i) => i !== idx));
+  }
+
+  function updateVariant(idx: number, field: string, value: any) {
+    setVariants(variants.map((v, i) => (i === idx ? { ...v, [field]: value } : v)));
+  }
+
+  const inputClass = "w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-600";
+  const labelClass = "block text-gray-400 text-xs font-semibold mb-1";
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-start justify-center pt-10 overflow-y-auto" onClick={onClose}>
+      <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-lg mx-4 mb-10" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+          <h3 className="text-white font-bold text-lg">{isNew ? "Nuevo producto" : "Editar producto"}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-white text-xl">&times;</button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          {/* Name */}
+          <div>
+            <label className={labelClass}>Nombre *</label>
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} className={inputClass} placeholder="Nombre del producto" />
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className={labelClass}>Descripción</label>
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} className={inputClass + " h-20 resize-none"} placeholder="Descripción opcional" />
+          </div>
+
+          {/* Category */}
+          <div>
+            <label className={labelClass}>Categoría *</label>
+            <select value={categoryId} onChange={(e) => setCategoryId(Number(e.target.value))} className={inputClass}>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Image URL */}
+          <div>
+            <label className={labelClass}>URL de imagen</label>
+            <input type="text" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} className={inputClass} placeholder="https://..." />
+          </div>
+
+          {/* Type */}
+          <div>
+            <label className={labelClass}>Tipo</label>
+            <select value={type} onChange={(e) => setType(e.target.value)} className={inputClass}>
+              <option value="simple">Simple</option>
+              <option value="variable">Con variantes</option>
+            </select>
+          </div>
+
+          {/* Simple: price + stock */}
+          {type === "simple" && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelClass}>Precio</label>
+                <input type="number" step="0.01" value={basePrice} onChange={(e) => setBasePrice(Number(e.target.value))} className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Stock (vacío = ilimitado)</label>
+                <input type="number" value={stock} onChange={(e) => setStock(e.target.value)} className={inputClass} placeholder="∞" />
+              </div>
+            </div>
+          )}
+
+          {/* Variable: variants */}
+          {type === "variable" && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className={labelClass + " mb-0"}>Variantes</label>
+                <button type="button" onClick={addVariant} className="text-emerald-400 hover:text-emerald-300 text-xs font-semibold">+ Agregar variante</button>
+              </div>
+              <div className="space-y-2">
+                {variants.map((v, idx) => (
+                  <div key={idx} className="flex gap-2 items-center">
+                    <input type="text" placeholder="Etiqueta" value={v.label} onChange={(e) => updateVariant(idx, "label", e.target.value)} className={inputClass + " flex-1"} />
+                    <input type="number" step="0.01" placeholder="Precio" value={v.price} onChange={(e) => updateVariant(idx, "price", Number(e.target.value))} className={inputClass + " w-24"} />
+                    <input type="number" placeholder="Stock" value={v.stock} onChange={(e) => updateVariant(idx, "stock", e.target.value)} className={inputClass + " w-20"} />
+                    <button type="button" onClick={() => removeVariant(idx)} className="text-red-400 hover:text-red-300 text-sm shrink-0">&times;</button>
+                  </div>
+                ))}
+                {variants.length === 0 && <p className="text-gray-500 text-xs">Sin variantes. Agregá al menos una.</p>}
+              </div>
+            </div>
+          )}
+
+          {/* Flags */}
+          <div className="flex gap-6">
+            <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+              <input type="checkbox" checked={isFeatured} onChange={(e) => setIsFeatured(e.target.checked)} className="accent-emerald-500" />
+              Destacado
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
+              <input type="checkbox" checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} className="accent-emerald-500" />
+              Privado
+            </label>
+          </div>
+
+          {/* Actions */}
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">
+              Cancelar
+            </button>
+            <button type="submit" disabled={saving} className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-5 py-2 rounded-lg text-sm font-semibold transition-colors">
+              {saving ? "Guardando..." : isNew ? "Crear" : "Guardar"}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
