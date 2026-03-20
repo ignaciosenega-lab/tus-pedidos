@@ -1,6 +1,18 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { NavLink, Outlet, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../store/authContext";
+
+/** Detect if we're on the master subdomain (or localhost) vs a branch subdomain */
+function useIsMasterDomain(): boolean {
+  return useMemo(() => {
+    const host = window.location.hostname;
+    // localhost / IP → treat as master
+    if (host === "localhost" || host === "127.0.0.1") return true;
+    // master.pedidos.xxx or www.pedidos.xxx → master
+    const firstPart = host.split(".")[0];
+    return firstPart === "master" || firstPart === "www";
+  }, []);
+}
 
 // Master admin menu items
 const MASTER_NAV_ITEMS = [
@@ -46,7 +58,8 @@ export default function AdminLayout() {
     navigate("/admin/login", { replace: true });
   }
 
-  const isMaster = user?.role === "master";
+  const isMasterDomain = useIsMasterDomain();
+  const isMaster = user?.role === "master" && isMasterDomain;
 
   return (
     <div className="min-h-screen bg-gray-950 flex">
@@ -71,7 +84,7 @@ export default function AdminLayout() {
               TP
             </div>
             <span className="text-white font-bold text-lg">
-              {user?.role === "master" ? "Master Admin" : "Backoffice"}
+              {isMaster ? "Master Admin" : "Backoffice"}
             </span>
           </NavLink>
           <button
