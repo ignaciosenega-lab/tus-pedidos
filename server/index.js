@@ -1127,6 +1127,13 @@ app.post("/api/orders", (req, res) => {
       JSON.stringify(items || []), subtotal || 0, deliveryCost || 0, discount || 0, orderTotal, couponCode || null,
     );
 
+    // Increment coupon used_count
+    if (couponCode) {
+      db.prepare(
+        "UPDATE coupons SET used_count = used_count + 1 WHERE UPPER(code) = UPPER(?)"
+      ).run(couponCode.trim());
+    }
+
     // Update total_spent and last_order_date on customer
     db.prepare(
       "UPDATE app_users SET total_spent = total_spent + ?, last_order_date = datetime('now', 'localtime') WHERE id = ?"
