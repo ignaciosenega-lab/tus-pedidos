@@ -108,7 +108,7 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon }: P
     return Object.keys(errs).length === 0;
   }
 
-  function handleSend() {
+  async function handleSend() {
     if (!validate()) return;
 
     const discount = appliedCoupon?.discount || 0;
@@ -129,38 +129,49 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon }: P
       }).catch(() => {});
     }
 
-    // Save order to database (fire-and-forget)
+    // Save order to database and validate coupon
     if (branchId) {
-      fetch("/api/orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          branchId,
-          customerName: form.name,
-          customerPhone: form.phone,
-          deliveryType: form.deliveryType,
-          address: form.address,
-          lat: form.lat,
-          lng: form.lng,
-          floor: form.floor,
-          date: form.date,
-          time: form.time,
-          instructions: form.instructions,
-          paymentMethod: form.paymentMethod,
-          items: items.map((i) => ({
-            productId: i.productId,
-            productName: i.productName,
-            variantLabel: i.variantLabel,
-            price: i.price,
-            quantity: i.quantity,
-          })),
-          subtotal,
-          deliveryCost: 0,
-          discount,
-          total: Math.max(0, subtotal - discount),
-          couponCode,
-        }),
-      }).catch(() => {});
+      try {
+        const res = await fetch("/api/orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            branchId,
+            customerName: form.name,
+            customerPhone: form.phone,
+            deliveryType: form.deliveryType,
+            address: form.address,
+            lat: form.lat,
+            lng: form.lng,
+            floor: form.floor,
+            date: form.date,
+            time: form.time,
+            instructions: form.instructions,
+            paymentMethod: form.paymentMethod,
+            items: items.map((i) => ({
+              productId: i.productId,
+              productName: i.productName,
+              variantLabel: i.variantLabel,
+              price: i.price,
+              quantity: i.quantity,
+            })),
+            subtotal,
+            deliveryCost: 0,
+            discount,
+            total: Math.max(0, subtotal - discount),
+            couponCode,
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          if (data.error) {
+            setErrors({ coupon: data.error });
+            return;
+          }
+        }
+      } catch {
+        // If network fails, proceed anyway
+      }
     }
 
     window.open(url, "_blank");
@@ -411,6 +422,9 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon }: P
           >
             Enviar!
           </button>
+          {errors.coupon && (
+            <p className="text-red-400 text-sm text-center w-full mt-2">{errors.coupon}</p>
+          )}
         </div>
       </div>
     </div>

@@ -1011,6 +1011,20 @@ app.post("/api/coupons/validate", (req, res) => {
       return res.json({ valid: false, message: "Este cupón ya alcanzó el límite de usos" });
     }
 
+    // Check first_purchase_only - if phone is provided, validate immediately
+    if (coupon.first_purchase_only) {
+      const { phone } = req.body;
+      if (phone) {
+        const cleanPhone = phone.replace(/\D/g, "");
+        const previousOrders = db.prepare(
+          "SELECT COUNT(*) as count FROM orders WHERE customer_phone = ?"
+        ).get(cleanPhone);
+        if (previousOrders.count > 0) {
+          return res.json({ valid: false, message: "Este cupón es solo para primera compra y ya realizaste un pedido anteriormente" });
+        }
+      }
+    }
+
     // Check min order
     if (coupon.min_order > 0 && (subtotal || 0) < coupon.min_order) {
       return res.json({ valid: false, message: `Pedido mínimo de $${coupon.min_order} para este cupón` });
@@ -1100,13 +1114,13 @@ app.post("/api/orders", (req, res) => {
 
     // Validate first_purchase_only coupon
     if (couponCode) {
-      const coupon = db.prepare("SELECT * FROM coupons WHERE code = ? AND is_active = 1").get(couponCode.toUpperCase());
+      const coupon = db.prepare("SELECT * FROM coupons WHERE UPPER(code) = UPPER(?) AND is_active = 1").get(couponCode.trim());
       if (coupon && coupon.first_purchase_only) {
-        const alreadyUsed = db.prepare(
-          "SELECT COUNT(*) as count FROM orders WHERE customer_phone = ? AND coupon_code = ?"
-        ).get(cleanPhone, couponCode.toUpperCase());
-        if (alreadyUsed.count > 0) {
-          return res.status(400).json({ error: "Este cupón es solo para primera compra y ya fue utilizado" });
+        const previousOrders = db.prepare(
+          "SELECT COUNT(*) as count FROM orders WHERE customer_phone = ?"
+        ).get(cleanPhone);
+        if (previousOrders.count > 0) {
+          return res.status(400).json({ error: "Este cupón es solo para primera compra y ya realizaste un pedido anteriormente" });
         }
       }
     }
