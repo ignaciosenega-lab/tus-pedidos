@@ -10,7 +10,7 @@ export default function StoreClosedBanner({ nextOpenTime, holidayReason, closedR
 
   if (closedReason === "paused") {
     if (nextOpenTime) {
-      const time = new Date(nextOpenTime).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+      const time = new Date(nextOpenTime).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Argentina/Buenos_Aires" });
       message = `POR ALTA DEMANDA NO ESTAMOS TOMANDO PEDIDOS HASTA LAS ${time}HS.`;
     } else {
       message = "POR ALTA DEMANDA NO ESTAMOS TOMANDO PEDIDOS EN ESTE MOMENTO.";

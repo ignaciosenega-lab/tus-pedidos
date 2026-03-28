@@ -200,7 +200,7 @@ export default function UsersPage() {
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-400">
                     {(user.registered_at || user.created_at)
-                      ? new Date(user.registered_at || user.created_at).toLocaleDateString("es-AR")
+                      ? new Date(user.registered_at || user.created_at).toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })
                       : "-"}
                   </td>
                 </tr>

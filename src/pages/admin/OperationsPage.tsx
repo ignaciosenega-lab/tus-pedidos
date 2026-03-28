@@ -120,7 +120,7 @@ export default function OperationsPage() {
 
   function formatPausedTime(iso: string): string {
     const d = new Date(iso);
-    return d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Argentina/Buenos_Aires" });
   }
 
   async function pauseOrders() {
@@ -358,7 +358,7 @@ export default function OperationsPage() {
                       </span>
                     </div>
                     <p className="text-sm text-gray-400">
-                      {order.created_at ? new Date(order.created_at).toLocaleString("es-AR") : "-"}
+                      {order.created_at ? new Date(order.created_at).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" }) : "-"}
                     </p>
                   </div>
                   <span className="text-emerald-400 font-bold text-lg">

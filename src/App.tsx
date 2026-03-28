@@ -299,7 +299,7 @@ export default function App() {
               {(() => {
                 const pu = (businessConfig as any).pausedUntil;
                 if (pu) {
-                  const time = new Date(pu).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+                  const time = new Date(pu).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Argentina/Buenos_Aires" });
                   return `POR ALTA DEMANDA NO ESTAMOS TOMANDO PEDIDOS HASTA LAS ${time}HS.`;
                 }
                 return "POR ALTA DEMANDA NO ESTAMOS TOMANDO PEDIDOS EN ESTE MOMENTO.";

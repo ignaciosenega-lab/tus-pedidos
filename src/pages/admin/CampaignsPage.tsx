@@ -386,7 +386,7 @@ export default function CampaignsPage() {
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-sm text-gray-500">
-                      {m.sent_at ? new Date(m.sent_at).toLocaleString("es-AR", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }) : "-"}
+                      {m.sent_at ? new Date(m.sent_at).toLocaleString("es-AR", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", timeZone: "America/Argentina/Buenos_Aires" }) : "-"}
                     </td>
                   </tr>
                 ))}
@@ -489,8 +489,8 @@ export default function CampaignsPage() {
                 )}
 
                 <p className="text-xs text-gray-600 mt-2">
-                  Creada {new Date(campaign.created_at).toLocaleDateString("es-AR")}
-                  {campaign.started_at && ` \u00b7 Iniciada ${new Date(campaign.started_at).toLocaleDateString("es-AR")}`}
+                  Creada {new Date(campaign.created_at).toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })}
+                  {campaign.started_at && ` \u00b7 Iniciada ${new Date(campaign.started_at).toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" })}`}
                 </p>
               </div>
             );
