@@ -17,9 +17,10 @@ interface Props {
   onClose: () => void;
   isStoreOpen: boolean;
   appliedCoupon?: AppliedCoupon | null;
+  onRemoveCoupon?: () => void;
 }
 
-export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon }: Props) {
+export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onRemoveCoupon }: Props) {
   const { items } = useCart();
   const dispatch = useCartDispatch();
   const { businessConfig, branchId, deliveryZones, delayMinutes } = useStorefront();
@@ -423,7 +424,21 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon }: P
             Enviar!
           </button>
           {errors.coupon && (
-            <p className="text-red-400 text-sm text-center w-full mt-2">{errors.coupon}</p>
+            <div className="w-full mt-2 text-center">
+              <p className="text-red-400 text-sm">{errors.coupon}</p>
+              {onRemoveCoupon && (
+                <button
+                  onClick={() => {
+                    onRemoveCoupon();
+                    setErrors((prev) => { const next = { ...prev }; delete next.coupon; return next; });
+                  }}
+                  className="mt-2 text-sm underline"
+                  style={{ color: "var(--accent-color, #4ade80)" }}
+                >
+                  Quitar cupón y continuar sin descuento
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>

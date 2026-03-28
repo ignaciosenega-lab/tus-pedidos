@@ -281,6 +281,7 @@ export default function App() {
           onClose={() => { setShowCheckout(false); setAppliedCoupon(null); }}
           isStoreOpen={businessConfig.isOpen}
           appliedCoupon={appliedCoupon}
+          onRemoveCoupon={() => setAppliedCoupon(null)}
         />
       )}
 
