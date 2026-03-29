@@ -963,14 +963,12 @@ router.get("/:id/metrics/patterns", requireAuth, requireBranchAccess("id"), (req
 router.get("/:id/orders", requireAuth, requireBranchAccess("id"), (req, res) => {
   const db = req.app.locals.db;
   const branchId = Number(req.params.id);
-  const branch = db.prepare("SELECT timezone FROM branches WHERE id = ?").get(branchId);
-  const tz = branch?.timezone || "America/Argentina/Buenos_Aires";
   const orders = db.prepare("SELECT * FROM orders WHERE branch_id = ? ORDER BY created_at DESC").all(branchId);
   res.json(orders.map((o) => ({
     ...o,
     items: safeParseJson(o.items, []),
-    // Append timezone offset so frontend can parse correctly
-    created_at: o.created_at ? o.created_at.replace(" ", "T") + (tz === "America/Argentina/Buenos_Aires" ? "-03:00" : "Z") : o.created_at,
+    // DB stores UTC — append Z so frontend converts to local timezone
+    created_at: o.created_at ? o.created_at.replace(" ", "T") + "Z" : o.created_at,
   })));
 });
 
