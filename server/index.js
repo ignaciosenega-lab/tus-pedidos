@@ -506,6 +506,7 @@ function readStateFromDb(branchSlug) {
     whatsapp: branch.whatsapp,
     socialLinks: safeParseJson(branch.social_links, []),
     sliderImages: safeParseJson(branch.slider_images, []),
+    timezone: branch.timezone || "America/Argentina/Buenos_Aires",
   };
 
   const paymentConfig = safeParseJson(branch.payment_config, {});
