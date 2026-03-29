@@ -163,7 +163,7 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
             couponCode,
           }),
         });
-        if (!res.ok) {
+        if (res.status === 400) {
           const data = await res.json();
           if (data.error) {
             setErrors({ coupon: data.error });
