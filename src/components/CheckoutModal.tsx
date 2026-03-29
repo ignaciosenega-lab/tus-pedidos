@@ -109,7 +109,7 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
     return Object.keys(errs).length === 0;
   }
 
-  async function handleSend() {
+  function handleSend() {
     if (!validate()) return;
 
     const discount = appliedCoupon?.discount || 0;
@@ -119,6 +119,33 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
 
     // Calculate total
     const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+
+    const orderPayload = {
+      branchId,
+      customerName: form.name,
+      customerPhone: form.phone,
+      deliveryType: form.deliveryType,
+      address: form.address,
+      lat: form.lat,
+      lng: form.lng,
+      floor: form.floor,
+      date: form.date,
+      time: form.time,
+      instructions: form.instructions,
+      paymentMethod: form.paymentMethod,
+      items: items.map((i) => ({
+        productId: i.productId,
+        productName: i.productName,
+        variantLabel: i.variantLabel,
+        price: i.price,
+        quantity: i.quantity,
+      })),
+      subtotal,
+      deliveryCost: 0,
+      discount,
+      total: Math.max(0, subtotal - discount),
+      couponCode,
+    };
 
     // Track order_placed analytics event
     if (branchId) {
@@ -130,54 +157,19 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
       }).catch(() => {});
     }
 
-    // Save order to database and validate coupon
-    if (branchId) {
-      try {
-        const res = await fetch("/api/orders", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            branchId,
-            customerName: form.name,
-            customerPhone: form.phone,
-            deliveryType: form.deliveryType,
-            address: form.address,
-            lat: form.lat,
-            lng: form.lng,
-            floor: form.floor,
-            date: form.date,
-            time: form.time,
-            instructions: form.instructions,
-            paymentMethod: form.paymentMethod,
-            items: items.map((i) => ({
-              productId: i.productId,
-              productName: i.productName,
-              variantLabel: i.variantLabel,
-              price: i.price,
-              quantity: i.quantity,
-            })),
-            subtotal,
-            deliveryCost: 0,
-            discount,
-            total: Math.max(0, subtotal - discount),
-            couponCode,
-          }),
-        });
-        if (res.status === 400) {
-          const data = await res.json();
-          if (data.error) {
-            setErrors({ coupon: data.error });
-            return;
-          }
-        }
-      } catch {
-        // If network fails, proceed anyway
-      }
-    }
-
+    // Open WhatsApp immediately (must be synchronous with user click to avoid popup blockers)
     window.open(url, "_blank");
     dispatch({ type: "CLEAR" });
     onClose();
+
+    // Save order to database (fire-and-forget, validation already happened in cart)
+    if (branchId) {
+      fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(orderPayload),
+      }).catch(() => {});
+    }
   }
 
   const inputStyle: React.CSSProperties = {
