@@ -133,217 +133,227 @@ router.get("/products/:id", (req, res) => {
 
 // POST /api/catalog/products
 router.post("/products", (req, res) => {
-  const {
-    name,
-    description,
-    category_id,
-    image_url,
-    type,
-    base_price,
-    stock,
-    badges,
-    is_active,
-    is_featured,
-    is_private,
-    gallery,
-    variants,
-    toppings,
-  } = req.body;
+  try {
+    const {
+      name,
+      description,
+      category_id,
+      image_url,
+      type,
+      base_price,
+      stock,
+      badges,
+      is_active,
+      is_featured,
+      is_private,
+      gallery,
+      variants,
+      toppings,
+    } = req.body;
 
-  if (!name || !category_id) {
-    return res.status(400).json({ error: "Nombre y categoría son requeridos" });
-  }
-
-  const db = req.app.locals.db;
-
-  // Check category exists
-  const category = db.prepare("SELECT id FROM categories WHERE id = ?").get(category_id);
-  if (!category) {
-    return res.status(400).json({ error: "La categoría no existe" });
-  }
-
-  const insertProduct = db.transaction(() => {
-    const result = db
-      .prepare(`
-        INSERT INTO products (name, description, category_id, image_url, type, base_price, stock, badges, is_active, is_featured, is_private, gallery)
-        VALUES (@name, @description, @category_id, @image_url, @type, @base_price, @stock, @badges, @is_active, @is_featured, @is_private, @gallery)
-      `)
-      .run({
-        name,
-        description: description || "",
-        category_id,
-        image_url: image_url || "",
-        type: type || "simple",
-        base_price: base_price || 0,
-        stock: stock != null ? stock : null,
-        badges: JSON.stringify(badges || []),
-        is_active: is_active !== false ? 1 : 0,
-        is_featured: is_featured ? 1 : 0,
-        is_private: is_private ? 1 : 0,
-        gallery: JSON.stringify(gallery || []),
-      });
-
-    const productId = Number(result.lastInsertRowid);
-
-    // Insert variants
-    if (variants && variants.length > 0) {
-      const insertVariant = db.prepare(
-        "INSERT INTO product_variants (product_id, label, price, stock, sort_order) VALUES (@product_id, @label, @price, @stock, @sort_order)"
-      );
-      variants.forEach((v, idx) => {
-        insertVariant.run({
-          product_id: productId,
-          label: v.label,
-          price: v.price,
-          stock: v.stock != null ? v.stock : null,
-          sort_order: v.sort_order !== undefined ? v.sort_order : idx,
-        });
-      });
+    if (!name || !category_id) {
+      return res.status(400).json({ error: "Nombre y categoría son requeridos" });
     }
 
-    // Insert toppings
-    if (toppings && toppings.length > 0) {
-      const insertTopping = db.prepare(
-        "INSERT INTO product_toppings (product_id, name, price, sort_order) VALUES (@product_id, @name, @price, @sort_order)"
-      );
-      toppings.forEach((t, idx) => {
-        insertTopping.run({
-          product_id: productId,
-          name: t.name,
-          price: t.price,
-          sort_order: t.sort_order !== undefined ? t.sort_order : idx,
-        });
-      });
+    const db = req.app.locals.db;
+
+    // Check category exists
+    const category = db.prepare("SELECT id FROM categories WHERE id = ?").get(category_id);
+    if (!category) {
+      return res.status(400).json({ error: "La categoría no existe" });
     }
 
-    return productId;
-  });
+    const insertProduct = db.transaction(() => {
+      const result = db
+        .prepare(`
+          INSERT INTO products (name, description, category_id, image_url, type, base_price, stock, badges, is_active, is_featured, is_private, gallery)
+          VALUES (@name, @description, @category_id, @image_url, @type, @base_price, @stock, @badges, @is_active, @is_featured, @is_private, @gallery)
+        `)
+        .run({
+          name,
+          description: description || "",
+          category_id,
+          image_url: image_url || "",
+          type: type || "simple",
+          base_price: base_price || 0,
+          stock: stock != null ? stock : null,
+          badges: JSON.stringify(badges || []),
+          is_active: is_active !== false ? 1 : 0,
+          is_featured: is_featured ? 1 : 0,
+          is_private: is_private ? 1 : 0,
+          gallery: JSON.stringify(gallery || []),
+        });
 
-  const productId = insertProduct();
-  const created = db.prepare("SELECT * FROM products WHERE id = ?").get(productId);
-  const createdVariants = db
-    .prepare("SELECT * FROM product_variants WHERE product_id = ? ORDER BY sort_order, id")
-    .all(productId);
-  const createdToppings = db
-    .prepare("SELECT * FROM product_toppings WHERE product_id = ? ORDER BY sort_order, id")
-    .all(productId);
+      const productId = Number(result.lastInsertRowid);
 
-  res.status(201).json({
-    ...created,
-    badges: safeParseJson(created.badges, []),
-    gallery: safeParseJson(created.gallery, []),
-    variants: createdVariants,
-    toppings: createdToppings,
-  });
-});
-
-// PUT /api/catalog/products/:id
-router.put("/products/:id", (req, res) => {
-  const db = req.app.locals.db;
-  const id = Number(req.params.id);
-
-  const existing = db.prepare("SELECT * FROM products WHERE id = ?").get(id);
-  if (!existing) {
-    return res.status(404).json({ error: "Producto no encontrado" });
-  }
-
-  const {
-    name,
-    description,
-    category_id,
-    image_url,
-    type,
-    base_price,
-    stock,
-    badges,
-    is_active,
-    is_featured,
-    is_private,
-    gallery,
-    variants,
-    toppings,
-  } = req.body;
-
-  const updateProduct = db.transaction(() => {
-    // Update product
-    db.prepare(`
-      UPDATE products SET
-        name = @name, description = @description, category_id = @category_id,
-        image_url = @image_url, type = @type, base_price = @base_price, stock = @stock,
-        badges = @badges, is_active = @is_active, is_featured = @is_featured,
-        is_private = @is_private, gallery = @gallery
-      WHERE id = @id
-    `).run({
-      id,
-      name: name !== undefined ? name : existing.name,
-      description: description !== undefined ? description : existing.description,
-      category_id: category_id !== undefined ? category_id : existing.category_id,
-      image_url: image_url !== undefined ? image_url : existing.image_url,
-      type: type !== undefined ? type : existing.type,
-      base_price: base_price !== undefined ? base_price : existing.base_price,
-      stock: stock !== undefined ? stock : existing.stock,
-      badges: badges !== undefined ? JSON.stringify(badges) : existing.badges,
-      is_active: is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active,
-      is_featured: is_featured !== undefined ? (is_featured ? 1 : 0) : existing.is_featured,
-      is_private: is_private !== undefined ? (is_private ? 1 : 0) : existing.is_private,
-      gallery: gallery !== undefined ? JSON.stringify(gallery) : existing.gallery,
-    });
-
-    // Replace variants if provided
-    if (variants !== undefined) {
-      db.prepare("DELETE FROM product_variants WHERE product_id = ?").run(id);
-      if (variants.length > 0) {
+      // Insert variants
+      if (variants && variants.length > 0) {
         const insertVariant = db.prepare(
           "INSERT INTO product_variants (product_id, label, price, stock, sort_order) VALUES (@product_id, @label, @price, @stock, @sort_order)"
         );
         variants.forEach((v, idx) => {
           insertVariant.run({
-            product_id: id,
-            label: v.label,
-            price: v.price,
+            product_id: productId,
+            label: v.label || "",
+            price: v.price || 0,
             stock: v.stock != null ? v.stock : null,
             sort_order: v.sort_order !== undefined ? v.sort_order : idx,
           });
         });
       }
-    }
 
-    // Replace toppings if provided
-    if (toppings !== undefined) {
-      db.prepare("DELETE FROM product_toppings WHERE product_id = ?").run(id);
-      if (toppings.length > 0) {
+      // Insert toppings
+      if (toppings && toppings.length > 0) {
         const insertTopping = db.prepare(
           "INSERT INTO product_toppings (product_id, name, price, sort_order) VALUES (@product_id, @name, @price, @sort_order)"
         );
         toppings.forEach((t, idx) => {
           insertTopping.run({
-            product_id: id,
-            name: t.name,
-            price: t.price,
+            product_id: productId,
+            name: t.name || "",
+            price: t.price || 0,
             sort_order: t.sort_order !== undefined ? t.sort_order : idx,
           });
         });
       }
+
+      return productId;
+    });
+
+    const productId = insertProduct();
+    const created = db.prepare("SELECT * FROM products WHERE id = ?").get(productId);
+    const createdVariants = db
+      .prepare("SELECT * FROM product_variants WHERE product_id = ? ORDER BY sort_order, id")
+      .all(productId);
+    const createdToppings = db
+      .prepare("SELECT * FROM product_toppings WHERE product_id = ? ORDER BY sort_order, id")
+      .all(productId);
+
+    res.status(201).json({
+      ...created,
+      badges: safeParseJson(created.badges, []),
+      gallery: safeParseJson(created.gallery, []),
+      variants: createdVariants,
+      toppings: createdToppings,
+    });
+  } catch (e) {
+    console.error("Error creating product:", e.message);
+    res.status(500).json({ error: "Error al crear: " + e.message });
+  }
+});
+
+// PUT /api/catalog/products/:id
+router.put("/products/:id", (req, res) => {
+  try {
+    const db = req.app.locals.db;
+    const id = Number(req.params.id);
+
+    const existing = db.prepare("SELECT * FROM products WHERE id = ?").get(id);
+    if (!existing) {
+      return res.status(404).json({ error: "Producto no encontrado" });
     }
-  });
 
-  updateProduct();
+    const {
+      name,
+      description,
+      category_id,
+      image_url,
+      type,
+      base_price,
+      stock,
+      badges,
+      is_active,
+      is_featured,
+      is_private,
+      gallery,
+      variants,
+      toppings,
+    } = req.body;
 
-  const updated = db.prepare("SELECT * FROM products WHERE id = ?").get(id);
-  const updatedVariants = db
-    .prepare("SELECT * FROM product_variants WHERE product_id = ? ORDER BY sort_order, id")
-    .all(id);
-  const updatedToppings = db
-    .prepare("SELECT * FROM product_toppings WHERE product_id = ? ORDER BY sort_order, id")
-    .all(id);
+    const updateProduct = db.transaction(() => {
+      // Update product
+      db.prepare(`
+        UPDATE products SET
+          name = @name, description = @description, category_id = @category_id,
+          image_url = @image_url, type = @type, base_price = @base_price, stock = @stock,
+          badges = @badges, is_active = @is_active, is_featured = @is_featured,
+          is_private = @is_private, gallery = @gallery
+        WHERE id = @id
+      `).run({
+        id,
+        name: name !== undefined ? name : existing.name,
+        description: description !== undefined ? description : existing.description,
+        category_id: category_id !== undefined ? category_id : existing.category_id,
+        image_url: image_url !== undefined ? image_url : existing.image_url,
+        type: type !== undefined ? type : existing.type,
+        base_price: base_price !== undefined ? base_price : existing.base_price,
+        stock: stock !== undefined ? stock : existing.stock,
+        badges: badges !== undefined ? JSON.stringify(badges) : existing.badges,
+        is_active: is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active,
+        is_featured: is_featured !== undefined ? (is_featured ? 1 : 0) : existing.is_featured,
+        is_private: is_private !== undefined ? (is_private ? 1 : 0) : existing.is_private,
+        gallery: gallery !== undefined ? JSON.stringify(gallery) : existing.gallery,
+      });
 
-  res.json({
-    ...updated,
-    badges: safeParseJson(updated.badges, []),
-    gallery: safeParseJson(updated.gallery, []),
-    variants: updatedVariants,
-    toppings: updatedToppings,
-  });
+      // Replace variants if provided
+      if (variants !== undefined) {
+        db.prepare("DELETE FROM product_variants WHERE product_id = ?").run(id);
+        if (variants.length > 0) {
+          const insertVariant = db.prepare(
+            "INSERT INTO product_variants (product_id, label, price, stock, sort_order) VALUES (@product_id, @label, @price, @stock, @sort_order)"
+          );
+          variants.forEach((v, idx) => {
+            insertVariant.run({
+              product_id: id,
+              label: v.label || "",
+              price: v.price || 0,
+              stock: v.stock != null ? v.stock : null,
+              sort_order: v.sort_order !== undefined ? v.sort_order : idx,
+            });
+          });
+        }
+      }
+
+      // Replace toppings if provided
+      if (toppings !== undefined) {
+        db.prepare("DELETE FROM product_toppings WHERE product_id = ?").run(id);
+        if (toppings.length > 0) {
+          const insertTopping = db.prepare(
+            "INSERT INTO product_toppings (product_id, name, price, sort_order) VALUES (@product_id, @name, @price, @sort_order)"
+          );
+          toppings.forEach((t, idx) => {
+            insertTopping.run({
+              product_id: id,
+              name: t.name || "",
+              price: t.price || 0,
+              sort_order: t.sort_order !== undefined ? t.sort_order : idx,
+            });
+          });
+        }
+      }
+    });
+
+    updateProduct();
+
+    const updated = db.prepare("SELECT * FROM products WHERE id = ?").get(id);
+    const updatedVariants = db
+      .prepare("SELECT * FROM product_variants WHERE product_id = ? ORDER BY sort_order, id")
+      .all(id);
+    const updatedToppings = db
+      .prepare("SELECT * FROM product_toppings WHERE product_id = ? ORDER BY sort_order, id")
+      .all(id);
+
+    res.json({
+      ...updated,
+      badges: safeParseJson(updated.badges, []),
+      gallery: safeParseJson(updated.gallery, []),
+      variants: updatedVariants,
+      toppings: updatedToppings,
+    });
+  } catch (e) {
+    console.error("Error updating product:", e.message);
+    res.status(500).json({ error: "Error al actualizar: " + e.message });
+  }
 });
 
 // DELETE /api/catalog/products/:id
