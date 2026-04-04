@@ -493,7 +493,7 @@ function ProductEditModal({
       is_private: isPrivate,
       badges: product.badges || [],
       gallery: product.gallery || [],
-      variants: type === "variable" ? variants.map((v, i) => ({
+      variants: type === "options" ? variants.map((v, i) => ({
         label: v.label,
         price: v.price,
         stock: v.stock !== "" ? Number(v.stock) : null,
@@ -609,7 +609,7 @@ function ProductEditModal({
             <label className={labelClass}>Tipo</label>
             <select value={type} onChange={(e) => setType(e.target.value)} className={inputClass}>
               <option value="simple">Simple</option>
-              <option value="variable">Con variantes</option>
+              <option value="options">Con variantes</option>
             </select>
           </div>
 
@@ -628,7 +628,7 @@ function ProductEditModal({
           )}
 
           {/* Variable: variants */}
-          {type === "variable" && (
+          {type === "options" && (
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className={labelClass + " mb-0"}>Variantes</label>
