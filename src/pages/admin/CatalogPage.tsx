@@ -636,9 +636,9 @@ function ProductEditModal({
               </div>
               <div className="space-y-2">
                 {variants.map((v, idx) => (
-                  <div key={idx} className="flex gap-2 items-center">
-                    <input type="text" placeholder="Etiqueta" value={v.label} onChange={(e) => updateVariant(idx, "label", e.target.value)} className={inputClass + " flex-1"} />
-                    <input type="number" step="0.01" placeholder="Precio" value={v.price} onChange={(e) => updateVariant(idx, "price", Number(e.target.value))} className={inputClass + " w-24"} />
+                  <div key={idx} className="grid grid-cols-[1fr_auto_auto_auto] gap-2 items-center">
+                    <input type="text" placeholder="Etiqueta (ej: x5, x10)" value={v.label} onChange={(e) => updateVariant(idx, "label", e.target.value)} className={inputClass + " min-w-0"} />
+                    <input type="number" step="0.01" placeholder="Precio" value={v.price} onChange={(e) => updateVariant(idx, "price", Number(e.target.value))} className={inputClass + " w-28"} />
                     <input type="number" placeholder="Stock" value={v.stock} onChange={(e) => updateVariant(idx, "stock", e.target.value)} className={inputClass + " w-20"} />
                     <button type="button" onClick={() => removeVariant(idx)} className="text-red-400 hover:text-red-300 text-sm shrink-0">&times;</button>
                   </div>
