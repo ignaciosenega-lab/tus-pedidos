@@ -20,11 +20,23 @@ interface AutoApplyItem {
   changes: Change[];
 }
 
+interface CandidateVariant {
+  id: number;
+  label: string;
+  price: number;
+}
+interface Candidate {
+  id: number;
+  name: string;
+  type: "simple" | "options";
+  base_price: number;
+  variants: CandidateVariant[];
+}
 interface AmbiguousItem {
   jiro: { name: string; variants: Array<{ label: string | null; price: number }> };
   reason: string;
   product?: { id: number; name: string };
-  candidates?: string[];
+  candidates?: Candidate[];
 }
 
 interface NotFoundItem {
@@ -49,6 +61,14 @@ interface ApplyResult {
 const DEFAULT_URLS = `https://jirosushi.com.ar/woks-salteados/
 https://jirosushi.com.ar/lunch/rolls-especiales/`;
 
+interface ResolvedItem {
+  key: string;
+  jiro_name: string;
+  product_id: number;
+  product_name: string;
+  changes: Change[];
+}
+
 export default function PriceScanPage() {
   const { apiFetch } = useApi();
   const [urlsText, setUrlsText] = useState(DEFAULT_URLS);
@@ -59,12 +79,22 @@ export default function PriceScanPage() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Record<number, boolean>>({});
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // Elecciones de resolución manual de ambiguos. Key = index del ambiguous.
+  const [ambiguousChoice, setAmbiguousChoice] = useState<
+    Record<number, { product_id: number | null; variant_id: number | null }>
+  >({});
+  // Resueltos manualmente — se suman al apply.
+  const [resolved, setResolved] = useState<Record<number, ResolvedItem>>({});
+  const [resolving, setResolving] = useState<Record<number, boolean>>({});
 
   const runScan = async () => {
     setScanning(true);
     setError(null);
     setResult(null);
     setApplyResult(null);
+    setAmbiguousChoice({});
+    setResolved({});
+    setResolving({});
     try {
       const urls = urlsText
         .split("\n")
@@ -91,9 +121,68 @@ export default function PriceScanPage() {
     }
   };
 
+  const resolveAmbiguous = async (idx: number) => {
+    if (!result) return;
+    const item = result.ambiguous[idx];
+    const choice = ambiguousChoice[idx];
+    if (!choice || !choice.product_id) {
+      setError("Elegí un producto destino antes de resolver");
+      return;
+    }
+    setResolving((r) => ({ ...r, [idx]: true }));
+    setError(null);
+    try {
+      const data = await apiFetch<{
+        status: "ok" | "ambiguous";
+        changes?: Change[];
+        reason?: string;
+      }>("/api/catalog/price-match", {
+        method: "POST",
+        body: JSON.stringify({
+          product_id: choice.product_id,
+          jiro_variants: item.jiro.variants,
+          variant_id: choice.variant_id || undefined,
+        }),
+      });
+
+      if (data.status !== "ok") {
+        setError(`No se pudo resolver: ${data.reason}`);
+        return;
+      }
+      if (!data.changes || data.changes.length === 0) {
+        setError("Los precios ya coinciden — no hay cambios que aplicar");
+        return;
+      }
+
+      const candidate = item.candidates?.find((c) => c.id === choice.product_id);
+      setResolved((r) => ({
+        ...r,
+        [idx]: {
+          key: `manual-${idx}`,
+          jiro_name: item.jiro.name,
+          product_id: choice.product_id!,
+          product_name: candidate?.name || `#${choice.product_id}`,
+          changes: data.changes!,
+        },
+      }));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setResolving((r) => ({ ...r, [idx]: false }));
+    }
+  };
+
+  const clearResolved = (idx: number) => {
+    setResolved((r) => {
+      const n = { ...r };
+      delete n[idx];
+      return n;
+    });
+  };
+
   const runApply = async () => {
     if (!result) return;
-    const changes = result.autoApply
+    const autoChanges = result.autoApply
       .filter((item) => selected[item.product_id])
       .map((item) => ({
         product_id: item.product_id,
@@ -103,6 +192,15 @@ export default function PriceScanPage() {
           to: c.to,
         })),
       }));
+    const manualChanges = Object.values(resolved).map((item) => ({
+      product_id: item.product_id,
+      changes: item.changes.map((c) => ({
+        kind: c.kind,
+        variant_id: c.variant_id,
+        to: c.to,
+      })),
+    }));
+    const changes = [...autoChanges, ...manualChanges];
     if (changes.length === 0) {
       setError("No hay nada seleccionado para aplicar");
       return;
@@ -124,9 +222,11 @@ export default function PriceScanPage() {
     }
   };
 
-  const selectedCount = result
+  const selectedAutoCount = result
     ? result.autoApply.filter((i) => selected[i.product_id]).length
     : 0;
+  const resolvedCount = Object.keys(resolved).length;
+  const selectedCount = selectedAutoCount + resolvedCount;
 
   return (
     <div className="max-w-6xl">
@@ -232,7 +332,7 @@ export default function PriceScanPage() {
             <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden mb-4">
               <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
                 <h3 className="text-white font-bold">
-                  Cambios a aplicar ({selectedCount}/{result.autoApply.length})
+                  Cambios a aplicar ({selectedAutoCount}/{result.autoApply.length})
                 </h3>
                 <div className="flex gap-2">
                   <button
@@ -291,15 +391,6 @@ export default function PriceScanPage() {
                   </label>
                 ))}
               </div>
-              <div className="px-5 py-4 border-t border-gray-800 flex justify-end">
-                <button
-                  onClick={() => setConfirmOpen(true)}
-                  disabled={selectedCount === 0 || applying}
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-lg disabled:opacity-50"
-                >
-                  Aplicar {selectedCount} {selectedCount === 1 ? "cambio" : "cambios"}
-                </button>
-              </div>
             </div>
           )}
 
@@ -308,29 +399,129 @@ export default function PriceScanPage() {
             <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden mb-4">
               <div className="px-5 py-4 border-b border-gray-800">
                 <h3 className="text-white font-bold">
-                  Ambiguos ({result.ambiguous.length})
+                  Ambiguos ({result.ambiguous.length}) — {resolvedCount} resueltos
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Requieren revisión manual — no se aplican automáticamente.
+                  Elegí manualmente a qué producto aplicar cada uno. Los resueltos se suman al
+                  lote de aplicar.
                 </p>
               </div>
               <div className="divide-y divide-gray-800">
-                {result.ambiguous.map((item, i) => (
-                  <div key={i} className="px-5 py-3">
-                    <div className="text-white text-sm font-medium">{item.jiro.name}</div>
-                    <div className="text-xs text-yellow-400 mt-0.5">{item.reason}</div>
-                    {item.candidates && (
-                      <div className="text-xs text-gray-500 mt-0.5">
-                        candidatos: {item.candidates.join(" · ")}
+                {result.ambiguous.map((item, i) => {
+                  const choice = ambiguousChoice[i] || { product_id: null, variant_id: null };
+                  const resolvedItem = resolved[i];
+                  const candidates = item.candidates || [];
+                  const chosen = candidates.find((c) => c.id === choice.product_id);
+                  const jiroPriceText = item.jiro.variants
+                    .map((v) => (v.label ? `${v.label} $${v.price}` : `$${v.price}`))
+                    .join(" · ");
+
+                  return (
+                    <div key={i} className="px-5 py-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-white text-sm font-medium">{item.jiro.name}</div>
+                          <div className="text-xs text-gray-500 mt-0.5">{jiroPriceText}</div>
+                          <div className="text-xs text-yellow-400 mt-0.5">{item.reason}</div>
+                        </div>
                       </div>
-                    )}
-                    {item.product && (
-                      <div className="text-xs text-gray-500 mt-0.5">
-                        matcheó con: {item.product.name}
-                      </div>
-                    )}
-                  </div>
-                ))}
+
+                      {resolvedItem ? (
+                        <div className="mt-2 bg-emerald-900/20 border border-emerald-800 rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="text-emerald-300 text-sm font-medium">
+                              ✓ Resuelto → {resolvedItem.product_name}
+                            </div>
+                            <button
+                              onClick={() => clearResolved(i)}
+                              className="text-xs text-gray-400 hover:text-white"
+                            >
+                              Cambiar
+                            </button>
+                          </div>
+                          <div className="text-xs text-gray-400 space-y-0.5">
+                            {resolvedItem.changes.map((c, j) => (
+                              <div key={j}>
+                                {c.kind === "base_price"
+                                  ? "precio base"
+                                  : `variante ${c.label || ""}`}
+                                {": "}
+                                <span className="text-gray-500 line-through">
+                                  {formatPrice(c.from)}
+                                </span>{" "}
+                                →{" "}
+                                <span className="text-emerald-400">{formatPrice(c.to)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          <select
+                            value={choice.product_id || ""}
+                            onChange={(e) =>
+                              setAmbiguousChoice((a) => ({
+                                ...a,
+                                [i]: {
+                                  product_id: e.target.value ? Number(e.target.value) : null,
+                                  variant_id: null,
+                                },
+                              }))
+                            }
+                            className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-600 max-w-xs"
+                          >
+                            <option value="">— elegí producto destino —</option>
+                            {candidates.map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.name}
+                                {c.type === "options"
+                                  ? ` (${c.variants.length} variantes)`
+                                  : " (simple)"}
+                              </option>
+                            ))}
+                          </select>
+
+                          {/* Si jiro tiene 1 precio y el destino tiene variantes → permitir
+                              elegir variante puntual (sino se aplica a todas). */}
+                          {chosen &&
+                            chosen.type === "options" &&
+                            item.jiro.variants.length === 1 && (
+                              <select
+                                value={choice.variant_id || ""}
+                                onChange={(e) =>
+                                  setAmbiguousChoice((a) => ({
+                                    ...a,
+                                    [i]: {
+                                      ...a[i],
+                                      variant_id: e.target.value
+                                        ? Number(e.target.value)
+                                        : null,
+                                    },
+                                  }))
+                                }
+                                className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                              >
+                                <option value="">aplicar a TODAS las variantes</option>
+                                {chosen.variants.map((v) => (
+                                  <option key={v.id} value={v.id}>
+                                    solo {v.label} ({formatPrice(v.price)})
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+
+                          <button
+                            onClick={() => resolveAmbiguous(i)}
+                            disabled={!choice.product_id || !!resolving[i]}
+                            className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold rounded-lg disabled:opacity-50"
+                          >
+                            {resolving[i] ? "..." : "Usar este"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -355,6 +546,24 @@ export default function PriceScanPage() {
               </div>
             </div>
           )}
+
+          {/* Barra sticky con el botón de aplicar todo */}
+          <div className="sticky bottom-4 bg-gray-900/95 backdrop-blur border border-emerald-700 rounded-xl p-4 flex items-center justify-between shadow-xl">
+            <div className="text-sm text-white">
+              <strong className="text-emerald-400">{selectedCount}</strong>{" "}
+              {selectedCount === 1 ? "cambio listo" : "cambios listos"}
+              <span className="text-gray-500 text-xs ml-2">
+                ({selectedAutoCount} automáticos + {resolvedCount} manuales)
+              </span>
+            </div>
+            <button
+              onClick={() => setConfirmOpen(true)}
+              disabled={selectedCount === 0 || applying}
+              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-lg disabled:opacity-50"
+            >
+              Aplicar {selectedCount} {selectedCount === 1 ? "cambio" : "cambios"}
+            </button>
+          </div>
         </>
       )}
 

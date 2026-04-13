@@ -447,6 +447,98 @@ router.post("/price-scan", async (req, res) => {
   }
 });
 
+// POST /api/catalog/price-match
+// body: { product_id, jiro_variants: [{label, price}], variant_id?: number }
+// Calcula qué cambios aplicar a un producto específico usando los precios
+// de Jiro. Útil para resolver manualmente los ambiguos.
+//  - Si el producto es simple: toma el primer precio de jiro.
+//  - Si el producto tiene variantes y jiro también: intenta match por label.
+//  - Si jiro tiene 1 precio y el producto tiene N variantes:
+//    · variant_id dado → aplica a esa variante puntual
+//    · sin variant_id → aplica el mismo precio a TODAS las variantes
+router.post("/price-match", (req, res) => {
+  try {
+    const { product_id, jiro_variants, variant_id } = req.body || {};
+    if (!product_id || !Array.isArray(jiro_variants) || jiro_variants.length === 0) {
+      return res.status(400).json({ error: "Faltan product_id o jiro_variants" });
+    }
+
+    const db = req.app.locals.db;
+    const product = db.prepare("SELECT * FROM products WHERE id = ?").get(Number(product_id));
+    if (!product) return res.status(404).json({ error: "Producto no encontrado" });
+
+    const variants = db
+      .prepare("SELECT id, label, price FROM product_variants WHERE product_id = ? ORDER BY sort_order, id")
+      .all(Number(product_id));
+
+    const jiroPrices = jiro_variants.map((v) => ({
+      label: v.label,
+      price: Number(v.price),
+    }));
+
+    // Caso 1: producto simple → aplicamos el primer precio
+    if (product.type === "simple") {
+      const newPrice = jiroPrices[0].price;
+      if (Number(product.base_price) === newPrice) {
+        return res.json({ status: "ok", changes: [] });
+      }
+      return res.json({
+        status: "ok",
+        changes: [{ kind: "base_price", from: Number(product.base_price), to: newPrice }],
+      });
+    }
+
+    // Caso 2: producto con variantes, jiro con 1 solo precio + variant_id
+    if (jiroPrices.length === 1 && variant_id) {
+      const target = variants.find((v) => v.id === Number(variant_id));
+      if (!target) return res.status(400).json({ error: "variant_id no existe en el producto" });
+      if (Number(target.price) === jiroPrices[0].price) {
+        return res.json({ status: "ok", changes: [] });
+      }
+      return res.json({
+        status: "ok",
+        changes: [
+          {
+            kind: "variant",
+            variant_id: target.id,
+            label: target.label,
+            from: Number(target.price),
+            to: jiroPrices[0].price,
+          },
+        ],
+      });
+    }
+
+    // Caso 3: producto con variantes, jiro con 1 solo precio → aplicar a todas
+    if (jiroPrices.length === 1 && variants.length > 0) {
+      const newPrice = jiroPrices[0].price;
+      const changes = variants
+        .filter((v) => Number(v.price) !== newPrice)
+        .map((v) => ({
+          kind: "variant",
+          variant_id: v.id,
+          label: v.label,
+          from: Number(v.price),
+          to: newPrice,
+        }));
+      return res.json({ status: "ok", changes });
+    }
+
+    // Caso 4: ambos con múltiples variantes → matchVariants del scraper
+    const jiroShape = { variants: jiroPrices };
+    const productShape = {
+      type: product.type,
+      base_price: Number(product.base_price),
+      variants,
+    };
+    const result = jiroScraper.matchVariants(jiroShape, productShape);
+    return res.json(result);
+  } catch (e) {
+    console.error("price-match error:", e.message);
+    res.status(500).json({ error: "Error al matchear: " + e.message });
+  }
+});
+
 // POST /api/catalog/price-apply
 // body: { changes: [{ product_id, changes: [{ kind, variant_id?, to }] }] }
 // Aplica los cambios en DB y los registra en audit_logs bajo un batch_id nuevo.

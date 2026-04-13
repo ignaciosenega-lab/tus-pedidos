@@ -213,6 +213,20 @@ function matchVariants(jiro, product) {
   return { status: "ok", changes };
 }
 
+function candidateSummary(p) {
+  return {
+    id: p.id,
+    name: p.name,
+    type: p.type,
+    base_price: Number(p.base_price),
+    variants: (p.variants || []).map((v) => ({
+      id: v.id,
+      label: v.label,
+      price: Number(v.price),
+    })),
+  };
+}
+
 function matchProducts(scraped, existing) {
   const autoApply = [];
   const ambiguous = [];
@@ -236,7 +250,7 @@ function matchProducts(scraped, existing) {
         ambiguous.push({
           jiro,
           reason: "nombre ambiguo (varios productos existentes coinciden parcialmente)",
-          candidates: candidates.map((c) => existingByNorm.get(c).name),
+          candidates: candidates.map((c) => candidateSummary(existingByNorm.get(c))),
         });
         continue;
       }
@@ -257,7 +271,7 @@ function matchProducts(scraped, existing) {
         ambiguous.push({
           jiro,
           reason: `match difuso (distancia=${bestDist})`,
-          candidates: [existingByNorm.get(best).name],
+          candidates: [candidateSummary(existingByNorm.get(best))],
         });
         continue;
       }
@@ -277,10 +291,13 @@ function matchProducts(scraped, existing) {
         changes: variantDiff.changes,
       });
     } else {
+      // El nombre matcheó pero las variantes no — ofrecemos el mismo producto
+      // como candidato único para que el usuario pueda resolverlo manualmente.
       ambiguous.push({
         jiro,
         product: { id: matched.id, name: matched.name },
         reason: variantDiff.reason,
+        candidates: [candidateSummary(matched)],
       });
     }
   }
