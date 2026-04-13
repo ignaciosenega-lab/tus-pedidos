@@ -1,5 +1,6 @@
 const express = require("express");
 const { requireAuth, requireRole } = require("../middleware/auth");
+const jiroScraper = require("../lib/jiro-scraper");
 
 const router = express.Router();
 
@@ -401,6 +402,125 @@ router.delete("/products/:id", (req, res) => {
   }
 
   res.json({ ok: true });
+});
+
+/* ══════════════════════════════════════════════════
+   PRICE SCAN / APPLY (jirosushi.com.ar)
+   ══════════════════════════════════════════════════ */
+
+// POST /api/catalog/price-scan
+// body: { urls: string[] }
+// Scrapea las URLs, matchea contra el catálogo y devuelve los 3 buckets.
+// No hace ningún cambio en DB.
+router.post("/price-scan", async (req, res) => {
+  try {
+    const { urls } = req.body || {};
+    if (!Array.isArray(urls) || urls.length === 0) {
+      return res.status(400).json({ error: "Pasá al menos una URL" });
+    }
+    for (const u of urls) {
+      if (typeof u !== "string" || !/^https?:\/\//i.test(u)) {
+        return res.status(400).json({ error: `URL inválida: ${u}` });
+      }
+    }
+
+    const db = req.app.locals.db;
+    const products = db.prepare("SELECT * FROM products").all();
+    const existing = products.map((p) => ({
+      ...p,
+      variants: db
+        .prepare("SELECT * FROM product_variants WHERE product_id = ? ORDER BY sort_order, id")
+        .all(p.id),
+    }));
+
+    const { products: scraped, errors: scrapeErrors } = await jiroScraper.scrapeUrls(urls);
+    const result = jiroScraper.matchProducts(scraped, existing);
+
+    res.json({
+      scraped_count: scraped.length,
+      scrape_errors: scrapeErrors,
+      ...result,
+    });
+  } catch (e) {
+    console.error("price-scan error:", e.message);
+    res.status(500).json({ error: "Error al escanear: " + e.message });
+  }
+});
+
+// POST /api/catalog/price-apply
+// body: { changes: [{ product_id, changes: [{ kind, variant_id?, to }] }] }
+// Aplica los cambios en DB y los registra en audit_logs bajo un batch_id nuevo.
+router.post("/price-apply", (req, res) => {
+  try {
+    const { changes } = req.body || {};
+    if (!Array.isArray(changes) || changes.length === 0) {
+      return res.status(400).json({ error: "Nada para aplicar" });
+    }
+
+    const db = req.app.locals.db;
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const batchId = `jiro-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+
+    let ok = 0;
+    let failed = 0;
+    const errors = [];
+
+    for (const item of changes) {
+      try {
+        const productId = Number(item.product_id);
+        const existing = db.prepare("SELECT * FROM products WHERE id = ?").get(productId);
+        if (!existing) {
+          failed++;
+          errors.push({ product_id: productId, error: "Producto no encontrado" });
+          continue;
+        }
+        const existingVariants = db
+          .prepare("SELECT id, label, price FROM product_variants WHERE product_id = ?")
+          .all(productId);
+
+        const apply = db.transaction(() => {
+          const baseChange = item.changes.find((c) => c.kind === "base_price");
+          if (baseChange) {
+            db.prepare("UPDATE products SET base_price = ? WHERE id = ?").run(
+              baseChange.to,
+              productId
+            );
+          }
+          for (const c of item.changes.filter((c) => c.kind === "variant")) {
+            db.prepare(
+              "UPDATE product_variants SET price = ? WHERE id = ? AND product_id = ?"
+            ).run(c.to, c.variant_id, productId);
+          }
+        });
+        apply();
+
+        const updated = db.prepare("SELECT * FROM products WHERE id = ?").get(productId);
+        const updatedVariants = db
+          .prepare("SELECT id, label, price FROM product_variants WHERE product_id = ?")
+          .all(productId);
+
+        recordPriceChanges(db, {
+          user_id: req.user?.id,
+          product_id: productId,
+          product_name: existing.name,
+          before: { base_price: existing.base_price, variants: existingVariants },
+          after: { base_price: updated.base_price, variants: updatedVariants },
+          audit: { batch_id: batchId, source: "jiro-admin" },
+        });
+
+        ok++;
+      } catch (e) {
+        failed++;
+        errors.push({ product_id: item.product_id, error: e.message });
+      }
+    }
+
+    res.json({ batch_id: batchId, ok, failed, errors });
+  } catch (e) {
+    console.error("price-apply error:", e.message);
+    res.status(500).json({ error: "Error al aplicar: " + e.message });
+  }
 });
 
 /* ══════════════════════════════════════════════════

@@ -10,6 +10,7 @@ import CatalogPage from "./pages/admin/CatalogPage";
 import BranchesPage from "./pages/admin/BranchesPage";
 import AdminUsersPage from "./pages/admin/AdminUsersPage";
 import AuditPage from "./pages/admin/AuditPage";
+import PriceScanPage from "./pages/admin/PriceScanPage";
 import PromotionsPage from "./pages/admin/PromotionsPage";
 import CouponsPage from "./pages/admin/CouponsPage";
 import UsersPage from "./pages/admin/UsersPage";
@@ -66,6 +67,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="menus" element={<MasterOnly><MenusPage /></MasterOnly>} />
               <Route path="usuarios" element={<MasterOnly><AdminUsersPage /></MasterOnly>} />
               <Route path="auditoria" element={<MasterOnly><AuditPage /></MasterOnly>} />
+              <Route path="actualizar-precios" element={<MasterOnly><PriceScanPage /></MasterOnly>} />
               <Route path="recursos" element={<MasterOnly><ResourcesPage /></MasterOnly>} />
               {/* Branch routes */}
               <Route path="promociones" element={<PromotionsPage />} />
