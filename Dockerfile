@@ -29,6 +29,7 @@ RUN apk del python3 make g++
 # Copy server code
 COPY server/index.js ./
 COPY server/db ./db
+COPY server/lib ./lib
 COPY server/middleware ./middleware
 COPY server/routes ./routes
 COPY server/services ./services
