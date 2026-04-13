@@ -1,0 +1,6 @@
+# URLs de categorías de jirosushi.com.ar para scrapear precios.
+# Una URL por línea. Líneas vacías y las que empiezan con # se ignoran.
+# Agregá o quitá URLs según qué categorías querés actualizar.
+
+https://jirosushi.com.ar/woks-salteados/
+https://jirosushi.com.ar/lunch/rolls-especiales/

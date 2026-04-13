@@ -253,6 +253,10 @@ router.put("/products/:id", (req, res) => {
       return res.status(404).json({ error: "Producto no encontrado" });
     }
 
+    const existingVariants = db
+      .prepare("SELECT id, label, price FROM product_variants WHERE product_id = ?")
+      .all(id);
+
     const {
       name,
       description,
@@ -268,7 +272,12 @@ router.put("/products/:id", (req, res) => {
       gallery,
       variants,
       toppings,
+      _audit, // { batch_id, source } — metadata opcional para agrupar cambios
     } = req.body;
+
+    // Coerce type legacy ('variable', null, otros) a un valor válido del CHECK.
+    const rawType = type !== undefined ? type : existing.type;
+    const safeType = rawType === "simple" || rawType === "options" ? rawType : "options";
 
     const updateProduct = db.transaction(() => {
       // Update product
@@ -285,7 +294,7 @@ router.put("/products/:id", (req, res) => {
         description: description !== undefined ? description : existing.description,
         category_id: category_id !== undefined ? category_id : existing.category_id,
         image_url: image_url !== undefined ? image_url : existing.image_url,
-        type: type !== undefined ? type : existing.type,
+        type: safeType,
         base_price: base_price !== undefined ? base_price : existing.base_price,
         stock: stock !== undefined ? stock : existing.stock,
         badges: badges !== undefined ? JSON.stringify(badges) : existing.badges,
@@ -343,6 +352,22 @@ router.put("/products/:id", (req, res) => {
       .prepare("SELECT * FROM product_toppings WHERE product_id = ? ORDER BY sort_order, id")
       .all(id);
 
+    // Registrar diff de precios en audit_logs
+    recordPriceChanges(db, {
+      user_id: req.user?.id,
+      product_id: id,
+      product_name: existing.name,
+      before: {
+        base_price: existing.base_price,
+        variants: existingVariants,
+      },
+      after: {
+        base_price: updated.base_price,
+        variants: updatedVariants.map((v) => ({ id: v.id, label: v.label, price: v.price })),
+      },
+      audit: _audit || null,
+    });
+
     res.json({
       ...updated,
       badges: safeParseJson(updated.badges, []),
@@ -378,6 +403,152 @@ router.delete("/products/:id", (req, res) => {
   res.json({ ok: true });
 });
 
+/* ══════════════════════════════════════════════════
+   PRICE HISTORY
+   ══════════════════════════════════════════════════ */
+
+// GET /api/catalog/price-history — lista los cambios agrupados por batch
+router.get("/price-history", (req, res) => {
+  const db = req.app.locals.db;
+  const limit = Math.min(Number(req.query.limit) || 100, 500);
+
+  const rows = db
+    .prepare(
+      `SELECT a.*, u.display_name AS user_display, u.username AS username
+       FROM audit_logs a
+       LEFT JOIN users u ON u.id = a.user_id
+       WHERE a.entity_type = 'product' AND a.action = 'price_update'
+       ORDER BY a.id DESC
+       LIMIT ?`
+    )
+    .all(limit);
+
+  const batches = new Map();
+  for (const row of rows) {
+    const newVal = safeParseJson(row.new_value, {});
+    const oldVal = safeParseJson(row.old_value, {});
+    const batchId = newVal.batch_id || `single-${row.id}`;
+
+    if (!batches.has(batchId)) {
+      batches.set(batchId, {
+        batch_id: batchId,
+        source: newVal.source || "manual",
+        created_at: row.created_at,
+        user_display: row.user_display || row.username || "—",
+        changes: [],
+        reverted: false,
+      });
+    }
+    const batch = batches.get(batchId);
+    batch.changes.push({
+      audit_id: row.id,
+      product_id: Number(row.entity_id),
+      product_name: newVal.product_name || oldVal.product_name || `#${row.entity_id}`,
+      diffs: newVal.diffs || [],
+      reverted_at: newVal.reverted_at || null,
+    });
+    if (newVal.reverted_at) batch.reverted = true;
+  }
+
+  res.json(Array.from(batches.values()));
+});
+
+// POST /api/catalog/price-history/revert — revierte un batch entero o filas sueltas
+router.post("/price-history/revert", (req, res) => {
+  const db = req.app.locals.db;
+  const { batch_id, audit_ids } = req.body;
+
+  let rows;
+  if (batch_id) {
+    rows = db
+      .prepare(
+        `SELECT * FROM audit_logs
+         WHERE entity_type = 'product' AND action = 'price_update'
+         ORDER BY id DESC`
+      )
+      .all()
+      .filter((r) => {
+        const v = safeParseJson(r.new_value, {});
+        return v.batch_id === batch_id && !v.reverted_at;
+      });
+  } else if (Array.isArray(audit_ids) && audit_ids.length > 0) {
+    const placeholders = audit_ids.map(() => "?").join(",");
+    rows = db
+      .prepare(
+        `SELECT * FROM audit_logs
+         WHERE entity_type = 'product' AND action = 'price_update'
+         AND id IN (${placeholders})`
+      )
+      .all(...audit_ids)
+      .filter((r) => {
+        const v = safeParseJson(r.new_value, {});
+        return !v.reverted_at;
+      });
+  } else {
+    return res.status(400).json({ error: "Falta batch_id o audit_ids" });
+  }
+
+  if (rows.length === 0) {
+    return res.status(404).json({ error: "No hay cambios para revertir" });
+  }
+
+  const results = [];
+  const revertTx = db.transaction(() => {
+    for (const row of rows) {
+      const oldVal = safeParseJson(row.old_value, {});
+      const productId = Number(row.entity_id);
+
+      // Aplicar precios del old_value
+      if (oldVal.base_price != null) {
+        db.prepare("UPDATE products SET base_price = ? WHERE id = ?").run(
+          oldVal.base_price,
+          productId
+        );
+      }
+      if (Array.isArray(oldVal.variants)) {
+        for (const v of oldVal.variants) {
+          db.prepare(
+            "UPDATE product_variants SET price = ? WHERE id = ? AND product_id = ?"
+          ).run(v.price, v.id, productId);
+        }
+      }
+
+      // Marcar el log como revertido (dentro del JSON new_value)
+      const newVal = safeParseJson(row.new_value, {});
+      newVal.reverted_at = new Date().toISOString();
+      newVal.reverted_by = req.user?.id || null;
+      db.prepare("UPDATE audit_logs SET new_value = ? WHERE id = ?").run(
+        JSON.stringify(newVal),
+        row.id
+      );
+
+      // Log nuevo del revert
+      db.prepare(
+        `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, old_value, new_value)
+         VALUES (?, 'price_revert', 'product', ?, ?, ?)`
+      ).run(
+        req.user?.id || null,
+        String(productId),
+        row.new_value,
+        JSON.stringify({
+          reverted_audit_id: row.id,
+          product_name: oldVal.product_name || newVal.product_name,
+        })
+      );
+
+      results.push({ audit_id: row.id, product_id: productId });
+    }
+  });
+
+  try {
+    revertTx();
+    res.json({ ok: true, reverted: results.length, items: results });
+  } catch (e) {
+    console.error("Error reverting price history:", e.message);
+    res.status(500).json({ error: "Error al revertir: " + e.message });
+  }
+});
+
 /* ── Utility ─────────────────────────────────── */
 
 function safeParseJson(str, fallback) {
@@ -387,6 +558,60 @@ function safeParseJson(str, fallback) {
   } catch {
     return fallback;
   }
+}
+
+// Detecta cambios de precio entre before/after y los registra en audit_logs.
+// diffs: [{ kind: 'base_price' | 'variant_price', variant_id?, label?, from, to }]
+function recordPriceChanges(db, { user_id, product_id, product_name, before, after, audit }) {
+  const diffs = [];
+
+  if (Number(before.base_price) !== Number(after.base_price)) {
+    diffs.push({
+      kind: "base_price",
+      from: Number(before.base_price),
+      to: Number(after.base_price),
+    });
+  }
+
+  const beforeVariantsById = new Map(before.variants.map((v) => [v.id, v]));
+  for (const va of after.variants) {
+    const vb = beforeVariantsById.get(va.id);
+    if (vb && Number(vb.price) !== Number(va.price)) {
+      diffs.push({
+        kind: "variant_price",
+        variant_id: va.id,
+        label: va.label,
+        from: Number(vb.price),
+        to: Number(va.price),
+      });
+    }
+  }
+
+  if (diffs.length === 0) return;
+
+  const oldValue = {
+    product_name,
+    base_price: Number(before.base_price),
+    variants: before.variants.map((v) => ({ id: v.id, label: v.label, price: Number(v.price) })),
+  };
+  const newValue = {
+    product_name,
+    base_price: Number(after.base_price),
+    variants: after.variants.map((v) => ({ id: v.id, label: v.label, price: Number(v.price) })),
+    diffs,
+    batch_id: audit?.batch_id || null,
+    source: audit?.source || "manual",
+  };
+
+  db.prepare(
+    `INSERT INTO audit_logs (user_id, action, entity_type, entity_id, old_value, new_value)
+     VALUES (?, 'price_update', 'product', ?, ?, ?)`
+  ).run(
+    user_id || null,
+    String(product_id),
+    JSON.stringify(oldValue),
+    JSON.stringify(newValue)
+  );
 }
 
 module.exports = router;

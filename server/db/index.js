@@ -88,6 +88,23 @@ function getDb() {
       db.exec("ALTER TABLE branches ADD COLUMN paused_until TEXT DEFAULT NULL");
     }
 
+    // Migration: normalizar products.type legacy ('variable' → 'options').
+    // El commit 8ee8122 cambió el naming pero datos viejos pueden quedar con
+    // type='variable' y bloquean cualquier UPDATE por el CHECK constraint.
+    try {
+      const bad = db
+        .prepare("SELECT COUNT(*) as n FROM products WHERE type NOT IN ('simple','options')")
+        .get();
+      if (bad && bad.n > 0) {
+        const result = db
+          .prepare("UPDATE products SET type = 'options' WHERE type NOT IN ('simple','options')")
+          .run();
+        console.log(`Migration: normalized ${result.changes} products with legacy type → 'options'`);
+      }
+    } catch (e) {
+      console.warn("Migration products.type skipped:", e.message);
+    }
+
     // Seed default menu if none exist
     const menuCount = db.prepare("SELECT COUNT(*) as count FROM menus").get();
     if (menuCount.count === 0) {
