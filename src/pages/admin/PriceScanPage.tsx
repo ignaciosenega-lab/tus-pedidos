@@ -61,6 +61,12 @@ interface ApplyResult {
 const DEFAULT_URLS = `https://jirosushi.com.ar/woks-salteados/
 https://jirosushi.com.ar/lunch/rolls-especiales/`;
 
+const CSV_TEMPLATE = `nombre,variante,precio
+Yakimeshi de Lomo,,27210
+Raices,x5,10280
+Raices,x10,20560
+`;
+
 interface ResolvedItem {
   key: string;
   jiro_name: string;
@@ -69,9 +75,108 @@ interface ResolvedItem {
   changes: Change[];
 }
 
+interface ParsedProduct {
+  name: string;
+  variants: Array<{ label: string | null; price: number }>;
+}
+
+function parsePriceCell(raw: string): number | null {
+  if (!raw) return null;
+  const cleaned = raw.replace(/[^\d,.-]/g, "");
+  if (!cleaned) return null;
+  const hasComma = cleaned.lastIndexOf(",");
+  const hasDot = cleaned.lastIndexOf(".");
+  let normalized;
+  if (hasComma > hasDot) {
+    normalized = cleaned.replace(/\./g, "").split(",")[0];
+  } else {
+    normalized = cleaned.replace(/\./g, "").replace(/,/g, "");
+  }
+  const n = parseInt(normalized, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function splitCsvLine(line: string): string[] {
+  const cells: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if ((c === "," || c === ";" || c === "\t") && !inQuotes) {
+      cells.push(current);
+      current = "";
+    } else {
+      current += c;
+    }
+  }
+  cells.push(current);
+  return cells.map((c) => c.trim());
+}
+
+function parseCsv(text: string): { products: ParsedProduct[]; errors: string[] } {
+  const errors: string[] = [];
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#"));
+  if (lines.length === 0) return { products: [], errors };
+
+  // Detección de header: si la última celda de la primera línea no parsea como precio,
+  // la tratamos como header y la saltamos.
+  const firstCells = splitCsvLine(lines[0]);
+  const lastIsNumeric = parsePriceCell(firstCells[firstCells.length - 1]) !== null;
+  const dataLines = lastIsNumeric ? lines : lines.slice(1);
+
+  const byName = new Map<string, ParsedProduct>();
+  dataLines.forEach((line, i) => {
+    const cells = splitCsvLine(line);
+    let name: string;
+    let label: string | null;
+    let price: number | null;
+
+    if (cells.length >= 3) {
+      name = cells[0];
+      label = cells[1] || null;
+      price = parsePriceCell(cells[2]);
+    } else if (cells.length === 2) {
+      name = cells[0];
+      label = null;
+      price = parsePriceCell(cells[1]);
+    } else {
+      errors.push(`línea ${i + 1}: se esperaban 2 o 3 columnas`);
+      return;
+    }
+
+    if (!name) {
+      errors.push(`línea ${i + 1}: nombre vacío`);
+      return;
+    }
+    if (price == null) {
+      errors.push(`línea ${i + 1}: precio inválido "${cells[cells.length - 1]}"`);
+      return;
+    }
+
+    if (!byName.has(name)) byName.set(name, { name, variants: [] });
+    byName.get(name)!.variants.push({ label, price });
+  });
+
+  return { products: Array.from(byName.values()), errors };
+}
+
 export default function PriceScanPage() {
   const { apiFetch } = useApi();
+  const [mode, setMode] = useState<"urls" | "csv">("urls");
   const [urlsText, setUrlsText] = useState(DEFAULT_URLS);
+  const [csvText, setCsvText] = useState("");
+  const [csvPreview, setCsvPreview] = useState<ParsedProduct[]>([]);
+  const [csvErrors, setCsvErrors] = useState<string[]>([]);
   const [scanning, setScanning] = useState(false);
   const [applying, setApplying] = useState(false);
   const [result, setResult] = useState<ScanResult | null>(null);
@@ -87,6 +192,33 @@ export default function PriceScanPage() {
   const [resolved, setResolved] = useState<Record<number, ResolvedItem>>({});
   const [resolving, setResolving] = useState<Record<number, boolean>>({});
 
+  const onCsvText = (text: string) => {
+    setCsvText(text);
+    if (text.trim()) {
+      const { products, errors } = parseCsv(text);
+      setCsvPreview(products);
+      setCsvErrors(errors);
+    } else {
+      setCsvPreview([]);
+      setCsvErrors([]);
+    }
+  };
+
+  const onCsvFile = async (file: File) => {
+    const text = await file.text();
+    onCsvText(text);
+  };
+
+  const downloadTemplate = () => {
+    const blob = new Blob([CSV_TEMPLATE], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "plantilla-precios.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const runScan = async () => {
     setScanning(true);
     setError(null);
@@ -96,18 +228,29 @@ export default function PriceScanPage() {
     setResolved({});
     setResolving({});
     try {
-      const urls = urlsText
-        .split("\n")
-        .map((s) => s.trim())
-        .filter((s) => s && !s.startsWith("#"));
-      if (urls.length === 0) {
-        setError("Pasá al menos una URL");
-        setScanning(false);
-        return;
+      let body: { urls?: string[]; products?: ParsedProduct[] };
+      if (mode === "urls") {
+        const urls = urlsText
+          .split("\n")
+          .map((s) => s.trim())
+          .filter((s) => s && !s.startsWith("#"));
+        if (urls.length === 0) {
+          setError("Pasá al menos una URL");
+          setScanning(false);
+          return;
+        }
+        body = { urls };
+      } else {
+        if (csvPreview.length === 0) {
+          setError("El CSV está vacío o no tiene filas válidas");
+          setScanning(false);
+          return;
+        }
+        body = { products: csvPreview };
       }
       const data = await apiFetch<ScanResult>("/api/catalog/price-scan", {
         method: "POST",
-        body: JSON.stringify({ urls }),
+        body: JSON.stringify(body),
       });
       setResult(data);
       // Seleccionar todo por defecto
@@ -242,30 +385,141 @@ export default function PriceScanPage() {
         </p>
       </div>
 
-      {/* URLs input */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-4">
-        <label className="block text-gray-400 text-xs font-semibold mb-2">
-          URLs de categorías (una por línea)
-        </label>
-        <textarea
-          value={urlsText}
-          onChange={(e) => setUrlsText(e.target.value)}
-          rows={5}
-          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-600 font-mono"
-          placeholder="https://jirosushi.com.ar/..."
-        />
-        <div className="flex items-center justify-between mt-3">
-          <div className="text-xs text-gray-500">
-            Ejemplos: /woks-salteados/, /lunch/rolls-especiales/, /lunch/rolls-clasicos/
-          </div>
+      {/* Tabs URLs / CSV */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl mb-4 overflow-hidden">
+        <div className="flex border-b border-gray-800">
           <button
-            onClick={runScan}
-            disabled={scanning || applying}
-            className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-lg disabled:opacity-50"
+            onClick={() => setMode("urls")}
+            className={`flex-1 px-5 py-3 text-sm font-semibold ${
+              mode === "urls"
+                ? "bg-gray-800 text-emerald-400 border-b-2 border-emerald-500"
+                : "text-gray-400 hover:text-white"
+            }`}
           >
-            {scanning ? "Escaneando..." : "Escanear"}
+            Desde URLs de jirosushi.com.ar
+          </button>
+          <button
+            onClick={() => setMode("csv")}
+            className={`flex-1 px-5 py-3 text-sm font-semibold ${
+              mode === "csv"
+                ? "bg-gray-800 text-emerald-400 border-b-2 border-emerald-500"
+                : "text-gray-400 hover:text-white"
+            }`}
+          >
+            Desde archivo CSV
           </button>
         </div>
+
+        {mode === "urls" ? (
+          <div className="p-5">
+            <label className="block text-gray-400 text-xs font-semibold mb-2">
+              URLs de categorías (una por línea)
+            </label>
+            <textarea
+              value={urlsText}
+              onChange={(e) => setUrlsText(e.target.value)}
+              rows={5}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-600 font-mono"
+              placeholder="https://jirosushi.com.ar/..."
+            />
+            <div className="flex items-center justify-between mt-3">
+              <div className="text-xs text-gray-500">
+                Ejemplos: /woks-salteados/, /lunch/rolls-especiales/, /lunch/rolls-clasicos/
+              </div>
+              <button
+                onClick={runScan}
+                disabled={scanning || applying}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-lg disabled:opacity-50"
+              >
+                {scanning ? "Escaneando..." : "Escanear"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="p-5">
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-gray-400 text-xs font-semibold">
+                Subí un archivo CSV o pegá el contenido abajo
+              </label>
+              <button
+                onClick={downloadTemplate}
+                className="text-xs text-emerald-400 hover:underline"
+              >
+                ↓ Descargar plantilla
+              </button>
+            </div>
+
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) onCsvFile(f);
+              }}
+              className="block w-full text-sm text-gray-400 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-gray-800 file:text-emerald-400 hover:file:bg-gray-700 mb-3"
+            />
+
+            <textarea
+              value={csvText}
+              onChange={(e) => onCsvText(e.target.value)}
+              rows={8}
+              placeholder={`nombre,variante,precio\nYakimeshi de Lomo,,27210\nRaices,x5,10280\nRaices,x10,20560`}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-600 font-mono"
+            />
+
+            <div className="text-xs text-gray-500 mt-2 leading-relaxed">
+              Formato: <code className="text-gray-300">nombre,variante,precio</code> (3 columnas)
+              o <code className="text-gray-300">nombre,precio</code> (2 columnas para productos
+              simples). Dejá la variante vacía si el producto no tiene variantes. Se aceptan
+              precios con <code>$</code> y separadores de miles (ej.{" "}
+              <code className="text-gray-300">$27.210</code>). Header opcional.
+            </div>
+
+            {csvPreview.length > 0 && (
+              <div className="mt-3 bg-gray-800/50 border border-gray-700 rounded-lg p-3">
+                <div className="text-xs text-gray-400 mb-2">
+                  <strong className="text-white">{csvPreview.length}</strong>{" "}
+                  {csvPreview.length === 1 ? "producto parseado" : "productos parseados"}
+                </div>
+                <div className="text-xs text-gray-500 max-h-32 overflow-y-auto space-y-0.5">
+                  {csvPreview.slice(0, 10).map((p, i) => (
+                    <div key={i}>
+                      · {p.name} —{" "}
+                      {p.variants
+                        .map((v) => (v.label ? `${v.label}:${v.price}` : `${v.price}`))
+                        .join(" / ")}
+                    </div>
+                  ))}
+                  {csvPreview.length > 10 && (
+                    <div className="text-gray-600">... y {csvPreview.length - 10} más</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {csvErrors.length > 0 && (
+              <div className="mt-3 bg-yellow-900/20 border border-yellow-700 rounded-lg p-3 text-yellow-300 text-xs">
+                <strong>Filas ignoradas:</strong>
+                <ul className="mt-1 space-y-0.5">
+                  {csvErrors.slice(0, 10).map((e, i) => (
+                    <li key={i}>· {e}</li>
+                  ))}
+                  {csvErrors.length > 10 && <li>... y {csvErrors.length - 10} más</li>}
+                </ul>
+              </div>
+            )}
+
+            <div className="flex justify-end mt-3">
+              <button
+                onClick={runScan}
+                disabled={scanning || applying || csvPreview.length === 0}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-lg disabled:opacity-50"
+              >
+                {scanning ? "Escaneando..." : `Escanear ${csvPreview.length} productos`}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {error && (

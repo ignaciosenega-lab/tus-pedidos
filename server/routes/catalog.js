@@ -409,19 +409,47 @@ router.delete("/products/:id", (req, res) => {
    ══════════════════════════════════════════════════ */
 
 // POST /api/catalog/price-scan
-// body: { urls: string[] }
-// Scrapea las URLs, matchea contra el catálogo y devuelve los 3 buckets.
-// No hace ningún cambio en DB.
+// body: { urls: string[] }  — scrapea desde jirosushi.com.ar
+// o body: { products: [{ name, variants: [{label, price}] }] }  — data ya parseada (ej. de CSV)
+// En ambos casos matchea contra el catálogo y devuelve los 3 buckets.
 router.post("/price-scan", async (req, res) => {
   try {
-    const { urls } = req.body || {};
-    if (!Array.isArray(urls) || urls.length === 0) {
-      return res.status(400).json({ error: "Pasá al menos una URL" });
-    }
-    for (const u of urls) {
-      if (typeof u !== "string" || !/^https?:\/\//i.test(u)) {
-        return res.status(400).json({ error: `URL inválida: ${u}` });
+    const { urls, products: providedProducts } = req.body || {};
+
+    let scraped;
+    let scrapeErrors = [];
+
+    if (Array.isArray(providedProducts) && providedProducts.length > 0) {
+      scraped = providedProducts
+        .filter(
+          (p) =>
+            p &&
+            typeof p.name === "string" &&
+            p.name.trim() &&
+            Array.isArray(p.variants) &&
+            p.variants.length > 0
+        )
+        .map((p) => ({
+          name: String(p.name).trim(),
+          variants: p.variants
+            .map((v) => ({
+              label: v.label != null ? String(v.label).trim() || null : null,
+              price: Number(v.price),
+            }))
+            .filter((v) => Number.isFinite(v.price) && v.price > 0),
+        }))
+        .filter((p) => p.variants.length > 0);
+    } else if (Array.isArray(urls) && urls.length > 0) {
+      for (const u of urls) {
+        if (typeof u !== "string" || !/^https?:\/\//i.test(u)) {
+          return res.status(400).json({ error: `URL inválida: ${u}` });
+        }
       }
+      const result = await jiroScraper.scrapeUrls(urls);
+      scraped = result.products;
+      scrapeErrors = result.errors;
+    } else {
+      return res.status(400).json({ error: "Pasá urls o products" });
     }
 
     const db = req.app.locals.db;
@@ -433,7 +461,6 @@ router.post("/price-scan", async (req, res) => {
         .all(p.id),
     }));
 
-    const { products: scraped, errors: scrapeErrors } = await jiroScraper.scrapeUrls(urls);
     const result = jiroScraper.matchProducts(scraped, existing);
 
     res.json({
