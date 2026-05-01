@@ -45,11 +45,30 @@ interface PromoFormData {
   date_from: string;
   date_to: string;
   weekly_repeat: boolean;
+  day_of_week: string;
   branch_scope: BranchScope;
   branch_ids: number[];
   time_mode: TimeMode;
   time_from: string;
   time_to: string;
+}
+
+const DAY_NAMES_ES = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
+function getDayOfWeekFromDateString(dateStr: string): string {
+  if (!dateStr) return "";
+  return String(new Date(dateStr + "T12:00:00").getDay());
+}
+
+function dayOfWeekToDateString(dow: number): string {
+  const today = new Date();
+  const diff = (today.getDay() - dow + 7) % 7;
+  const target = new Date(today);
+  target.setDate(today.getDate() - diff);
+  const y = target.getFullYear();
+  const m = String(target.getMonth() + 1).padStart(2, "0");
+  const d = String(target.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 export default function PromotionsPage() {
@@ -78,6 +97,7 @@ export default function PromotionsPage() {
       date_from: "",
       date_to: "",
       weekly_repeat: false,
+      day_of_week: "",
       branch_scope: "this",
       branch_ids: [],
       time_mode: "all_day",
@@ -144,15 +164,17 @@ export default function PromotionsPage() {
   function openEditModal(promo: Promotion) {
     setEditingPromo(promo);
     const scope = (promo.apply_scope || (promo.apply_to_all ? "all" : "products")) as ApplyScope;
+    const isWeekly = !!promo.weekly_repeat;
     setFormData({
       name: promo.name,
       percentage: promo.percentage,
       apply_scope: scope,
       productIds: promo.productIds || [],
       categoryIds: promo.categoryIds || [],
-      date_from: promo.date_from || "",
-      date_to: promo.date_to || "",
-      weekly_repeat: !!promo.weekly_repeat,
+      date_from: isWeekly ? "" : (promo.date_from || ""),
+      date_to: isWeekly ? "" : (promo.date_to || ""),
+      weekly_repeat: isWeekly,
+      day_of_week: isWeekly ? getDayOfWeekFromDateString(promo.date_from || "") : "",
       branch_scope: getBranchScope(promo),
       branch_ids: promo.branch_ids || [],
       time_mode: (promo.time_from || promo.time_to) ? "range" : "all_day",
@@ -169,6 +191,15 @@ export default function PromotionsPage() {
       alert("El nombre es requerido");
       return;
     }
+    if (formData.weekly_repeat && formData.day_of_week === "") {
+      alert("Elegí el día de la semana en que se repite la promoción");
+      return;
+    }
+
+    const dateFrom = formData.weekly_repeat
+      ? dayOfWeekToDateString(Number(formData.day_of_week))
+      : formData.date_from;
+    const dateTo = formData.weekly_repeat ? "" : formData.date_to;
 
     const payload: any = {
       name: formData.name,
@@ -177,8 +208,8 @@ export default function PromotionsPage() {
       apply_to_all: formData.apply_scope === "all",
       productIds: formData.apply_scope === "products" ? formData.productIds : [],
       categoryIds: formData.apply_scope === "categories" ? formData.categoryIds : [],
-      date_from: formData.date_from,
-      date_to: formData.date_to,
+      date_from: dateFrom,
+      date_to: dateTo,
       weekly_repeat: formData.weekly_repeat,
       apply_all_branches: formData.branch_scope === "all",
       branch_ids: formData.branch_scope === "selected" ? formData.branch_ids : [],
@@ -504,21 +535,45 @@ export default function PromotionsPage() {
                 )}
               </div>
 
-              {/* Date range */}
-              <div className="grid grid-cols-2 gap-4">
+              {/* Weekly repeat */}
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={formData.weekly_repeat}
+                  onChange={(e) => setFormData({ ...formData, weekly_repeat: e.target.checked })}
+                  className="w-4 h-4 bg-gray-800 border-gray-700 rounded text-emerald-600 focus:ring-emerald-500" />
+                <span className="text-sm text-gray-300">Repetir semanalmente</span>
+              </label>
+
+              {/* Date range OR day-of-week selector */}
+              {formData.weekly_repeat ? (
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Desde</label>
-                  <input type="date" value={formData.date_from}
-                    onChange={(e) => setFormData({ ...formData, date_from: e.target.value })}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" />
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    Día de la semana <span className="text-red-400">*</span>
+                  </label>
+                  <select value={formData.day_of_week}
+                    onChange={(e) => setFormData({ ...formData, day_of_week: e.target.value })}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                    <option value="">Elegí un día...</option>
+                    {DAY_NAMES_ES.map((name, i) => (
+                      <option key={i} value={i}>{name}</option>
+                    ))}
+                  </select>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Hasta</label>
-                  <input type="date" value={formData.date_to}
-                    onChange={(e) => setFormData({ ...formData, date_to: e.target.value })}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" />
+              ) : (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Desde</label>
+                    <input type="date" value={formData.date_from}
+                      onChange={(e) => setFormData({ ...formData, date_from: e.target.value })}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Hasta</label>
+                    <input type="date" value={formData.date_to}
+                      onChange={(e) => setFormData({ ...formData, date_to: e.target.value })}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" />
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Time range */}
               <div>
@@ -557,14 +612,6 @@ export default function PromotionsPage() {
                   </div>
                 )}
               </div>
-
-              {/* Weekly repeat */}
-              <label className="flex items-center gap-2">
-                <input type="checkbox" checked={formData.weekly_repeat}
-                  onChange={(e) => setFormData({ ...formData, weekly_repeat: e.target.checked })}
-                  className="w-4 h-4 bg-gray-800 border-gray-700 rounded text-emerald-600 focus:ring-emerald-500" />
-                <span className="text-sm text-gray-300">Repetir semanalmente</span>
-              </label>
 
               {/* Branch scope selector (master only) */}
               {isMaster && branches.length > 1 && (

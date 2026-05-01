@@ -180,11 +180,10 @@ function isPromotionActiveToday(promo) {
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
   if (promo.weekly_repeat) {
-    if (promo.date_from) {
-      const fromDate = new Date(promo.date_from + "T12:00:00");
-      if (fromDate.getDay() !== now.getDay()) return false;
-    }
-    if (promo.date_from && todayStr < promo.date_from) return false;
+    if (!promo.date_from) return false;
+    const fromDate = new Date(promo.date_from + "T12:00:00");
+    if (fromDate.getDay() !== now.getDay()) return false;
+    if (todayStr < promo.date_from) return false;
     if (promo.date_to && todayStr > promo.date_to) return false;
   } else {
     if (promo.date_from && todayStr < promo.date_from) return false;
