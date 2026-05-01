@@ -33,14 +33,31 @@ interface Candidate {
   variants: CandidateVariant[];
 }
 interface AmbiguousItem {
-  jiro: { name: string; variants: Array<{ label: string | null; price: number }> };
+  jiro: {
+    name: string;
+    description?: string | null;
+    variants: Array<{ label: string | null; price: number }>;
+  };
   reason: string;
   product?: { id: number; name: string };
   candidates?: Candidate[];
 }
 
 interface NotFoundItem {
-  jiro: { name: string; variants: Array<{ label: string | null; price: number }> };
+  jiro: {
+    name: string;
+    description?: string | null;
+    variants: Array<{ label: string | null; price: number }>;
+  };
+}
+
+interface DescriptionChange {
+  product_id: number;
+  product_name: string;
+  jiro_name: string;
+  match_type: "exact" | "contains";
+  from: string;
+  to: string;
 }
 
 interface ScanResult {
@@ -49,6 +66,22 @@ interface ScanResult {
   autoApply: AutoApplyItem[];
   ambiguous: AmbiguousItem[];
   notFound: NotFoundItem[];
+  descriptionChanges: DescriptionChange[];
+}
+
+interface CatalogCategory {
+  id: number;
+  name: string;
+}
+
+interface NewProductDraft {
+  notFoundIdx: number;
+  name: string;
+  description: string;
+  category_id: number | null;
+  type: "simple" | "options";
+  base_price: number;
+  variants: Array<{ label: string; price: number }>;
 }
 
 interface ApplyResult {
@@ -191,6 +224,15 @@ export default function PriceScanPage() {
   // Resueltos manualmente — se suman al apply.
   const [resolved, setResolved] = useState<Record<number, ResolvedItem>>({});
   const [resolving, setResolving] = useState<Record<number, boolean>>({});
+  // Cambios de descripción — checkbox por product_id.
+  const [selectedDesc, setSelectedDesc] = useState<Record<number, boolean>>({});
+  // Categorías para el modal de "Agregar producto".
+  const [categories, setCategories] = useState<CatalogCategory[]>([]);
+  // Productos nuevos ya creados → notFoundIdx → product_id.
+  const [createdNotFound, setCreatedNotFound] = useState<Record<number, number>>({});
+  // Borrador del producto a crear (modal).
+  const [newProduct, setNewProduct] = useState<NewProductDraft | null>(null);
+  const [creatingProduct, setCreatingProduct] = useState(false);
 
   const onCsvText = (text: string) => {
     setCsvText(text);
@@ -227,6 +269,14 @@ export default function PriceScanPage() {
     setAmbiguousChoice({});
     setResolved({});
     setResolving({});
+    setSelectedDesc({});
+    setCreatedNotFound({});
+    // cargar categorías para el modal de alta — sólo una vez por sesión
+    if (categories.length === 0) {
+      apiFetch<CatalogCategory[]>("/api/catalog/categories")
+        .then((cats) => setCategories(cats))
+        .catch(() => {/* silently */});
+    }
     try {
       let body: { urls?: string[]; products?: ParsedProduct[] };
       if (mode === "urls") {
@@ -257,6 +307,9 @@ export default function PriceScanPage() {
       const initial: Record<number, boolean> = {};
       for (const item of data.autoApply) initial[item.product_id] = true;
       setSelected(initial);
+      const initialDesc: Record<number, boolean> = {};
+      for (const item of data.descriptionChanges || []) initialDesc[item.product_id] = true;
+      setSelectedDesc(initialDesc);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -343,19 +396,45 @@ export default function PriceScanPage() {
         to: c.to,
       })),
     }));
-    const changes = [...autoChanges, ...manualChanges];
-    if (changes.length === 0) {
+    const priceChanges = [...autoChanges, ...manualChanges];
+    const descChanges = (result.descriptionChanges || [])
+      .filter((d) => selectedDesc[d.product_id])
+      .map((d) => ({ product_id: d.product_id, to: d.to }));
+
+    if (priceChanges.length === 0 && descChanges.length === 0) {
       setError("No hay nada seleccionado para aplicar");
       return;
     }
     setApplying(true);
     setError(null);
     try {
-      const data = await apiFetch<ApplyResult>("/api/catalog/price-apply", {
-        method: "POST",
-        body: JSON.stringify({ changes }),
-      });
-      setApplyResult(data);
+      let priceResult: ApplyResult | null = null;
+      if (priceChanges.length > 0) {
+        priceResult = await apiFetch<ApplyResult>("/api/catalog/price-apply", {
+          method: "POST",
+          body: JSON.stringify({ changes: priceChanges }),
+        });
+      }
+      type DescApplyResult = {
+        ok: number;
+        failed: number;
+        errors: Array<{ product_id: number; error: string }>;
+      };
+      let descResult: DescApplyResult | null = null;
+      if (descChanges.length > 0) {
+        descResult = await apiFetch<DescApplyResult>("/api/catalog/description-apply", {
+          method: "POST",
+          body: JSON.stringify({ changes: descChanges }),
+        });
+      }
+      // Mergeamos ambos resultados en el banner de éxito.
+      const merged: ApplyResult = {
+        batch_id: priceResult?.batch_id || "—",
+        ok: (priceResult?.ok || 0) + (descResult?.ok || 0),
+        failed: (priceResult?.failed || 0) + (descResult?.failed || 0),
+        errors: [...(priceResult?.errors || []), ...(descResult?.errors || [])],
+      };
+      setApplyResult(merged);
       setConfirmOpen(false);
     } catch (e) {
       setError((e as Error).message);
@@ -369,7 +448,75 @@ export default function PriceScanPage() {
     ? result.autoApply.filter((i) => selected[i.product_id]).length
     : 0;
   const resolvedCount = Object.keys(resolved).length;
-  const selectedCount = selectedAutoCount + resolvedCount;
+  const selectedDescCount = result
+    ? (result.descriptionChanges || []).filter((d) => selectedDesc[d.product_id]).length
+    : 0;
+  const selectedCount = selectedAutoCount + resolvedCount + selectedDescCount;
+
+  const openCreateModal = (idx: number, item: NotFoundItem) => {
+    const variants = item.jiro.variants || [];
+    const isSimple = variants.length === 1 && !variants[0].label;
+    setNewProduct({
+      notFoundIdx: idx,
+      name: item.jiro.name,
+      description: item.jiro.description || "",
+      category_id: categories[0]?.id ?? null,
+      type: isSimple ? "simple" : "options",
+      base_price: isSimple ? variants[0].price : 0,
+      variants: isSimple
+        ? []
+        : variants.map((v) => ({ label: v.label || "", price: v.price })),
+    });
+  };
+
+  const updateNewProductVariant = (idx: number, field: "label" | "price", value: string | number) => {
+    setNewProduct((p) => {
+      if (!p) return p;
+      const variants = p.variants.map((v, i) =>
+        i === idx ? { ...v, [field]: field === "price" ? Number(value) : String(value) } : v
+      );
+      return { ...p, variants };
+    });
+  };
+
+  const submitNewProduct = async () => {
+    if (!newProduct) return;
+    if (!newProduct.name.trim()) {
+      setError("El nombre es requerido");
+      return;
+    }
+    if (!newProduct.category_id) {
+      setError("Elegí una categoría");
+      return;
+    }
+    setCreatingProduct(true);
+    setError(null);
+    try {
+      const payload: Record<string, unknown> = {
+        name: newProduct.name.trim(),
+        description: newProduct.description.trim(),
+        category_id: newProduct.category_id,
+        type: newProduct.type,
+        base_price: newProduct.type === "simple" ? newProduct.base_price : 0,
+        is_active: true,
+      };
+      if (newProduct.type === "options") {
+        payload.variants = newProduct.variants
+          .filter((v) => Number.isFinite(v.price) && v.price > 0)
+          .map((v, i) => ({ label: v.label.trim(), price: v.price, sort_order: i }));
+      }
+      const created = await apiFetch<{ id: number }>("/api/catalog/products", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      setCreatedNotFound((m) => ({ ...m, [newProduct.notFoundIdx]: created.id }));
+      setNewProduct(null);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setCreatingProduct(false);
+    }
+  };
 
   return (
     <div className="max-w-6xl">
@@ -557,15 +704,20 @@ export default function PriceScanPage() {
       {result && (
         <>
           {/* Resumen */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
             <SummaryBox label="Productos escrapeados" value={result.scraped_count} color="gray" />
             <SummaryBox
               label="Listos para aplicar"
               value={result.autoApply.length}
               color="emerald"
             />
+            <SummaryBox
+              label="Cambios de descripción"
+              value={(result.descriptionChanges || []).length}
+              color="emerald"
+            />
             <SummaryBox label="Ambiguos" value={result.ambiguous.length} color="yellow" />
-            <SummaryBox label="No encontrados" value={result.notFound.length} color="red" />
+            <SummaryBox label="Productos nuevos" value={result.notFound.length} color="red" />
           </div>
 
           {result.scrape_errors.length > 0 && (
@@ -641,6 +793,73 @@ export default function PriceScanPage() {
                           </div>
                         ))}
                       </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Cambios de descripción */}
+          {(result.descriptionChanges || []).length > 0 && (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden mb-4">
+              <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
+                <div>
+                  <h3 className="text-white font-bold">
+                    Cambios de descripción ({selectedDescCount}/{result.descriptionChanges.length})
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Jiro tiene una descripción distinta a la actual — marcá cuáles querés actualizar.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      const all: Record<number, boolean> = {};
+                      for (const d of result.descriptionChanges) all[d.product_id] = true;
+                      setSelectedDesc(all);
+                    }}
+                    className="px-3 py-1.5 text-xs text-gray-400 hover:text-white"
+                  >
+                    Seleccionar todo
+                  </button>
+                  <button
+                    onClick={() => setSelectedDesc({})}
+                    className="px-3 py-1.5 text-xs text-gray-400 hover:text-white"
+                  >
+                    Ninguno
+                  </button>
+                </div>
+              </div>
+              <div className="divide-y divide-gray-800">
+                {result.descriptionChanges.map((d) => (
+                  <label
+                    key={d.product_id}
+                    className="flex items-start gap-3 px-5 py-3 hover:bg-gray-800/40 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!!selectedDesc[d.product_id]}
+                      onChange={(e) =>
+                        setSelectedDesc((s) => ({ ...s, [d.product_id]: e.target.checked }))
+                      }
+                      className="mt-1 w-4 h-4 accent-emerald-600"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-white text-sm font-medium">
+                        {d.product_name}
+                        {d.match_type === "contains" && (
+                          <span className="ml-2 text-xs text-yellow-500">(match parcial)</span>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {d.from ? (
+                          <span className="line-through">{d.from}</span>
+                        ) : (
+                          <span className="italic text-gray-600">(sin descripción)</span>
+                        )}
+                      </div>
+                      <div className="text-xs text-emerald-400 mt-0.5">→ {d.to}</div>
                     </div>
                   </label>
                 ))}
@@ -780,23 +999,47 @@ export default function PriceScanPage() {
             </div>
           )}
 
-          {/* Not found */}
+          {/* Not found — productos nuevos en Jiro que no existen en TUS_PEDIDOS */}
           {result.notFound.length > 0 && (
             <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden mb-4">
               <div className="px-5 py-4 border-b border-gray-800">
                 <h3 className="text-white font-bold">
-                  No encontrados ({result.notFound.length})
+                  Productos nuevos ({result.notFound.length})
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Productos en Jiro que no existen en TUS_PEDIDOS — se ignoran.
+                  Estos productos están en Jiro pero no en TUS_PEDIDOS. Agregalos uno por uno si querés.
                 </p>
               </div>
               <div className="divide-y divide-gray-800">
-                {result.notFound.map((item, i) => (
-                  <div key={i} className="px-5 py-2 text-sm text-gray-400">
-                    · {item.jiro.name}
-                  </div>
-                ))}
+                {result.notFound.map((item, i) => {
+                  const createdId = createdNotFound[i];
+                  const variantText = item.jiro.variants
+                    .map((v) => (v.label ? `${v.label} ${formatPrice(v.price)}` : formatPrice(v.price)))
+                    .join(" · ");
+                  return (
+                    <div key={i} className="px-5 py-3 flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-white text-sm font-medium">{item.jiro.name}</div>
+                        <div className="text-xs text-gray-500 mt-0.5">{variantText}</div>
+                        {item.jiro.description && (
+                          <div className="text-xs text-gray-400 italic mt-1">{item.jiro.description}</div>
+                        )}
+                      </div>
+                      {createdId ? (
+                        <span className="text-emerald-400 text-xs font-semibold whitespace-nowrap">
+                          ✓ Agregado
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => openCreateModal(i, item)}
+                          className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold rounded-lg whitespace-nowrap"
+                        >
+                          + Agregar
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -855,6 +1098,142 @@ export default function PriceScanPage() {
                 className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-lg disabled:opacity-50"
               >
                 {applying ? "Aplicando..." : "Aplicar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: agregar producto nuevo desde Jiro */}
+      {newProduct && (
+        <div
+          className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+          onClick={() => !creatingProduct && setNewProduct(null)}
+        >
+          <div
+            className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-gray-800">
+              <h3 className="text-white font-bold text-lg">Agregar producto nuevo</h3>
+              <p className="text-xs text-gray-500 mt-0.5">Datos pre-cargados desde Jiro — revisalos y guardá.</p>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-gray-400 text-xs font-semibold mb-1">Nombre</label>
+                <input
+                  type="text"
+                  value={newProduct.name}
+                  onChange={(e) => setNewProduct({ ...newProduct, name: e.target.value })}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-gray-400 text-xs font-semibold mb-1">Categoría</label>
+                <select
+                  value={newProduct.category_id ?? ""}
+                  onChange={(e) =>
+                    setNewProduct({
+                      ...newProduct,
+                      category_id: e.target.value ? Number(e.target.value) : null,
+                    })
+                  }
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                >
+                  <option value="">— elegí categoría —</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-gray-400 text-xs font-semibold mb-1">Descripción</label>
+                <textarea
+                  value={newProduct.description}
+                  onChange={(e) => setNewProduct({ ...newProduct, description: e.target.value })}
+                  rows={3}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-600 resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-gray-400 text-xs font-semibold mb-1">Tipo</label>
+                <div className="flex gap-3">
+                  <label className="flex items-center gap-2 text-sm text-gray-300">
+                    <input
+                      type="radio"
+                      checked={newProduct.type === "simple"}
+                      onChange={() => setNewProduct({ ...newProduct, type: "simple" })}
+                    />
+                    Simple (precio único)
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-gray-300">
+                    <input
+                      type="radio"
+                      checked={newProduct.type === "options"}
+                      onChange={() => setNewProduct({ ...newProduct, type: "options" })}
+                    />
+                    Con variantes
+                  </label>
+                </div>
+              </div>
+
+              {newProduct.type === "simple" ? (
+                <div>
+                  <label className="block text-gray-400 text-xs font-semibold mb-1">Precio</label>
+                  <input
+                    type="number"
+                    value={newProduct.base_price}
+                    onChange={(e) =>
+                      setNewProduct({ ...newProduct, base_price: Number(e.target.value) })
+                    }
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-gray-400 text-xs font-semibold mb-2">Variantes</label>
+                  <div className="space-y-2">
+                    {newProduct.variants.map((v, i) => (
+                      <div key={i} className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Etiqueta (ej: x5)"
+                          value={v.label}
+                          onChange={(e) => updateNewProductVariant(i, "label", e.target.value)}
+                          className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                        />
+                        <input
+                          type="number"
+                          placeholder="Precio"
+                          value={v.price}
+                          onChange={(e) => updateNewProductVariant(i, "price", e.target.value)}
+                          className="w-32 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-emerald-600"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="px-5 py-4 border-t border-gray-800 flex justify-end gap-2">
+              <button
+                disabled={creatingProduct}
+                onClick={() => setNewProduct(null)}
+                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded-lg disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                disabled={creatingProduct}
+                onClick={submitNewProduct}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-lg disabled:opacity-50"
+              >
+                {creatingProduct ? "Guardando..." : "Crear producto"}
               </button>
             </div>
           </div>

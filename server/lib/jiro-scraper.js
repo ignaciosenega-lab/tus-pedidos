@@ -89,6 +89,26 @@ function levenshtein(a, b) {
   return dp[a.length][b.length];
 }
 
+// Busca la descripción del producto a partir de la heading del nombre.
+// El patrón típico de Elementor es:
+//   <widget-heading><h2>Nombre</h2></widget-heading>
+//   <widget-text-editor><p>Descripción</p></widget-text-editor>   ← opcional
+//   <widget-heading><h2>$precio</h2></widget-heading>
+function findDescriptionAfterHeading($, headingEl) {
+  const widget = $(headingEl).closest(".elementor-widget-heading");
+  if (!widget.length) return null;
+  let next = widget.next();
+  while (next.length) {
+    if (next.hasClass("elementor-widget-text-editor")) {
+      const text = cleanText(next.find(".elementor-widget-container").text());
+      return text || null;
+    }
+    if (next.hasClass("elementor-widget-heading")) return null;
+    next = next.next();
+  }
+  return null;
+}
+
 async function scrapeJiroPage(url) {
   const res = await fetch(url, {
     headers: {
@@ -102,6 +122,7 @@ async function scrapeJiroPage(url) {
 
   const products = [];
   let pendingName = null;
+  let pendingDescription = null;
 
   $("h2.elementor-heading-title").each((_, el) => {
     const text = cleanText($(el).text());
@@ -110,11 +131,13 @@ async function scrapeJiroPage(url) {
       if (!pendingName) return;
       const variants = parsePriceText(text);
       if (variants.length > 0 && !isProbablyHeader(pendingName)) {
-        products.push({ name: pendingName, variants });
+        products.push({ name: pendingName, description: pendingDescription, variants });
       }
       pendingName = null;
+      pendingDescription = null;
     } else {
       pendingName = text;
+      pendingDescription = findDescriptionAfterHeading($, el);
     }
   });
 
@@ -227,10 +250,15 @@ function candidateSummary(p) {
   };
 }
 
+function descriptionsDiffer(a, b) {
+  return cleanText(a) !== cleanText(b);
+}
+
 function matchProducts(scraped, existing) {
   const autoApply = [];
   const ambiguous = [];
   const notFound = [];
+  const descriptionChanges = [];
 
   const existingByNorm = new Map();
   for (const p of existing) existingByNorm.set(normalize(p.name), p);
@@ -279,6 +307,18 @@ function matchProducts(scraped, existing) {
       continue;
     }
 
+    // Descripción: si jiro trae texto y difiere del actual, lo proponemos como cambio.
+    if (jiro.description && descriptionsDiffer(jiro.description, matched.description)) {
+      descriptionChanges.push({
+        product_id: matched.id,
+        product_name: matched.name,
+        jiro_name: jiro.name,
+        match_type: matchType,
+        from: cleanText(matched.description) || "",
+        to: cleanText(jiro.description),
+      });
+    }
+
     const variantDiff = matchVariants(jiro, matched);
     if (variantDiff.status === "ok") {
       if (variantDiff.changes.length === 0) continue;
@@ -302,7 +342,7 @@ function matchProducts(scraped, existing) {
     }
   }
 
-  return { autoApply, ambiguous, notFound };
+  return { autoApply, ambiguous, notFound, descriptionChanges };
 }
 
 module.exports = {

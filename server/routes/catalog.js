@@ -431,6 +431,7 @@ router.post("/price-scan", async (req, res) => {
         )
         .map((p) => ({
           name: String(p.name).trim(),
+          description: typeof p.description === "string" ? p.description.trim() : null,
           variants: p.variants
             .map((v) => ({
               label: v.label != null ? String(v.label).trim() || null : null,
@@ -638,6 +639,48 @@ router.post("/price-apply", (req, res) => {
     res.json({ batch_id: batchId, ok, failed, errors });
   } catch (e) {
     console.error("price-apply error:", e.message);
+    res.status(500).json({ error: "Error al aplicar: " + e.message });
+  }
+});
+
+// POST /api/catalog/description-apply
+// body: { changes: [{ product_id, to }] }
+// Actualiza la descripción de cada producto. Sin auditoría agrupada — los cambios
+// de descripción se aplican individualmente.
+router.post("/description-apply", (req, res) => {
+  try {
+    const { changes } = req.body || {};
+    if (!Array.isArray(changes) || changes.length === 0) {
+      return res.status(400).json({ error: "Nada para aplicar" });
+    }
+
+    const db = req.app.locals.db;
+    let ok = 0;
+    let failed = 0;
+    const errors = [];
+
+    for (const item of changes) {
+      try {
+        const productId = Number(item.product_id);
+        const newDesc = typeof item.to === "string" ? item.to : "";
+        const result = db
+          .prepare("UPDATE products SET description = ? WHERE id = ?")
+          .run(newDesc, productId);
+        if (result.changes === 0) {
+          failed++;
+          errors.push({ product_id: productId, error: "Producto no encontrado" });
+        } else {
+          ok++;
+        }
+      } catch (e) {
+        failed++;
+        errors.push({ product_id: item.product_id, error: e.message });
+      }
+    }
+
+    res.json({ ok, failed, errors });
+  } catch (e) {
+    console.error("description-apply error:", e.message);
     res.status(500).json({ error: "Error al aplicar: " + e.message });
   }
 });
