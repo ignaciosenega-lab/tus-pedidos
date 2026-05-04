@@ -20,9 +20,6 @@ export default function ProductCard({ product, onOptions, onAdd }: Props) {
 
   const hasDiscount = originalDisplayPrice != null && originalDisplayPrice !== displayPrice;
 
-  const isSimpleOutOfStock =
-    product.type === "simple" && product.stock !== undefined && product.stock <= 0;
-
   return (
     <div
       className="border border-white/10 rounded-xl overflow-hidden flex flex-col"
@@ -87,17 +84,10 @@ export default function ProductCard({ product, onOptions, onAdd }: Props) {
           ) : (
             <button
               onClick={() => onAdd(product)}
-              disabled={isSimpleOutOfStock}
-              className={`w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity ${
-                isSimpleOutOfStock ? "opacity-40 cursor-not-allowed" : "hover:opacity-90"
-              }`}
-              style={
-                isSimpleOutOfStock
-                  ? { backgroundColor: "rgba(128,128,128,0.2)", color: "var(--general-text)" }
-                  : { backgroundColor: "color-mix(in srgb, var(--btn-bg) 15%, transparent)", color: "var(--btn-bg)" }
-              }
+              className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90"
+              style={{ backgroundColor: "color-mix(in srgb, var(--btn-bg) 15%, transparent)", color: "var(--btn-bg)" }}
             >
-              {isSimpleOutOfStock ? "Agotado" : "+ Añadir"}
+              + Añadir
             </button>
           )}
         </div>

@@ -10,7 +10,6 @@ import ProductCard from "./components/ProductCard";
 import ProductOptionsModal from "./components/ProductOptionsModal";
 import CartModal from "./components/CartModal";
 import CheckoutModal from "./components/CheckoutModal";
-import OutOfStockModal from "./components/OutOfStockModal";
 import StoreClosedBanner from "./components/StoreClosedBanner";
 import PromoBanner from "./components/PromoBanner";
 import ThemeStyles from "./components/ThemeStyles";
@@ -81,7 +80,6 @@ export default function App() {
   const [optionsProduct, setOptionsProduct] = useState<Product | null>(null);
   const [showCart, setShowCart] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
-  const [showOutOfStock, setShowOutOfStock] = useState(false);
   const [showPausedAlert, setShowPausedAlert] = useState(false);
   const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; name: string; discount: number } | null>(null);
 
@@ -130,11 +128,6 @@ export default function App() {
   function handleAddSimple(product: Product) {
     if (isStorePaused()) {
       setShowPausedAlert(true);
-      return;
-    }
-
-    if (product.type === "simple" && product.stock !== undefined && product.stock <= 0) {
-      setShowOutOfStock(true);
       return;
     }
 
@@ -259,10 +252,6 @@ export default function App() {
         <ProductOptionsModal
           product={optionsProduct}
           onClose={() => setOptionsProduct(null)}
-          onOutOfStock={() => {
-            setOptionsProduct(null);
-            setShowOutOfStock(true);
-          }}
           onAdded={() => setShowCart(true)}
         />
       )}
@@ -283,10 +272,6 @@ export default function App() {
           appliedCoupon={appliedCoupon}
           onRemoveCoupon={() => setAppliedCoupon(null)}
         />
-      )}
-
-      {showOutOfStock && (
-        <OutOfStockModal onClose={() => setShowOutOfStock(false)} />
       )}
 
       {showPausedAlert && (

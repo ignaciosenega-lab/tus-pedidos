@@ -6,14 +6,12 @@ import { formatPrice } from "../utils/money";
 interface Props {
   product: Product;
   onClose: () => void;
-  onOutOfStock: () => void;
   onAdded: () => void;
 }
 
 export default function ProductOptionsModal({
   product,
   onClose,
-  onOutOfStock,
   onAdded,
 }: Props) {
   const dispatch = useCartDispatch();
@@ -24,10 +22,6 @@ export default function ProductOptionsModal({
   }
 
   function handleAdd(variant: Variant) {
-    if (variant.stock <= 0) {
-      onOutOfStock();
-      return;
-    }
     const qty = quantities[variant.id] || 1;
     dispatch({
       type: "ADD_ITEM",
@@ -81,14 +75,11 @@ export default function ProductOptionsModal({
           <div className="mt-5 space-y-3">
             {product.variants?.map((v) => {
               const qty = quantities[v.id] || 1;
-              const outOfStock = v.stock <= 0;
 
               return (
                 <div
                   key={v.id}
-                  className={`flex items-center justify-between p-3 rounded-lg border border-white/10 ${
-                    outOfStock ? "opacity-50" : ""
-                  }`}
+                  className="flex items-center justify-between p-3 rounded-lg border border-white/10"
                   style={{ backgroundColor: "var(--panel-bg)" }}
                 >
                   <div>
@@ -105,38 +96,32 @@ export default function ProductOptionsModal({
                     </span>
                   </div>
 
-                  {outOfStock ? (
-                    <span className="text-red-400 font-semibold text-sm">
-                      Agotado
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setQty(v.id, qty - 1)}
+                      className="w-7 h-7 rounded-full flex items-center justify-center text-sm opacity-70 hover:opacity-100 transition-opacity"
+                      style={{ backgroundColor: "var(--panel-bg)", color: "var(--general-text)", border: "1px solid rgba(255,255,255,0.15)" }}
+                    >
+                      -
+                    </button>
+                    <span className="w-6 text-center text-sm" style={{ color: "var(--title-text)" }}>
+                      {qty}
                     </span>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setQty(v.id, qty - 1)}
-                        className="w-7 h-7 rounded-full flex items-center justify-center text-sm opacity-70 hover:opacity-100 transition-opacity"
-                        style={{ backgroundColor: "var(--panel-bg)", color: "var(--general-text)", border: "1px solid rgba(255,255,255,0.15)" }}
-                      >
-                        -
-                      </button>
-                      <span className="w-6 text-center text-sm" style={{ color: "var(--title-text)" }}>
-                        {qty}
-                      </span>
-                      <button
-                        onClick={() => setQty(v.id, qty + 1)}
-                        className="w-7 h-7 rounded-full flex items-center justify-center text-sm opacity-70 hover:opacity-100 transition-opacity"
-                        style={{ backgroundColor: "var(--panel-bg)", color: "var(--general-text)", border: "1px solid rgba(255,255,255,0.15)" }}
-                      >
-                        +
-                      </button>
-                      <button
-                        onClick={() => handleAdd(v)}
-                        className="text-sm font-semibold px-3 py-1.5 rounded-lg ml-2 transition-opacity hover:opacity-90"
-                        style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
-                      >
-                        Agregar
-                      </button>
-                    </div>
-                  )}
+                    <button
+                      onClick={() => setQty(v.id, qty + 1)}
+                      className="w-7 h-7 rounded-full flex items-center justify-center text-sm opacity-70 hover:opacity-100 transition-opacity"
+                      style={{ backgroundColor: "var(--panel-bg)", color: "var(--general-text)", border: "1px solid rgba(255,255,255,0.15)" }}
+                    >
+                      +
+                    </button>
+                    <button
+                      onClick={() => handleAdd(v)}
+                      className="text-sm font-semibold px-3 py-1.5 rounded-lg ml-2 transition-opacity hover:opacity-90"
+                      style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
+                    >
+                      Agregar
+                    </button>
+                  </div>
                 </div>
               );
             })}
