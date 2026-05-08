@@ -138,7 +138,9 @@ export default function App() {
       payload: {
         productId: product.id,
         productName: product.name,
+        categoryId: product.categoryId,
         price: product.basePrice!,
+        originalPrice: product.originalPrice ?? product.basePrice,
         quantity: 1,
         imageUrl: product.imageUrl,
         description: product.description,

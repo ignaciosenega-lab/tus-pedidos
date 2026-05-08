@@ -136,8 +136,10 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
       items: items.map((i) => ({
         productId: i.productId,
         productName: i.productName,
+        categoryId: i.categoryId,
         variantLabel: i.variantLabel,
         price: i.price,
+        originalPrice: i.originalPrice ?? i.price,
         quantity: i.quantity,
       })),
       subtotal,

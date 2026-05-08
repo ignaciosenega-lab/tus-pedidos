@@ -41,8 +41,10 @@ export default function CartModal({ onClose, onCheckout, appliedCoupon, onApplyC
           subtotal,
           items: items.map((i) => ({
             productId: i.productId,
+            categoryId: i.categoryId,
             quantity: i.quantity,
             price: i.price,
+            originalPrice: i.originalPrice ?? i.price,
           })),
         }),
       });

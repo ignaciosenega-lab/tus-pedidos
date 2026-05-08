@@ -28,9 +28,11 @@ export default function ProductOptionsModal({
       payload: {
         productId: product.id,
         productName: product.name,
+        categoryId: product.categoryId,
         variantId: variant.id,
         variantLabel: variant.label,
         price: variant.price,
+        originalPrice: variant.originalPrice ?? variant.price,
         quantity: qty,
         imageUrl: product.imageUrl,
         description: product.description,

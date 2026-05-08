@@ -1030,32 +1030,44 @@ app.post("/api/coupons/validate", (req, res) => {
       return res.json({ valid: false, message: `Pedido mínimo de $${coupon.min_order} para este cupón` });
     }
 
-    // Calculate discount based on apply_to
-    let applicableTotal = subtotal || 0;
-    if (coupon.apply_to !== "all" && items && items.length > 0) {
-      const targets = db.prepare("SELECT * FROM coupon_targets WHERE coupon_id = ?").all(coupon.id);
-      const targetCatIds = targets.filter((t) => t.target_type === "category").map((t) => String(t.target_id));
-      const targetProdIds = targets.filter((t) => t.target_type === "product").map((t) => String(t.target_id));
+    // Determine which items are in scope of the coupon
+    const targets = coupon.apply_to !== "all"
+      ? db.prepare("SELECT * FROM coupon_targets WHERE coupon_id = ?").all(coupon.id)
+      : [];
+    const targetCatIds = targets.filter((t) => t.target_type === "category").map((t) => String(t.target_id));
+    const targetProdIds = targets.filter((t) => t.target_type === "product").map((t) => String(t.target_id));
 
-      applicableTotal = items.reduce((sum, item) => {
-        const matchesCat = coupon.apply_to === "categories" && targetCatIds.includes(String(item.categoryId));
-        const matchesProd = coupon.apply_to === "products" && targetProdIds.includes(String(item.productId));
-        if (matchesCat || matchesProd) {
-          return sum + (item.price || 0) * (item.quantity || 1);
-        }
-        return sum;
-      }, 0);
+    const itemsInScope = (items || []).filter((item) => {
+      if (coupon.apply_to === "all") return true;
+      if (coupon.apply_to === "categories") return targetCatIds.includes(String(item.categoryId));
+      if (coupon.apply_to === "products") return targetProdIds.includes(String(item.productId));
+      return false;
+    });
 
-      if (applicableTotal === 0) {
-        return res.json({ valid: false, message: "Este cupón no aplica a los productos de tu pedido" });
-      }
+    if (itemsInScope.length === 0) {
+      return res.json({ valid: false, message: "Este cupón no aplica a los productos de tu pedido" });
     }
 
-    let discount = 0;
+    // Sums on items in scope, using ORIGINAL price (pre-promo) and the savings the promo
+    // is already giving the customer. Coupon never stacks with promo: if the promo is already
+    // a better deal, the coupon adds zero extra savings and we reject it.
+    const originalTotalInScope = itemsInScope.reduce(
+      (sum, i) => sum + (i.originalPrice ?? i.price ?? 0) * (i.quantity || 1), 0,
+    );
+    const promoDiscountInScope = itemsInScope.reduce(
+      (sum, i) => sum + (((i.originalPrice ?? i.price ?? 0) - (i.price ?? 0)) * (i.quantity || 1)), 0,
+    );
+
+    let couponDiscount;
     if (coupon.type === "percentage") {
-      discount = Math.round(applicableTotal * coupon.value / 100);
+      couponDiscount = Math.round(originalTotalInScope * coupon.value / 100);
     } else {
-      discount = Math.min(coupon.value, applicableTotal);
+      couponDiscount = Math.min(coupon.value, originalTotalInScope);
+    }
+
+    const discount = Math.max(0, couponDiscount - promoDiscountInScope);
+    if (discount === 0) {
+      return res.json({ valid: false, message: "Este cupón no mejora el descuento actual" });
     }
 
     res.json({
