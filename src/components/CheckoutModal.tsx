@@ -161,6 +161,26 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
 
     // Open WhatsApp immediately (must be synchronous with user click to avoid popup blockers)
     window.open(url, "_blank");
+
+    // Dispatch a DOM event so external trackers (GTM, Meta Pixel, GA, etc.) can hook in.
+    window.dispatchEvent(new CustomEvent("tp:order_placed", {
+      detail: {
+        branchId,
+        subtotal,
+        discount,
+        total: Math.max(0, subtotal - discount),
+        couponCode,
+        itemCount: items.reduce((sum, i) => sum + i.quantity, 0),
+        items: items.map((i) => ({
+          productId: i.productId,
+          productName: i.productName,
+          variantLabel: i.variantLabel,
+          price: i.price,
+          quantity: i.quantity,
+        })),
+      },
+    }));
+
     dispatch({ type: "CLEAR" });
     onClose();
 
@@ -412,6 +432,7 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
           </button>
           <button
             onClick={handleSend}
+            data-testid="submit-order"
             className="flex-1 py-3 rounded-lg font-semibold text-sm transition-opacity hover:opacity-90"
             style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
           >

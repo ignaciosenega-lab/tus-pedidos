@@ -140,6 +140,10 @@ export default function BranchSelectorPage() {
               <button
                 key={branch.id}
                 onClick={() => goToBranch(branch)}
+                data-testid="branch-card"
+                data-branch-slug={branch.slug}
+                data-branch-id={branch.id}
+                data-branch-name={branch.name}
                 className="text-left rounded-xl border border-white/10 p-3.5 transition-all hover:border-white/25 hover:scale-[1.02] active:scale-[0.98]"
                 style={{ backgroundColor: "var(--panel-bg)" }}
               >

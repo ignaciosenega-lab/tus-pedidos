@@ -308,6 +308,10 @@ export default function CartModal({ onClose, onCheckout, appliedCoupon, onApplyC
               </button>
               <button
                 onClick={onCheckout}
+                data-testid="start-checkout"
+                data-cart-total={total}
+                data-cart-subtotal={subtotal}
+                data-coupon-code={appliedCoupon?.code || ""}
                 className="flex-1 py-3 rounded-xl font-semibold text-sm transition-opacity hover:opacity-90"
                 style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
               >

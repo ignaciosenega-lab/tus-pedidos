@@ -76,6 +76,9 @@ export default function ProductCard({ product, onOptions, onAdd }: Props) {
           {product.type === "options" ? (
             <button
               onClick={() => onOptions(product)}
+              data-testid="open-product-options"
+              data-product-id={product.id}
+              data-product-name={product.name}
               className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90"
               style={{ backgroundColor: "color-mix(in srgb, var(--btn-bg) 15%, transparent)", color: "var(--btn-bg)" }}
             >
@@ -84,6 +87,10 @@ export default function ProductCard({ product, onOptions, onAdd }: Props) {
           ) : (
             <button
               onClick={() => onAdd(product)}
+              data-testid="add-to-cart"
+              data-product-id={product.id}
+              data-product-name={product.name}
+              data-product-price={product.basePrice}
               className="w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90"
               style={{ backgroundColor: "color-mix(in srgb, var(--btn-bg) 15%, transparent)", color: "var(--btn-bg)" }}
             >

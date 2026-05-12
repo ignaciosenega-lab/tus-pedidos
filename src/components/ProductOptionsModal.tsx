@@ -118,6 +118,12 @@ export default function ProductOptionsModal({
                     </button>
                     <button
                       onClick={() => handleAdd(v)}
+                      data-testid="add-to-cart"
+                      data-product-id={product.id}
+                      data-product-name={product.name}
+                      data-variant-id={v.id}
+                      data-variant-label={v.label}
+                      data-product-price={v.price}
                       className="text-sm font-semibold px-3 py-1.5 rounded-lg ml-2 transition-opacity hover:opacity-90"
                       style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
                     >
