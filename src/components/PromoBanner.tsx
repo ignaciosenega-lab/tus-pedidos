@@ -3,6 +3,8 @@ import type { ActivePromotion } from "../types";
 
 interface Props {
   promotions: ActivePromotion[];
+  isActive: boolean;
+  onToggle: () => void;
 }
 
 function getTimeRemaining(timeTo: string): { hours: number; minutes: number; seconds: number } | null {
@@ -56,15 +58,21 @@ function CountdownTimer({ timeTo }: { timeTo: string }) {
   );
 }
 
-export default function PromoBanner({ promotions }: Props) {
+export default function PromoBanner({ promotions, isActive, onToggle }: Props) {
   if (promotions.length === 0) return null;
 
   // Show the first active promotion (most relevant)
   const promo = promotions[0];
 
   return (
-    <div
-      className="rounded-xl overflow-hidden px-5 py-4"
+    <button
+      type="button"
+      onClick={onToggle}
+      data-testid="promo-banner"
+      data-promo-active={isActive ? "true" : "false"}
+      className={`w-full text-left rounded-xl overflow-hidden px-5 py-4 cursor-pointer transition hover:brightness-110 ${
+        isActive ? "ring-2 ring-white/60" : ""
+      }`}
       style={{
         background: "linear-gradient(135deg, var(--btn-bg), color-mix(in srgb, var(--btn-bg) 65%, black))",
         color: "var(--btn-text)",
@@ -82,6 +90,10 @@ export default function PromoBanner({ promotions }: Props) {
       </p>
 
       {promo.timeTo && <CountdownTimer timeTo={promo.timeTo} />}
-    </div>
+
+      <p className="text-sm font-medium mt-2 opacity-90">
+        {isActive ? "Mostrando ofertas — tocá para ver todo" : "Ver productos en oferta →"}
+      </p>
+    </button>
   );
 }

@@ -88,7 +88,9 @@ export default function App() {
     let result = [...products];
 
     // Category filter
-    if (selectedCategory === "sin-tacc") {
+    if (selectedCategory === "on-promo") {
+      result = result.filter((p) => !!p.activePromotion);
+    } else if (selectedCategory === "sin-tacc") {
       result = result.filter((p) => p.badges?.includes("sin_tacc"));
     } else if (selectedCategory !== "all") {
       result = result.filter((p) => p.categoryId === selectedCategory);
@@ -206,7 +208,11 @@ export default function App() {
         {/* Promo banner */}
         {activePromotions.length > 0 && (
           <section className="mt-4">
-            <PromoBanner promotions={activePromotions} />
+            <PromoBanner
+              promotions={activePromotions}
+              isActive={selectedCategory === "on-promo"}
+              onToggle={() => setSelectedCategory((c) => (c === "on-promo" ? "all" : "on-promo"))}
+            />
           </section>
         )}
 
