@@ -11,7 +11,7 @@ import ProductOptionsModal from "./components/ProductOptionsModal";
 import CartModal from "./components/CartModal";
 import CheckoutModal from "./components/CheckoutModal";
 import StoreClosedBanner from "./components/StoreClosedBanner";
-import PromoBanner from "./components/PromoBanner";
+import PromoCarousel from "./components/PromoCarousel";
 import ThemeStyles from "./components/ThemeStyles";
 import BranchSelectorPage from "./components/BranchSelectorPage";
 import { normalizePhoneForWhatsApp } from "./utils/whatsapp";
@@ -42,7 +42,7 @@ function trackEvent(branchId: number, eventType: string, productId?: string) {
 
 export default function App() {
   const dispatch = useCartDispatch();
-  const { products: adminProducts, categories: adminCategories, activePromotions, businessConfig, isMaster, loading, branchId } = useStorefront();
+  const { products: adminProducts, categories: adminCategories, businessConfig, isMaster, loading, branchId } = useStorefront();
 
   // Track session once per page load
   const sessionTracked = useRef(false);
@@ -57,6 +57,12 @@ export default function App() {
   const products: Product[] = useMemo(
     () => adminProducts.filter((p) => p.status === "alta" && !p.private),
     [adminProducts]
+  );
+
+  // Products with an active promotion — featured in the top carousel
+  const promoProducts = useMemo(
+    () => products.filter((p) => !!p.activePromotion),
+    [products]
   );
 
   // Only show categories that have at least one visible product, prepend "Todo"
@@ -88,9 +94,7 @@ export default function App() {
     let result = [...products];
 
     // Category filter
-    if (selectedCategory === "on-promo") {
-      result = result.filter((p) => !!p.activePromotion);
-    } else if (selectedCategory === "sin-tacc") {
+    if (selectedCategory === "sin-tacc") {
       result = result.filter((p) => p.badges?.includes("sin_tacc"));
     } else if (selectedCategory !== "all") {
       result = result.filter((p) => p.categoryId === selectedCategory);
@@ -205,13 +209,13 @@ export default function App() {
           </p>
         </section>
 
-        {/* Promo banner */}
-        {activePromotions.length > 0 && (
-          <section className="mt-4">
-            <PromoBanner
-              promotions={activePromotions}
-              isActive={selectedCategory === "on-promo"}
-              onToggle={() => setSelectedCategory((c) => (c === "on-promo" ? "all" : "on-promo"))}
+        {/* Promo carousel */}
+        {promoProducts.length > 0 && (
+          <section className="mt-6">
+            <PromoCarousel
+              products={promoProducts}
+              onAdd={handleAddSimple}
+              onOptions={handleOpenOptions}
             />
           </section>
         )}
