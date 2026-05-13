@@ -1,5 +1,11 @@
 import { useState, useMemo, useEffect } from "react";
-import { useMegaFody, useMegaFodyDispatch, type OrderType } from "./megafodyStore";
+import {
+  useMegaFody,
+  useMegaFodyDispatch,
+  computeDiscount,
+  type OrderType,
+  type DiscountType,
+} from "./megafodyStore";
 
 function formatARS(n: number): string {
   return `$${n.toLocaleString("es-AR")}`;
@@ -100,14 +106,26 @@ export default function DeliveryPage() {
     });
   }
 
+  function setDiscount(discountType: DiscountType, discountValue: number) {
+    if (!activeDraft) return;
+    dispatch({
+      type: "UPDATE_DRAFT",
+      payload: { draftId: activeDraft.draftId, changes: { discountType, discountValue } },
+    });
+  }
+
   const subtotal = activeDraft
     ? activeDraft.items.reduce((sum, i) => sum + i.price * i.quantity, 0)
     : 0;
+  const discount = activeDraft
+    ? computeDiscount(subtotal, activeDraft.discountType, activeDraft.discountValue)
+    : 0;
+  const total = subtotal - discount;
 
   function sendToKitchen() {
     if (!activeDraft || activeDraft.items.length === 0) return;
     dispatch({ type: "SUBMIT_DRAFT", payload: { draftId: activeDraft.draftId } });
-    setToast(`Pedido enviado a cocina`);
+    setToast(`Ticket impreso · pedido enviado a cocina`);
   }
 
   return (
@@ -320,18 +338,76 @@ export default function DeliveryPage() {
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-rose-500 resize-none"
             />
 
+            {/* Discount */}
+            <div className="border-t border-gray-800 pt-3">
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">
+                Descuento
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  value={activeDraft.discountValue || ""}
+                  onChange={(e) =>
+                    setDiscount(activeDraft.discountType, Math.max(0, Number(e.target.value) || 0))
+                  }
+                  placeholder="0"
+                  className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-rose-500"
+                />
+                <div className="flex bg-gray-800 border border-gray-700 rounded-lg overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setDiscount("amount", activeDraft.discountValue)}
+                    className={`px-3 text-sm font-bold transition-colors ${
+                      activeDraft.discountType === "amount"
+                        ? "bg-rose-600 text-white"
+                        : "text-gray-400 hover:text-white"
+                    }`}
+                  >
+                    $
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDiscount("percent", activeDraft.discountValue)}
+                    className={`px-3 text-sm font-bold transition-colors ${
+                      activeDraft.discountType === "percent"
+                        ? "bg-rose-600 text-white"
+                        : "text-gray-400 hover:text-white"
+                    }`}
+                  >
+                    %
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {/* Total + submit */}
             <div className="border-t border-gray-800 pt-3 space-y-3">
+              {discount > 0 && (
+                <>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-500">Subtotal</span>
+                    <span className="text-gray-400">{formatARS(subtotal)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-emerald-400">
+                      Descuento
+                      {activeDraft.discountType === "percent" && ` (${activeDraft.discountValue}%)`}
+                    </span>
+                    <span className="text-emerald-400">−{formatARS(discount)}</span>
+                  </div>
+                </>
+              )}
               <div className="flex items-center justify-between">
                 <span className="text-sm text-gray-400">Total</span>
-                <span className="text-xl font-bold text-rose-400">{formatARS(subtotal)}</span>
+                <span className="text-xl font-bold text-rose-400">{formatARS(total)}</span>
               </div>
               <button
                 onClick={sendToKitchen}
                 disabled={activeDraft.items.length === 0}
                 className="w-full py-3 rounded-lg text-sm font-bold transition-colors bg-rose-600 hover:bg-rose-700 disabled:bg-gray-800 disabled:text-gray-600 text-white"
               >
-                Enviar a cocina
+                Imprimir ticket
               </button>
             </div>
           </section>

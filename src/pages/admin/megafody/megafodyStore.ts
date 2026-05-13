@@ -23,11 +23,17 @@ export interface MegaFodyItem {
   quantity: number;
 }
 
+export type DiscountType = "percent" | "amount";
+
 export interface MegaFodyOrder {
   id: number;
   type: OrderType;
   customer?: { name?: string; phone?: string; address?: string };
   items: MegaFodyItem[];
+  subtotal: number;
+  discount: number;
+  discountType: DiscountType;
+  discountValue: number;
   total: number;
   status: OrderStatus;
   createdAt: string; // ISO
@@ -41,6 +47,17 @@ export interface DraftOrder {
   customer: { name?: string; phone?: string; address?: string };
   items: MegaFodyItem[];
   notes?: string;
+  discountType: DiscountType;
+  discountValue: number;
+}
+
+export function computeDiscount(subtotal: number, type: DiscountType, value: number): number {
+  if (!value || value <= 0) return 0;
+  if (type === "percent") {
+    const pct = Math.min(100, Math.max(0, value));
+    return Math.round((subtotal * pct) / 100);
+  }
+  return Math.min(Math.max(0, value), subtotal);
 }
 
 interface State {
@@ -86,10 +103,23 @@ const PRODUCTS: MegaFodyProduct[] = [
   { id: "p14", name: "Helado 2 bochas", categoryId: "postres", price: 4000 },
 ];
 
+function buildOrder(
+  base: Omit<MegaFodyOrder, "subtotal" | "discount" | "total" | "discountType" | "discountValue"> & {
+    discountType?: DiscountType;
+    discountValue?: number;
+  }
+): MegaFodyOrder {
+  const subtotal = base.items.reduce((s, i) => s + i.price * i.quantity, 0);
+  const discountType = base.discountType || "amount";
+  const discountValue = base.discountValue || 0;
+  const discount = computeDiscount(subtotal, discountType, discountValue);
+  return { ...base, subtotal, discount, discountType, discountValue, total: subtotal - discount };
+}
+
 function makeInitialOrders(): MegaFodyOrder[] {
   const now = Date.now();
   return [
-    {
+    buildOrder({
       id: 101,
       type: "mostrador",
       customer: { name: "Mesa 4" },
@@ -97,11 +127,10 @@ function makeInitialOrders(): MegaFodyOrder[] {
         { productId: "p4", productName: "Milanesa Napolitana", price: 12500, quantity: 2 },
         { productId: "p10", productName: "Coca-Cola 500ml", price: 2200, quantity: 2 },
       ],
-      total: 12500 * 2 + 2200 * 2,
       status: "pending",
       createdAt: new Date(now - 4 * 60 * 1000).toISOString(),
-    },
-    {
+    }),
+    buildOrder({
       id: 102,
       type: "delivery",
       customer: { name: "Lucía", phone: "11 2233 4455", address: "Av. Cabildo 1234" },
@@ -109,11 +138,10 @@ function makeInitialOrders(): MegaFodyOrder[] {
         { productId: "p8", productName: "Pizza Mozzarella", price: 9800, quantity: 1 },
         { productId: "p11", productName: "Cerveza tirada", price: 3800, quantity: 1 },
       ],
-      total: 9800 + 3800,
       status: "pending",
       createdAt: new Date(now - 1 * 60 * 1000).toISOString(),
-    },
-    {
+    }),
+    buildOrder({
       id: 103,
       type: "mostrador",
       customer: { name: "Mesa 7" },
@@ -122,10 +150,11 @@ function makeInitialOrders(): MegaFodyOrder[] {
         { productId: "p12", productName: "Vino de la casa (copa)", price: 4500, quantity: 2 },
         { productId: "p13", productName: "Flan casero", price: 3500, quantity: 1 },
       ],
-      total: 18000 + 4500 * 2 + 3500,
       status: "preparing",
       createdAt: new Date(now - 9 * 60 * 1000).toISOString(),
-    },
+      discountType: "percent",
+      discountValue: 10,
+    }),
   ];
 }
 
@@ -140,6 +169,8 @@ function makeInitialDrafts(): DraftOrder[] {
         { productId: "p1", productName: "Empanadas (3u)", price: 3500, quantity: 2 },
         { productId: "p11", productName: "Cerveza tirada", price: 3800, quantity: 1 },
       ],
+      discountType: "amount",
+      discountValue: 0,
     },
     {
       draftId: "d2",
@@ -151,6 +182,8 @@ function makeInitialDrafts(): DraftOrder[] {
         { productId: "p9", productName: "Agua mineral 500ml", price: 1500, quantity: 1 },
       ],
       notes: "Sin papas, agregar limón",
+      discountType: "percent",
+      discountValue: 15,
     },
     {
       draftId: "d3",
@@ -158,6 +191,8 @@ function makeInitialDrafts(): DraftOrder[] {
       type: "mostrador",
       customer: {},
       items: [],
+      discountType: "amount",
+      discountValue: 0,
     },
   ];
 }
@@ -216,6 +251,8 @@ function reducer(state: State, action: Action): State {
         type: "mostrador",
         customer: {},
         items: [],
+        discountType: "amount",
+        discountValue: 0,
       };
       return { ...state, drafts: [...state.drafts, newDraft], activeDraftId: newDraft.draftId };
     }
@@ -241,14 +278,19 @@ function reducer(state: State, action: Action): State {
     case "SUBMIT_DRAFT": {
       const draft = state.drafts.find((d) => d.draftId === action.payload.draftId);
       if (!draft || draft.items.length === 0) return state;
-      const total = draft.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+      const subtotal = draft.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+      const discount = computeDiscount(subtotal, draft.discountType, draft.discountValue);
       const id = state.nextId;
       const order: MegaFodyOrder = {
         id,
         type: draft.type,
         customer: draft.customer,
         items: draft.items,
-        total,
+        subtotal,
+        discount,
+        discountType: draft.discountType,
+        discountValue: draft.discountValue,
+        total: subtotal - discount,
         status: "pending",
         createdAt: new Date().toISOString(),
         notes: draft.notes,
