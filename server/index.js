@@ -13,6 +13,7 @@ const catalogRoutes = require("./routes/catalog");
 const branchesRoutes = require("./routes/branches");
 const menusRoutes = require("./routes/menus");
 const campaignsRoutes = require("./routes/campaigns");
+const globalRoutes = require("./routes/global");
 const { processCampaignQueue } = require("./services/campaignWorker");
 
 const app = express();
@@ -914,6 +915,9 @@ app.use("/api/branches", branchesRoutes);
 
 // Campaigns
 app.use("/api/campaigns", campaignsRoutes);
+
+// Global (cross-branch master views)
+app.use("/api/global", globalRoutes);
 
 // Get state (public — storefront needs to read products)
 // Uses subdomain detection: canning.pedidos.jirosushi.com.ar → branchSlug "canning"

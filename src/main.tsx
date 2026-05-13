@@ -21,6 +21,7 @@ import DeliveryZonesPage from "./pages/admin/DeliveryZonesPage";
 import MenusPage from "./pages/admin/MenusPage";
 import ResourcesPage from "./pages/admin/ResourcesPage";
 import MetricsPage from "./pages/admin/MetricsPage";
+import GlobalOperationsPage from "./pages/admin/GlobalOperationsPage";
 import CampaignsPage from "./pages/admin/CampaignsPage";
 import CampaignContactsPage from "./pages/admin/CampaignContactsPage";
 import CampaignNumbersPage from "./pages/admin/CampaignNumbersPage";
@@ -69,6 +70,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="auditoria" element={<MasterOnly><AuditPage /></MasterOnly>} />
               <Route path="actualizar-precios" element={<MasterOnly><PriceScanPage /></MasterOnly>} />
               <Route path="recursos" element={<MasterOnly><ResourcesPage /></MasterOnly>} />
+              <Route path="operacion-global" element={<MasterOnly><GlobalOperationsPage /></MasterOnly>} />
               {/* Branch routes */}
               <Route path="promociones" element={<PromotionsPage />} />
               <Route path="cupones" element={<CouponsPage />} />
