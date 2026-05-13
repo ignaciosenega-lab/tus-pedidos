@@ -22,6 +22,10 @@ import MenusPage from "./pages/admin/MenusPage";
 import ResourcesPage from "./pages/admin/ResourcesPage";
 import MetricsPage from "./pages/admin/MetricsPage";
 import GlobalOperationsPage from "./pages/admin/GlobalOperationsPage";
+import MegaFodyLayout from "./pages/admin/megafody/MegaFodyLayout";
+import MegaFodyHome from "./pages/admin/megafody/MegaFodyHome";
+import DeliveryPage from "./pages/admin/megafody/DeliveryPage";
+import KdsPage from "./pages/admin/megafody/KdsPage";
 import CampaignsPage from "./pages/admin/CampaignsPage";
 import CampaignContactsPage from "./pages/admin/CampaignContactsPage";
 import CampaignNumbersPage from "./pages/admin/CampaignNumbersPage";
@@ -71,6 +75,11 @@ createRoot(document.getElementById("root")!).render(
               <Route path="actualizar-precios" element={<MasterOnly><PriceScanPage /></MasterOnly>} />
               <Route path="recursos" element={<MasterOnly><ResourcesPage /></MasterOnly>} />
               <Route path="operacion-global" element={<MasterOnly><GlobalOperationsPage /></MasterOnly>} />
+              <Route path="megafody" element={<MasterOnly><MegaFodyLayout /></MasterOnly>}>
+                <Route index element={<MegaFodyHome />} />
+                <Route path="delivery" element={<DeliveryPage />} />
+                <Route path="kds" element={<KdsPage />} />
+              </Route>
               {/* Branch routes */}
               <Route path="promociones" element={<PromotionsPage />} />
               <Route path="cupones" element={<CouponsPage />} />
