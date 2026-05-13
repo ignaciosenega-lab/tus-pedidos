@@ -1,22 +1,21 @@
 import { useState, useMemo, useEffect } from "react";
-import { useMegaFody, useMegaFodyDispatch, type MegaFodyItem, type OrderType } from "./megafodyStore";
+import { useMegaFody, useMegaFodyDispatch, type OrderType } from "./megafodyStore";
 
 function formatARS(n: number): string {
   return `$${n.toLocaleString("es-AR")}`;
 }
 
 export default function DeliveryPage() {
-  const { products, categories } = useMegaFody();
+  const { products, categories, drafts, activeDraftId } = useMegaFody();
   const dispatch = useMegaFodyDispatch();
+
+  const activeDraft = useMemo(
+    () => drafts.find((d) => d.draftId === activeDraftId) || null,
+    [drafts, activeDraftId]
+  );
 
   const [categoryId, setCategoryId] = useState<string>("all");
   const [search, setSearch] = useState("");
-  const [cart, setCart] = useState<MegaFodyItem[]>([]);
-  const [customerName, setCustomerName] = useState("");
-  const [customerPhone, setCustomerPhone] = useState("");
-  const [address, setAddress] = useState("");
-  const [orderType, setOrderType] = useState<OrderType>("mostrador");
-  const [notes, setNotes] = useState("");
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -34,202 +33,310 @@ export default function DeliveryPage() {
   }, [products, categoryId, search]);
 
   function addToCart(productId: string) {
+    if (!activeDraft) return;
     const product = products.find((p) => p.id === productId);
     if (!product) return;
-    setCart((prev) => {
-      const idx = prev.findIndex((i) => i.productId === productId);
-      if (idx >= 0) {
-        return prev.map((i, k) => (k === idx ? { ...i, quantity: i.quantity + 1 } : i));
-      }
-      return [
-        ...prev,
-        { productId: product.id, productName: product.name, price: product.price, quantity: 1 },
-      ];
+    const existing = activeDraft.items.find((i) => i.productId === productId);
+    const newItems = existing
+      ? activeDraft.items.map((i) =>
+          i.productId === productId ? { ...i, quantity: i.quantity + 1 } : i
+        )
+      : [
+          ...activeDraft.items,
+          { productId: product.id, productName: product.name, price: product.price, quantity: 1 },
+        ];
+    dispatch({
+      type: "UPDATE_DRAFT",
+      payload: { draftId: activeDraft.draftId, changes: { items: newItems } },
     });
   }
 
   function updateQty(productId: string, delta: number) {
-    setCart((prev) => {
-      return prev
-        .map((i) => (i.productId === productId ? { ...i, quantity: i.quantity + delta } : i))
-        .filter((i) => i.quantity > 0);
+    if (!activeDraft) return;
+    const newItems = activeDraft.items
+      .map((i) => (i.productId === productId ? { ...i, quantity: i.quantity + delta } : i))
+      .filter((i) => i.quantity > 0);
+    dispatch({
+      type: "UPDATE_DRAFT",
+      payload: { draftId: activeDraft.draftId, changes: { items: newItems } },
     });
   }
 
   function removeItem(productId: string) {
-    setCart((prev) => prev.filter((i) => i.productId !== productId));
+    if (!activeDraft) return;
+    dispatch({
+      type: "UPDATE_DRAFT",
+      payload: {
+        draftId: activeDraft.draftId,
+        changes: { items: activeDraft.items.filter((i) => i.productId !== productId) },
+      },
+    });
   }
 
-  const subtotal = cart.reduce((sum, i) => sum + i.price * i.quantity, 0);
+  function updateField<K extends "name" | "phone" | "address">(field: K, value: string) {
+    if (!activeDraft) return;
+    dispatch({
+      type: "UPDATE_DRAFT",
+      payload: {
+        draftId: activeDraft.draftId,
+        changes: { customer: { ...activeDraft.customer, [field]: value } },
+      },
+    });
+  }
+
+  function setOrderType(type: OrderType) {
+    if (!activeDraft) return;
+    dispatch({
+      type: "UPDATE_DRAFT",
+      payload: { draftId: activeDraft.draftId, changes: { type } },
+    });
+  }
+
+  function setNotes(notes: string) {
+    if (!activeDraft) return;
+    dispatch({
+      type: "UPDATE_DRAFT",
+      payload: { draftId: activeDraft.draftId, changes: { notes } },
+    });
+  }
+
+  const subtotal = activeDraft
+    ? activeDraft.items.reduce((sum, i) => sum + i.price * i.quantity, 0)
+    : 0;
 
   function sendToKitchen() {
-    if (cart.length === 0) return;
-    const order = {
-      type: orderType,
-      customer: {
-        name: customerName.trim() || undefined,
-        phone: customerPhone.trim() || undefined,
-        address: orderType === "delivery" ? address.trim() || undefined : undefined,
-      },
-      items: cart,
-      total: subtotal,
-      notes: notes.trim() || undefined,
-    };
-    dispatch({ type: "ADD_ORDER", payload: order });
+    if (!activeDraft || activeDraft.items.length === 0) return;
+    dispatch({ type: "SUBMIT_DRAFT", payload: { draftId: activeDraft.draftId } });
     setToast(`Pedido enviado a cocina`);
-    setCart([]);
-    setCustomerName("");
-    setCustomerPhone("");
-    setAddress("");
-    setNotes("");
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      {/* Catalog */}
-      <section className="lg:col-span-2 space-y-3">
-        <div className="flex items-center gap-3 flex-wrap">
-          <h2 className="text-lg font-bold text-white">Catálogo</h2>
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar producto…"
-            className="flex-1 min-w-[200px] bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-rose-500"
-          />
+    <div className="space-y-4">
+      {/* Pedidos abiertos (tabs) */}
+      <div className="bg-gray-900 border border-gray-800 rounded-lg p-3">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Pedidos abiertos</p>
+          <span className="text-[10px] text-gray-500">{drafts.length} en curso</span>
         </div>
-
-        <div className="flex flex-wrap gap-2">
-          <CategoryChip label="Todo" active={categoryId === "all"} onClick={() => setCategoryId("all")} />
-          {categories.map((c) => (
-            <CategoryChip key={c.id} label={c.name} active={categoryId === c.id} onClick={() => setCategoryId(c.id)} />
-          ))}
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {filtered.length === 0 ? (
-            <div className="col-span-full bg-gray-900 border border-gray-800 rounded-lg p-6 text-center text-gray-500 text-sm">
-              No hay productos con esos filtros
-            </div>
-          ) : (
-            filtered.map((p) => (
+        <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+          {drafts.map((d) => {
+            const isActive = d.draftId === activeDraftId;
+            const itemCount = d.items.reduce((sum, i) => sum + i.quantity, 0);
+            const total = d.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+            return (
               <button
-                key={p.id}
-                onClick={() => addToCart(p.id)}
-                className="text-left bg-gray-900 border border-gray-800 rounded-lg p-3 hover:border-rose-500 transition-colors"
+                key={d.draftId}
+                onClick={() => dispatch({ type: "SET_ACTIVE_DRAFT", payload: { draftId: d.draftId } })}
+                className={`shrink-0 text-left rounded-lg px-3 py-2 border transition-all min-w-[150px] ${
+                  isActive
+                    ? "bg-rose-600 border-rose-500 text-white"
+                    : "bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700"
+                }`}
               >
-                <div className="w-full h-20 rounded bg-gradient-to-br from-rose-900/40 to-gray-800 flex items-center justify-center mb-2 text-2xl font-bold text-rose-300/60">
-                  {p.name.charAt(0).toUpperCase()}
-                </div>
-                <p className="text-sm font-medium text-white leading-snug line-clamp-2 min-h-[2.5em]">{p.name}</p>
-                <p className="text-rose-400 font-bold text-sm mt-1">{formatARS(p.price)}</p>
-              </button>
-            ))
-          )}
-        </div>
-      </section>
-
-      {/* Cart */}
-      <section className="bg-gray-900 border border-gray-800 rounded-lg p-4 flex flex-col gap-4 h-fit lg:sticky lg:top-4">
-        <div>
-          <h2 className="text-lg font-bold text-white">Pedido actual</h2>
-          <p className="text-xs text-gray-500">Datos del cliente opcionales</p>
-        </div>
-
-        {/* Type toggle */}
-        <div className="grid grid-cols-2 gap-2">
-          <TypeBtn label="Mostrador" active={orderType === "mostrador"} onClick={() => setOrderType("mostrador")} />
-          <TypeBtn label="Delivery" active={orderType === "delivery"} onClick={() => setOrderType("delivery")} />
-        </div>
-
-        {/* Customer */}
-        <div className="space-y-2">
-          <input
-            value={customerName}
-            onChange={(e) => setCustomerName(e.target.value)}
-            placeholder="Nombre del cliente o mesa"
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-rose-500"
-          />
-          <input
-            value={customerPhone}
-            onChange={(e) => setCustomerPhone(e.target.value)}
-            placeholder="Teléfono"
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-rose-500"
-          />
-          {orderType === "delivery" && (
-            <input
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="Dirección"
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-rose-500"
-            />
-          )}
-        </div>
-
-        {/* Items */}
-        <div className="border-t border-gray-800 pt-3">
-          {cart.length === 0 ? (
-            <p className="text-sm text-gray-500 text-center py-6">Tocá productos del catálogo para sumarlos</p>
-          ) : (
-            <ul className="space-y-2">
-              {cart.map((i) => (
-                <li key={i.productId} className="flex items-center gap-2 text-sm">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white truncate">{i.productName}</p>
-                    <p className="text-xs text-gray-500">{formatARS(i.price)} c/u</p>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => updateQty(i.productId, -1)}
-                      className="w-6 h-6 rounded-full bg-gray-800 text-white hover:bg-gray-700 transition-colors"
-                    >
-                      −
-                    </button>
-                    <span className="w-6 text-center text-white text-sm font-medium">{i.quantity}</span>
-                    <button
-                      onClick={() => updateQty(i.productId, 1)}
-                      className="w-6 h-6 rounded-full bg-gray-800 text-white hover:bg-gray-700 transition-colors"
-                    >
-                      +
-                    </button>
-                  </div>
-                  <button
-                    onClick={() => removeItem(i.productId)}
-                    className="text-red-400 hover:text-red-300 text-xs ml-1"
-                    aria-label="Quitar"
+                <div className="flex items-center justify-between gap-2 mb-0.5">
+                  <span className="text-sm font-semibold truncate">{d.label}</span>
+                  <span
+                    className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
+                      isActive
+                        ? "bg-white/20 text-white"
+                        : d.type === "delivery"
+                        ? "bg-purple-600/30 text-purple-300"
+                        : "bg-blue-600/30 text-blue-300"
+                    }`}
                   >
-                    ×
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {/* Notes */}
-        <textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          rows={2}
-          placeholder="Notas para cocina (sin sal, etc.)"
-          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-rose-500 resize-none"
-        />
-
-        {/* Total + submit */}
-        <div className="border-t border-gray-800 pt-3 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-400">Total</span>
-            <span className="text-xl font-bold text-rose-400">{formatARS(subtotal)}</span>
-          </div>
+                    {d.type === "delivery" ? "Del" : "Mos"}
+                  </span>
+                </div>
+                <div className={`text-[11px] ${isActive ? "text-rose-100" : "text-gray-500"}`}>
+                  {itemCount === 0 ? "Vacío" : `${itemCount} ítems · ${formatARS(total)}`}
+                </div>
+              </button>
+            );
+          })}
           <button
-            onClick={sendToKitchen}
-            disabled={cart.length === 0}
-            className="w-full py-3 rounded-lg text-sm font-bold transition-colors bg-rose-600 hover:bg-rose-700 disabled:bg-gray-800 disabled:text-gray-600 text-white"
+            onClick={() => dispatch({ type: "CREATE_DRAFT" })}
+            className="shrink-0 rounded-lg px-3 py-2 border border-dashed border-gray-700 text-gray-400 hover:border-rose-500 hover:text-rose-400 transition-colors text-sm font-medium min-w-[110px]"
           >
-            Enviar a cocina
+            + Nuevo
           </button>
         </div>
-      </section>
+      </div>
+
+      {!activeDraft ? (
+        <div className="bg-gray-900 border border-gray-800 rounded-lg p-10 text-center">
+          <p className="text-gray-400 mb-3">No hay pedidos abiertos</p>
+          <button
+            onClick={() => dispatch({ type: "CREATE_DRAFT" })}
+            className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold"
+          >
+            Crear pedido nuevo
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Catalog */}
+          <section className="lg:col-span-2 space-y-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h2 className="text-lg font-bold text-white">Catálogo</h2>
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar producto…"
+                className="flex-1 min-w-[200px] bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-rose-500"
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <CategoryChip label="Todo" active={categoryId === "all"} onClick={() => setCategoryId("all")} />
+              {categories.map((c) => (
+                <CategoryChip
+                  key={c.id}
+                  label={c.name}
+                  active={categoryId === c.id}
+                  onClick={() => setCategoryId(c.id)}
+                />
+              ))}
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {filtered.length === 0 ? (
+                <div className="col-span-full bg-gray-900 border border-gray-800 rounded-lg p-6 text-center text-gray-500 text-sm">
+                  No hay productos con esos filtros
+                </div>
+              ) : (
+                filtered.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => addToCart(p.id)}
+                    className="text-left bg-gray-900 border border-gray-800 rounded-lg p-3 hover:border-rose-500 transition-colors"
+                  >
+                    <div className="w-full h-20 rounded bg-gradient-to-br from-rose-900/40 to-gray-800 flex items-center justify-center mb-2 text-2xl font-bold text-rose-300/60">
+                      {p.name.charAt(0).toUpperCase()}
+                    </div>
+                    <p className="text-sm font-medium text-white leading-snug line-clamp-2 min-h-[2.5em]">{p.name}</p>
+                    <p className="text-rose-400 font-bold text-sm mt-1">{formatARS(p.price)}</p>
+                  </button>
+                ))
+              )}
+            </div>
+          </section>
+
+          {/* Cart for active draft */}
+          <section className="bg-gray-900 border border-gray-800 rounded-lg p-4 flex flex-col gap-4 h-fit lg:sticky lg:top-4">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-bold text-white">{activeDraft.label}</h2>
+                <p className="text-xs text-gray-500">Datos del cliente opcionales</p>
+              </div>
+              <button
+                onClick={() => {
+                  if (confirm(`¿Eliminar ${activeDraft.label}?`)) {
+                    dispatch({ type: "DELETE_DRAFT", payload: { draftId: activeDraft.draftId } });
+                  }
+                }}
+                className="text-xs text-red-400/80 hover:text-red-300"
+              >
+                Eliminar
+              </button>
+            </div>
+
+            {/* Type toggle */}
+            <div className="grid grid-cols-2 gap-2">
+              <TypeBtn label="Mostrador" active={activeDraft.type === "mostrador"} onClick={() => setOrderType("mostrador")} />
+              <TypeBtn label="Delivery" active={activeDraft.type === "delivery"} onClick={() => setOrderType("delivery")} />
+            </div>
+
+            {/* Customer */}
+            <div className="space-y-2">
+              <input
+                value={activeDraft.customer.name || ""}
+                onChange={(e) => updateField("name", e.target.value)}
+                placeholder="Nombre del cliente o mesa"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-rose-500"
+              />
+              <input
+                value={activeDraft.customer.phone || ""}
+                onChange={(e) => updateField("phone", e.target.value)}
+                placeholder="Teléfono"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-rose-500"
+              />
+              {activeDraft.type === "delivery" && (
+                <input
+                  value={activeDraft.customer.address || ""}
+                  onChange={(e) => updateField("address", e.target.value)}
+                  placeholder="Dirección"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-rose-500"
+                />
+              )}
+            </div>
+
+            {/* Items */}
+            <div className="border-t border-gray-800 pt-3">
+              {activeDraft.items.length === 0 ? (
+                <p className="text-sm text-gray-500 text-center py-6">Tocá productos del catálogo para sumarlos</p>
+              ) : (
+                <ul className="space-y-2">
+                  {activeDraft.items.map((i) => (
+                    <li key={i.productId} className="flex items-center gap-2 text-sm">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white truncate">{i.productName}</p>
+                        <p className="text-xs text-gray-500">{formatARS(i.price)} c/u</p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => updateQty(i.productId, -1)}
+                          className="w-6 h-6 rounded-full bg-gray-800 text-white hover:bg-gray-700 transition-colors"
+                        >
+                          −
+                        </button>
+                        <span className="w-6 text-center text-white text-sm font-medium">{i.quantity}</span>
+                        <button
+                          onClick={() => updateQty(i.productId, 1)}
+                          className="w-6 h-6 rounded-full bg-gray-800 text-white hover:bg-gray-700 transition-colors"
+                        >
+                          +
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => removeItem(i.productId)}
+                        className="text-red-400 hover:text-red-300 text-xs ml-1"
+                        aria-label="Quitar"
+                      >
+                        ×
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Notes */}
+            <textarea
+              value={activeDraft.notes || ""}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+              placeholder="Notas para cocina (sin sal, etc.)"
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-rose-500 resize-none"
+            />
+
+            {/* Total + submit */}
+            <div className="border-t border-gray-800 pt-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-400">Total</span>
+                <span className="text-xl font-bold text-rose-400">{formatARS(subtotal)}</span>
+              </div>
+              <button
+                onClick={sendToKitchen}
+                disabled={activeDraft.items.length === 0}
+                className="w-full py-3 rounded-lg text-sm font-bold transition-colors bg-rose-600 hover:bg-rose-700 disabled:bg-gray-800 disabled:text-gray-600 text-white"
+              >
+                Enviar a cocina
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {/* Toast */}
       {toast && (

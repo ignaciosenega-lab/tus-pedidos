@@ -34,16 +34,32 @@ export interface MegaFodyOrder {
   notes?: string;
 }
 
+export interface DraftOrder {
+  draftId: string;
+  label: string;
+  type: OrderType;
+  customer: { name?: string; phone?: string; address?: string };
+  items: MegaFodyItem[];
+  notes?: string;
+}
+
 interface State {
   orders: MegaFodyOrder[];
   nextId: number;
   products: MegaFodyProduct[];
   categories: MegaFodyCategory[];
+  drafts: DraftOrder[];
+  activeDraftId: string | null;
 }
 
 type Action =
   | { type: "ADD_ORDER"; payload: Omit<MegaFodyOrder, "id" | "status" | "createdAt"> }
   | { type: "SET_STATUS"; payload: { orderId: number; status: OrderStatus } }
+  | { type: "CREATE_DRAFT" }
+  | { type: "SET_ACTIVE_DRAFT"; payload: { draftId: string } }
+  | { type: "UPDATE_DRAFT"; payload: { draftId: string; changes: Partial<Omit<DraftOrder, "draftId">> } }
+  | { type: "DELETE_DRAFT"; payload: { draftId: string } }
+  | { type: "SUBMIT_DRAFT"; payload: { draftId: string } }
   | { type: "RESET_DEMO" };
 
 const CATEGORIES: MegaFodyCategory[] = [
@@ -113,13 +129,64 @@ function makeInitialOrders(): MegaFodyOrder[] {
   ];
 }
 
+function makeInitialDrafts(): DraftOrder[] {
+  return [
+    {
+      draftId: "d1",
+      label: "Pedido 1 · Mesa 3",
+      type: "mostrador",
+      customer: { name: "Mesa 3" },
+      items: [
+        { productId: "p1", productName: "Empanadas (3u)", price: 3500, quantity: 2 },
+        { productId: "p11", productName: "Cerveza tirada", price: 3800, quantity: 1 },
+      ],
+    },
+    {
+      draftId: "d2",
+      label: "Pedido 2 · Delivery",
+      type: "delivery",
+      customer: { name: "Lucas", phone: "11 4455 6677", address: "Av. Santa Fe 2200" },
+      items: [
+        { productId: "p4", productName: "Milanesa Napolitana", price: 12500, quantity: 1 },
+        { productId: "p9", productName: "Agua mineral 500ml", price: 1500, quantity: 1 },
+      ],
+      notes: "Sin papas, agregar limón",
+    },
+    {
+      draftId: "d3",
+      label: "Pedido 3 · Barra",
+      type: "mostrador",
+      customer: {},
+      items: [],
+    },
+  ];
+}
+
 function initialState(): State {
+  const drafts = makeInitialDrafts();
   return {
     orders: makeInitialOrders(),
     nextId: 104,
     products: PRODUCTS,
     categories: CATEGORIES,
+    drafts,
+    activeDraftId: drafts[0]?.draftId || null,
   };
+}
+
+function generateDraftId(): string {
+  return `d-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function nextDraftLabel(existing: DraftOrder[]): string {
+  const nums = existing
+    .map((d) => {
+      const m = d.label.match(/^Pedido (\d+)/);
+      return m ? Number(m[1]) : 0;
+    })
+    .filter((n) => n > 0);
+  const next = nums.length > 0 ? Math.max(...nums) + 1 : existing.length + 1;
+  return `Pedido ${next}`;
 }
 
 function reducer(state: State, action: Action): State {
@@ -140,6 +207,61 @@ function reducer(state: State, action: Action): State {
         orders: state.orders.map((o) =>
           o.id === action.payload.orderId ? { ...o, status: action.payload.status } : o
         ),
+      };
+    }
+    case "CREATE_DRAFT": {
+      const newDraft: DraftOrder = {
+        draftId: generateDraftId(),
+        label: nextDraftLabel(state.drafts),
+        type: "mostrador",
+        customer: {},
+        items: [],
+      };
+      return { ...state, drafts: [...state.drafts, newDraft], activeDraftId: newDraft.draftId };
+    }
+    case "SET_ACTIVE_DRAFT": {
+      return { ...state, activeDraftId: action.payload.draftId };
+    }
+    case "UPDATE_DRAFT": {
+      return {
+        ...state,
+        drafts: state.drafts.map((d) =>
+          d.draftId === action.payload.draftId ? { ...d, ...action.payload.changes } : d
+        ),
+      };
+    }
+    case "DELETE_DRAFT": {
+      const remaining = state.drafts.filter((d) => d.draftId !== action.payload.draftId);
+      const stillActive =
+        state.activeDraftId && remaining.some((d) => d.draftId === state.activeDraftId)
+          ? state.activeDraftId
+          : remaining[0]?.draftId || null;
+      return { ...state, drafts: remaining, activeDraftId: stillActive };
+    }
+    case "SUBMIT_DRAFT": {
+      const draft = state.drafts.find((d) => d.draftId === action.payload.draftId);
+      if (!draft || draft.items.length === 0) return state;
+      const total = draft.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+      const id = state.nextId;
+      const order: MegaFodyOrder = {
+        id,
+        type: draft.type,
+        customer: draft.customer,
+        items: draft.items,
+        total,
+        status: "pending",
+        createdAt: new Date().toISOString(),
+        notes: draft.notes,
+      };
+      const remaining = state.drafts.filter((d) => d.draftId !== action.payload.draftId);
+      const stillActive =
+        remaining.length > 0 ? remaining[0].draftId : null;
+      return {
+        ...state,
+        orders: [order, ...state.orders],
+        nextId: id + 1,
+        drafts: remaining,
+        activeDraftId: stillActive,
       };
     }
     case "RESET_DEMO":
