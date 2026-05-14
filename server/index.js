@@ -14,6 +14,7 @@ const branchesRoutes = require("./routes/branches");
 const menusRoutes = require("./routes/menus");
 const campaignsRoutes = require("./routes/campaigns");
 const globalRoutes = require("./routes/global");
+const menuPublicRoutes = require("./routes/menu-public");
 const { processCampaignQueue } = require("./services/campaignWorker");
 
 const app = express();
@@ -918,6 +919,9 @@ app.use("/api/campaigns", campaignsRoutes);
 
 // Global (cross-branch master views)
 app.use("/api/global", globalRoutes);
+
+// Public menu feed (no auth — consumed by external tools like JIRO_FQC to compare against PDF)
+app.use("/api/public", menuPublicRoutes);
 
 // Get state (public — storefront needs to read products)
 // Uses subdomain detection: canning.pedidos.jirosushi.com.ar → branchSlug "canning"
