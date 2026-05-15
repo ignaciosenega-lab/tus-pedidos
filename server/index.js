@@ -259,6 +259,27 @@ function applyPromotionsToProducts(products, promoRows, db) {
   }
 }
 
+// Resuelve los cupones activos que aplican a una sucursal para un código dado,
+// ordenados del MÁS específico al menos: branch_id exacto > vínculo en
+// coupon_branches > apply_all_branches; ante empate, el más nuevo (id DESC).
+// Devuelve el array completo de candidatos (el [0] es el que se debe usar).
+function resolveCouponsForBranch(db, code, branchId) {
+  return db.prepare(`
+    SELECT c.*,
+      (CASE
+        WHEN c.branch_id = @branchId THEN 3
+        WHEN EXISTS (SELECT 1 FROM coupon_branches cb WHERE cb.coupon_id = c.id AND cb.branch_id = @branchId) THEN 2
+        WHEN c.apply_all_branches = 1 THEN 1
+        ELSE 0
+      END) AS match_rank
+    FROM coupons c
+    WHERE UPPER(c.code) = UPPER(@code) AND c.is_active = 1
+      AND (c.branch_id = @branchId OR c.apply_all_branches = 1
+           OR EXISTS (SELECT 1 FROM coupon_branches cb WHERE cb.coupon_id = c.id AND cb.branch_id = @branchId))
+    ORDER BY match_rank DESC, c.id DESC
+  `).all({ code: String(code).trim(), branchId });
+}
+
 /* ══════════════════════════════════════════════════
    DB → AdminState (GET /api/state)
    ══════════════════════════════════════════════════ */
@@ -978,15 +999,23 @@ app.post("/api/coupons/validate", (req, res) => {
       return res.status(400).json({ valid: false, message: "Código requerido" });
     }
 
-    const coupon = db.prepare(`
-      SELECT DISTINCT c.* FROM coupons c
-      LEFT JOIN coupon_branches cb ON c.id = cb.coupon_id
-      WHERE UPPER(c.code) = UPPER(?) AND c.is_active = 1
-        AND (c.branch_id = ? OR c.apply_all_branches = 1 OR cb.branch_id = ?)
-    `).get(code.trim(), branchId, branchId);
+    // Si hay varios cupones con el mismo código (duplicados, otra sede, "todas
+    // las sucursales"), elegimos el MÁS ESPECÍFICO para esta sucursal de forma
+    // determinística (ver resolveCouponsForBranch).
+    const candidates = resolveCouponsForBranch(db, code, branchId);
+    const coupon = candidates[0];
 
     if (!coupon) {
       return res.json({ valid: false, message: "Cupón no encontrado o inactivo" });
+    }
+
+    // Diag temporal: si hay más de un candidato, dejamos rastro de cuál se eligió
+    // y cuáles quedaron, para detectar duplicados rotos en producción.
+    if (candidates.length > 1) {
+      console.warn(
+        `[coupon-validate] code=${code.trim()} branch=${branchId} -> ${candidates.length} candidatos; elegido id=${coupon.id} (branch_id=${coupon.branch_id}, all=${coupon.apply_all_branches}, type=${coupon.type}, value=${coupon.value}). Otros: ` +
+        candidates.slice(1).map((c) => `#${c.id}[branch=${c.branch_id},all=${c.apply_all_branches},${c.type}:${c.value}]`).join(", ")
+      );
     }
 
     // Check date range
@@ -1074,6 +1103,14 @@ app.post("/api/coupons/validate", (req, res) => {
     }
 
     const discount = Math.max(0, couponDiscount - promoDiscountInScope);
+
+    // Diag temporal: traza del cálculo para auditar descuentos que no cierran.
+    console.warn(
+      `[coupon-validate] code=${coupon.code} id=${coupon.id} branch=${branchId} ` +
+      `type=${coupon.type} value=${coupon.value} | originalInScope=${originalTotalInScope} ` +
+      `promoDisc=${promoDiscountInScope} couponDisc=${couponDiscount} -> discount=${discount}`
+    );
+
     if (discount === 0) {
       return res.json({ valid: false, message: "Este cupón no mejora el descuento actual" });
     }
@@ -1132,16 +1169,19 @@ app.post("/api/orders", (req, res) => {
         .run(customerName, address || customer.address, neighborhood || customer.neighborhood, customer.id);
     }
 
+    // Resolvemos el cupón concreto que aplica a ESTA sucursal (mismo criterio
+    // que /api/coupons/validate) para no mezclar duplicados entre sedes.
+    const orderCoupon = couponCode
+      ? resolveCouponsForBranch(db, couponCode, branchId)[0]
+      : null;
+
     // Validate first_purchase_only coupon
-    if (couponCode) {
-      const coupon = db.prepare("SELECT * FROM coupons WHERE UPPER(code) = UPPER(?) AND is_active = 1").get(couponCode.trim());
-      if (coupon && coupon.first_purchase_only) {
-        const previousOrders = db.prepare(
-          "SELECT COUNT(*) as count FROM orders WHERE customer_phone = ?"
-        ).get(cleanPhone);
-        if (previousOrders.count > 0) {
-          return res.status(400).json({ error: "Este cupón es solo para primera compra y ya realizaste un pedido anteriormente" });
-        }
+    if (orderCoupon && orderCoupon.first_purchase_only) {
+      const previousOrders = db.prepare(
+        "SELECT COUNT(*) as count FROM orders WHERE customer_phone = ?"
+      ).get(cleanPhone);
+      if (previousOrders.count > 0) {
+        return res.status(400).json({ error: "Este cupón es solo para primera compra y ya realizaste un pedido anteriormente" });
       }
     }
 
@@ -1161,11 +1201,12 @@ app.post("/api/orders", (req, res) => {
       JSON.stringify(items || []), subtotal || 0, deliveryCost || 0, discount || 0, orderTotal, couponCode || null,
     );
 
-    // Increment coupon used_count
-    if (couponCode) {
+    // Increment coupon used_count — SOLO el cupón concreto que se aplicó,
+    // no todos los que comparten código entre sucursales.
+    if (orderCoupon) {
       db.prepare(
-        "UPDATE coupons SET used_count = used_count + 1 WHERE UPPER(code) = UPPER(?)"
-      ).run(couponCode.trim());
+        "UPDATE coupons SET used_count = used_count + 1 WHERE id = ?"
+      ).run(orderCoupon.id);
     }
 
     // Update total_spent and last_order_date on customer
