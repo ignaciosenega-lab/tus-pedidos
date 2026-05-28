@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useStorefront } from "../hooks/useStorefront";
 import ThemeStyles from "./ThemeStyles";
 import BranchMapView, { type BranchForMap } from "./BranchMapView";
@@ -30,6 +30,11 @@ interface PublicBranch {
 
 type View = "list" | "map";
 
+// Ubicación elegida por el cliente vía Google Places Autocomplete sobre
+// el buscador. Cuando está seteada, las sucursales se ordenan por
+// cercanía a este punto en lugar de filtrar por texto.
+type SearchLocation = { lat: number; lng: number; label: string };
+
 export default function BranchSelectorPage() {
   const { businessConfig, branchDomain } = useStorefront();
   const [branches, setBranches] = useState<PublicBranch[]>([]);
@@ -40,6 +45,9 @@ export default function BranchSelectorPage() {
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [coordsByBranchId, setCoordsByBranchId] = useState<Record<number, Coords>>({});
+  const [searchLocation, setSearchLocation] = useState<SearchLocation | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
 
   useEffect(() => {
     fetch("/api/branches/public")
@@ -84,17 +92,71 @@ export default function BranchSelectorPage() {
     };
   }, [branches]);
 
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase().trim();
-    const base = q
-      ? branches.filter(
-          (b) =>
-            b.name.toLowerCase().includes(q) ||
-            b.address.toLowerCase().includes(q)
-        )
-      : branches;
+  // Conectar Google Places Autocomplete al input de búsqueda. Cuando el
+  // cliente tipea una dirección y selecciona una sugerencia, fijamos
+  // searchLocation con esas coords y las sucursales se ordenan por
+  // cercanía a ese punto (sin filtro por texto).
+  useEffect(() => {
+    if (!isGoogleMapsConfigured() || !searchInputRef.current) return;
+    let cancelled = false;
+    loadGoogleMaps(["places"])
+      .then(() => {
+        if (cancelled || !searchInputRef.current || autocompleteRef.current) return;
+        const ac = new google.maps.places.Autocomplete(searchInputRef.current, {
+          componentRestrictions: { country: "ar" },
+          fields: ["formatted_address", "geometry", "name"],
+          types: ["geocode"],
+        });
+        ac.addListener("place_changed", () => {
+          const place = ac.getPlace();
+          if (place.geometry?.location) {
+            const lat = place.geometry.location.lat();
+            const lng = place.geometry.location.lng();
+            const label =
+              place.formatted_address || place.name || "Ubicación buscada";
+            setSearchLocation({ lat, lng, label });
+            setSearch(label);
+          }
+        });
+        autocompleteRef.current = ac;
+      })
+      .catch(() => {
+        /* sin Places autocomplete la búsqueda sigue siendo solo por texto */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-    if (!userLocation) return base;
+  // Punto de referencia para distancias y ordenamiento: la dirección
+  // buscada gana sobre la geolocalización del navegador.
+  const anchorLocation: Coords | null = useMemo(
+    () =>
+      searchLocation
+        ? { lat: searchLocation.lat, lng: searchLocation.lng }
+        : userLocation,
+    [searchLocation, userLocation]
+  );
+
+  const filtered = useMemo(() => {
+    // Cuando hay una dirección buscada, ignoramos el filtro por texto
+    // (el input contiene la dirección de referencia) y mostramos todas
+    // las sucursales ordenadas por cercanía.
+    let base: PublicBranch[];
+    if (searchLocation) {
+      base = branches;
+    } else {
+      const q = search.toLowerCase().trim();
+      base = q
+        ? branches.filter(
+            (b) =>
+              b.name.toLowerCase().includes(q) ||
+              b.address.toLowerCase().includes(q)
+          )
+        : branches;
+    }
+
+    if (!anchorLocation) return base;
 
     // Ordenar por distancia ascendente; las que no tienen coords cacheadas
     // van al final preservando el orden alfabético original.
@@ -102,13 +164,13 @@ export default function BranchSelectorPage() {
       const ca = coordsByBranchId[a.id];
       const cb = coordsByBranchId[b.id];
       if (ca && cb) {
-        return haversineKm(userLocation, ca) - haversineKm(userLocation, cb);
+        return haversineKm(anchorLocation, ca) - haversineKm(anchorLocation, cb);
       }
       if (ca) return -1;
       if (cb) return 1;
       return 0;
     });
-  }, [branches, search, userLocation, coordsByBranchId]);
+  }, [branches, search, searchLocation, anchorLocation, coordsByBranchId]);
 
   function goToBranch(branch: PublicBranch | BranchForMap) {
     const protocol = window.location.protocol;
@@ -148,6 +210,11 @@ export default function BranchSelectorPage() {
   function clearLocation() {
     setUserLocation(null);
     setLocationError(null);
+  }
+
+  function clearSearchLocation() {
+    setSearchLocation(null);
+    setSearch("");
   }
 
   return (
@@ -299,18 +366,61 @@ export default function BranchSelectorPage() {
               />
             </svg>
             <input
+              ref={searchInputRef}
               type="text"
-              placeholder="Buscar por nombre o dirección..."
+              placeholder="Buscar sucursal o ingresá tu dirección..."
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full border border-white/10 rounded-lg pl-10 pr-4 py-2.5 text-sm placeholder-current/40 focus:outline-none focus:ring-2 focus:border-transparent"
+              onChange={(e) => {
+                setSearch(e.target.value);
+                // Si el usuario edita después de haber elegido una dirección,
+                // soltamos el anchor para que vuelva a filtrar por texto.
+                if (searchLocation) setSearchLocation(null);
+              }}
+              autoComplete="off"
+              className="w-full border border-white/10 rounded-lg pl-10 pr-10 py-2.5 text-sm placeholder-current/40 focus:outline-none focus:ring-2 focus:border-transparent"
               style={{
                 backgroundColor: "var(--panel-bg)",
                 color: "var(--general-text)",
                 "--tw-ring-color": "var(--btn-bg)",
               } as React.CSSProperties}
             />
+            {search && (
+              <button
+                type="button"
+                onClick={clearSearchLocation}
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-md opacity-50 hover:opacity-100"
+                aria-label="Limpiar búsqueda"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
           </div>
+          {searchLocation && (
+            <div
+              className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-full border border-violet-500/40 bg-violet-500/10 text-violet-200"
+              role="status"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <span className="truncate max-w-[260px] sm:max-w-[420px]">
+                Cerca de: {searchLocation.label}
+              </span>
+              <button
+                type="button"
+                onClick={clearSearchLocation}
+                className="opacity-70 hover:opacity-100"
+                aria-label="Quitar dirección de búsqueda"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Body */}
@@ -325,13 +435,15 @@ export default function BranchSelectorPage() {
             branches={filtered}
             onSelect={(b) => goToBranch(b)}
             userLocation={userLocation}
+            searchLocation={searchLocation}
           />
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {filtered.map((branch) => {
               const coords = coordsByBranchId[branch.id];
               const distance =
-                userLocation && coords ? haversineKm(userLocation, coords) : null;
+                anchorLocation && coords ? haversineKm(anchorLocation, coords) : null;
+              const distanceColor = searchLocation ? "text-violet-300" : "text-blue-400";
               return (
                 <button
                   key={branch.id}
@@ -374,7 +486,7 @@ export default function BranchSelectorPage() {
                     </svg>
                     <span className="truncate">{branch.address || "Sin dirección"}</span>
                     {distance !== null && (
-                      <span className="shrink-0 text-blue-400 font-medium">
+                      <span className={`shrink-0 ${distanceColor} font-medium`}>
                         · {formatKm(distance)}
                       </span>
                     )}

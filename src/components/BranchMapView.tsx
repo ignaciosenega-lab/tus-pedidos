@@ -25,6 +25,10 @@ interface Props {
   branches: BranchForMap[];
   onSelect: (branch: BranchForMap) => void;
   userLocation: Coords | null;
+  // Dirección elegida por el cliente desde el buscador. Cuando está presente,
+  // tiene prioridad sobre userLocation para encuadrar el mapa y dibujar el
+  // círculo de "zona cercana". Se renderiza con un pin violeta distintivo.
+  searchLocation?: (Coords & { label?: string }) | null;
 }
 
 // Mismo estilo oscuro que CustomerMapModal — coherencia visual con el resto del admin.
@@ -41,13 +45,28 @@ const DARK_MAP_STYLES = [
 const DEFAULT_CENTER = { lat: -34.6037, lng: -58.3816 }; // Buenos Aires
 const USER_RADIUS_METERS = 3000; // 3 km — zona cercana al usuario.
 
-export default function BranchMapView({ branches, onSelect, userLocation }: Props) {
+export default function BranchMapView({
+  branches,
+  onSelect,
+  userLocation,
+  searchLocation,
+}: Props) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
   const markersRef = useRef<google.maps.Marker[]>([]);
   const userMarkerRef = useRef<google.maps.Marker | null>(null);
   const userCircleRef = useRef<google.maps.Circle | null>(null);
+  const searchMarkerRef = useRef<google.maps.Marker | null>(null);
+  const searchCircleRef = useRef<google.maps.Circle | null>(null);
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
+
+  // El "ancla" para encuadrar el mapa: la dirección buscada gana sobre la
+  // geolocalización del navegador. Solo una de las dos se usa para fitBounds
+  // y para dibujar el círculo de zona cercana — los pines en sí se renderizan
+  // ambos si ambos existen, pero el encuadre prioriza la búsqueda explícita.
+  const anchor: Coords | null = searchLocation
+    ? { lat: searchLocation.lat, lng: searchLocation.lng }
+    : userLocation;
 
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -147,13 +166,12 @@ export default function BranchMapView({ branches, onSelect, userLocation }: Prop
     }
 
     Promise.all(branches.map(placeBranch)).then(() => {
-      if (userLocation) {
-        // Si hay ubicación del usuario, enfocamos la "zona cercana" de 3 km:
-        // un bounds aproximado de un círculo de 3 km de radio. Las sucursales
-        // que queden fuera del círculo siguen visibles en el mapa (panéandolo),
-        // pero el encuadre inicial prioriza lo que tenés cerca.
+      if (anchor) {
+        // Encuadrar la "zona cercana" de 3 km alrededor del ancla (búsqueda o
+        // geolocalización). Las sucursales que queden fuera del círculo siguen
+        // visibles panéando el mapa.
         const circle = new google.maps.Circle({
-          center: userLocation,
+          center: anchor,
           radius: USER_RADIUS_METERS,
         });
         map.fitBounds(circle.getBounds()!, 32);
@@ -165,10 +183,10 @@ export default function BranchMapView({ branches, onSelect, userLocation }: Prop
         });
       }
     });
-  }, [loaded, branches, onSelect, userLocation]);
+  }, [loaded, branches, onSelect, anchor]);
 
-  // Pin del usuario + círculo de 3 km (separado para no rehacer todo cuando
-  // cambia su ubicación).
+  // Pin del usuario (azul). El círculo de 3 km solo se dibuja si el ancla
+  // del mapa es la geolocalización (no hay dirección buscada que la sobreescriba).
   useEffect(() => {
     if (!loaded || !mapInstanceRef.current) return;
     const map = mapInstanceRef.current;
@@ -198,18 +216,64 @@ export default function BranchMapView({ branches, onSelect, userLocation }: Prop
       zIndex: 999,
     });
 
-    userCircleRef.current = new google.maps.Circle({
+    // Solo dibujar el círculo si esta ubicación es el ancla del mapa.
+    if (!searchLocation) {
+      userCircleRef.current = new google.maps.Circle({
+        map,
+        center: userLocation,
+        radius: USER_RADIUS_METERS,
+        strokeColor: "#3b82f6",
+        strokeOpacity: 0.6,
+        strokeWeight: 2,
+        fillColor: "#3b82f6",
+        fillOpacity: 0.08,
+        clickable: false,
+      });
+    }
+  }, [loaded, userLocation, searchLocation]);
+
+  // Pin + círculo de 3 km para la dirección buscada (violeta).
+  useEffect(() => {
+    if (!loaded || !mapInstanceRef.current) return;
+    const map = mapInstanceRef.current;
+
+    if (searchMarkerRef.current) {
+      searchMarkerRef.current.setMap(null);
+      searchMarkerRef.current = null;
+    }
+    if (searchCircleRef.current) {
+      searchCircleRef.current.setMap(null);
+      searchCircleRef.current = null;
+    }
+    if (!searchLocation) return;
+
+    searchMarkerRef.current = new google.maps.Marker({
+      position: { lat: searchLocation.lat, lng: searchLocation.lng },
       map,
-      center: userLocation,
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 9,
+        fillColor: "#8b5cf6",
+        fillOpacity: 1,
+        strokeColor: "#ffffff",
+        strokeWeight: 3,
+      },
+      title: searchLocation.label || "Dirección buscada",
+      zIndex: 1000,
+    });
+
+    searchCircleRef.current = new google.maps.Circle({
+      map,
+      center: { lat: searchLocation.lat, lng: searchLocation.lng },
       radius: USER_RADIUS_METERS,
-      strokeColor: "#3b82f6",
+      strokeColor: "#8b5cf6",
       strokeOpacity: 0.6,
       strokeWeight: 2,
-      fillColor: "#3b82f6",
+      fillColor: "#8b5cf6",
       fillOpacity: 0.08,
       clickable: false,
     });
-  }, [loaded, userLocation]);
+  }, [loaded, searchLocation]);
 
   if (!isGoogleMapsConfigured()) {
     return (
@@ -246,16 +310,28 @@ export default function BranchMapView({ branches, onSelect, userLocation }: Prop
           Cerrada
         </span>
         {userLocation && (
-          <>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-blue-500 border border-white inline-block" />
-              Tu ubicación
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-5 h-2.5 rounded border border-blue-500/60 bg-blue-500/10 inline-block" />
-              Radio 3 km
-            </span>
-          </>
+          <span className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-blue-500 border border-white inline-block" />
+            Tu ubicación
+          </span>
+        )}
+        {searchLocation && (
+          <span className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-violet-500 border border-white inline-block" />
+            Dirección buscada
+          </span>
+        )}
+        {anchor && (
+          <span className="flex items-center gap-1.5">
+            <span
+              className={`w-5 h-2.5 rounded border inline-block ${
+                searchLocation
+                  ? "border-violet-500/60 bg-violet-500/10"
+                  : "border-blue-500/60 bg-blue-500/10"
+              }`}
+            />
+            Radio 3 km
+          </span>
         )}
       </div>
     </div>
