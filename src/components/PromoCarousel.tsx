@@ -121,6 +121,9 @@ export default function PromoCarousel({ products, onAdd, onOptions }: Props) {
             const discount = getDiscountPercent(product);
             const { price, originalPrice } = getDisplayPrices(product);
             const isOptions = product.type === "options";
+            const isSameProductPromo = product.promotionType === "same_product_quantity";
+            const sameProductMin = product.promotionMinQuantity ?? 2;
+            const sameProductPct = product.promotionPercentage ?? 0;
 
             return (
               <div
@@ -139,13 +142,24 @@ export default function PromoCarousel({ products, onAdd, onOptions }: Props) {
                     className="w-full h-48 object-cover"
                     loading="lazy"
                   />
-                  {discount > 0 && (
+                  {/* Badge: 2x1 gana sobre el de % off (porque no tocamos el
+                      precio, sería confuso mostrar "-X% OFF" aquí). */}
+                  {isSameProductPromo ? (
                     <span
-                      className="absolute top-3 right-3 text-sm font-bold px-3 py-1 rounded-full shadow-lg"
-                      style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
+                      className="absolute top-3 right-3 inline-flex items-center gap-1 text-sm font-bold px-3 py-1 rounded-full shadow-lg bg-amber-500 text-amber-950"
+                      title={`Llevá ${sameProductMin} = ${sameProductPct}% off en esas ${sameProductMin} unidades`}
                     >
-                      -{discount}% OFF
+                      🎁 {sameProductMin}x1
                     </span>
+                  ) : (
+                    discount > 0 && (
+                      <span
+                        className="absolute top-3 right-3 text-sm font-bold px-3 py-1 rounded-full shadow-lg"
+                        style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
+                      >
+                        -{discount}% OFF
+                      </span>
+                    )
                   )}
                 </div>
 
@@ -170,6 +184,12 @@ export default function PromoCarousel({ products, onAdd, onOptions }: Props) {
                   <p className="text-sm opacity-70 line-clamp-3" style={{ color: "var(--general-text)" }}>
                     {product.description}
                   </p>
+
+                  {isSameProductPromo && (
+                    <p className="text-xs font-semibold text-amber-300">
+                      Llevá {sameProductMin} = {sameProductPct}% off en esas {sameProductMin} unidades
+                    </p>
+                  )}
 
                   <button
                     type="button"

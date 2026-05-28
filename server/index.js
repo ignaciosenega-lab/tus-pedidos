@@ -281,6 +281,53 @@ function applyPromotionsToProducts(products, promoRows, db) {
   }
 }
 
+// Marca cada producto que califica para una promo 'same_product_quantity'
+// activa con metadata informativa (sin tocar el precio). Esto permite que
+// el carrusel "Promos del Día" en el storefront los liste con un badge
+// como "🎁 2x1" — el descuento real se aplica a nivel carrito en función
+// de la cantidad pedida.
+function markSameProductPromos(products, promoRows, db) {
+  const activePromos = promoRows.filter(
+    (p) => (p.type || "percentage") === "same_product_quantity" && isPromotionActiveToday(p)
+  );
+  if (activePromos.length === 0) return;
+
+  const promoProductSets = {};
+  const promoCategorySets = {};
+  for (const promo of activePromos) {
+    const scope = promo.apply_scope || (promo.apply_to_all ? "all" : "products");
+    if (scope === "products") {
+      const ppRows = db.prepare("SELECT product_id FROM promotion_products WHERE promotion_id = ?").all(promo.id);
+      promoProductSets[promo.id] = new Set(ppRows.map((r) => String(r.product_id)));
+    } else if (scope === "categories") {
+      const pcRows = db.prepare("SELECT category_id FROM promotion_categories WHERE promotion_id = ?").all(promo.id);
+      promoCategorySets[promo.id] = new Set(pcRows.map((r) => String(r.category_id)));
+    }
+  }
+
+  for (const product of products) {
+    let bestPromo = null;
+    for (const promo of activePromos) {
+      const scope = promo.apply_scope || (promo.apply_to_all ? "all" : "products");
+      let applies = false;
+      if (scope === "all") applies = true;
+      else if (scope === "products") applies = promoProductSets[promo.id]?.has(product.id) || false;
+      else if (scope === "categories") applies = promoCategorySets[promo.id]?.has(product.categoryId) || false;
+      if (!applies) continue;
+      // Empate: gana la del mayor descuento por unidad.
+      if (!bestPromo || promo.percentage > bestPromo.percentage) bestPromo = promo;
+    }
+    if (bestPromo) {
+      // Solo seteamos activePromotion si no hay ya una 'percentage' aplicada
+      // (esa modificó el precio y es más explícita visualmente).
+      if (!product.activePromotion) product.activePromotion = bestPromo.name;
+      product.promotionType = "same_product_quantity";
+      product.promotionMinQuantity = bestPromo.min_quantity || 2;
+      product.promotionPercentage = bestPromo.percentage;
+    }
+  }
+}
+
 // Devuelve las rows de promotions que aplican a una sucursal: propias +
 // apply_all_branches + las que la incluyen via promotion_branches. Mismo
 // patrón que usa readStateFromDb.
@@ -551,6 +598,9 @@ function readStateFromDb(branchSlug) {
   // (Solo afecta a las promos type='percentage'; las 'same_product_quantity'
   //  se aplican a nivel carrito.)
   applyPromotionsToProducts(products, promoRows, db);
+
+  // ── Marcar productos elegibles para promos 2x1 (carrusel + badges) ──
+  markSameProductPromos(products, promoRows, db);
 
   // ── Promos por unidades repetidas (estilo 2x1) ──
   // Las exponemos en una forma compacta para que el carrito recompute

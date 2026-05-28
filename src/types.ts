@@ -15,7 +15,16 @@ export interface Product {
   type: "options" | "simple";
   basePrice?: number;
   originalPrice?: number;
+  // Nombre de la promo activa que toca a este producto (cualquier tipo).
+  // Lo usa el carrusel "Promos del Día" para filtrar qué resaltar.
   activePromotion?: string;
+  // Si está marcado por una promo "2x1 al mismo producto", expone los
+  // parámetros para que el storefront pueda mostrar un badge informativo
+  // (ej. "🎁 2x1" o "Llevá 3 = 50% off"). El precio NO se modifica acá
+  // — el descuento se aplica a nivel carrito según la cantidad pedida.
+  promotionType?: "percentage" | "same_product_quantity";
+  promotionMinQuantity?: number;
+  promotionPercentage?: number;
   variants?: Variant[];
   badges?: ("sin_tacc" | "nuevo")[];
   stock?: number; // only for type "simple"
