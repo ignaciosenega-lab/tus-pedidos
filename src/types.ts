@@ -119,7 +119,10 @@ export interface Holiday {
 }
 
 export interface Schedule {
-  hours?: Record<string, DaySchedule | null>;
+  // Cada día puede tener múltiples turnos (almuerzo + cena, etc.).
+  // Por retro-compatibilidad también aceptamos el shape antiguo de un solo
+  // turno; el server normaliza ambos.
+  hours?: Record<string, DaySchedule[] | DaySchedule | null>;
   holidays?: Holiday[];
 }
 

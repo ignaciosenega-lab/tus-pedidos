@@ -60,6 +60,31 @@ app.use((req, _res, next) => {
 
 const DAY_NAMES = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
 
+// Normaliza el valor de horarios de un día a un array de slots {open, close}.
+// Acepta el formato legacy ({open, close}) y el nuevo (array de slots).
+// Devuelve [] cuando el día está cerrado o el valor es inválido.
+function normalizeDaySlots(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value.filter(
+      (s) => s && typeof s.open === "string" && typeof s.close === "string"
+    );
+  }
+  if (typeof value === "object" && value.open && value.close) {
+    return [{ open: value.open, close: value.close }];
+  }
+  return [];
+}
+
+// Devuelve true si currentTime ("HH:MM") cae dentro del slot, manejando
+// cruce de medianoche (open > close).
+function isWithinSlot(currentTime, slot) {
+  const { open, close } = slot;
+  if (close > open) return currentTime >= open && currentTime < close;
+  // Cruza medianoche: ej. 19:00 - 00:30
+  return currentTime >= open || currentTime < close;
+}
+
 function isCurrentlyOpen(branch) {
   // Manual override: if admin toggled off, always closed
   if (!branch.is_open) return { open: false, reason: "manual", nextOpen: null, holidayReason: null };
@@ -97,43 +122,31 @@ function isCurrentlyOpen(branch) {
   // Get current time in branch timezone
   const timeFmt = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false });
   const currentTime = timeFmt.format(now).replace(/^24:/, "00:");
-  const dayFmt = new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "long" });
-  const dayIndex = now.toLocaleDateString("en-US", { timeZone: tz, weekday: "narrow" });
-  // Use getDay() equivalent via timezone
   const dayOfWeek = new Date(now.toLocaleString("en-US", { timeZone: tz })).getDay();
   const dayName = DAY_NAMES[dayOfWeek];
 
-  const daySchedule = hours[dayName];
-  if (!daySchedule) {
+  const slots = normalizeDaySlots(hours[dayName]);
+  if (slots.length === 0) {
     // Closed today by schedule
     const nextOpen = findNextOpenTime(hours, holidays, tz, now);
     return { open: false, reason: "schedule", nextOpen, holidayReason: null };
   }
 
-  // Check if current time is within open hours
-  const { open: openTime, close: closeTime } = daySchedule;
-  let isWithinHours = false;
-
-  if (closeTime > openTime) {
-    // Same day: e.g. 19:00 - 23:30
-    isWithinHours = currentTime >= openTime && currentTime < closeTime;
-  } else {
-    // Crosses midnight: e.g. 19:00 - 00:30
-    isWithinHours = currentTime >= openTime || currentTime < closeTime;
-  }
-
-  if (isWithinHours) {
+  // Check if current time is within ANY slot
+  const inAnySlot = slots.some((s) => isWithinSlot(currentTime, s));
+  if (inAnySlot) {
     return { open: true, reason: "schedule", nextOpen: null, holidayReason: null };
   }
 
-  // Currently closed, find when it opens
-  let nextOpen = null;
-  if (currentTime < openTime) {
-    // Opens later today
-    nextOpen = openTime;
-  } else {
-    nextOpen = findNextOpenTime(hours, holidays, tz, now);
-  }
+  // Currently closed — find the next slot today whose `open` is still ahead.
+  // Si ninguno, salta al próximo día abierto.
+  const nextSlotToday = slots
+    .filter((s) => s.open > currentTime)
+    .sort((a, b) => a.open.localeCompare(b.open))[0];
+
+  const nextOpen = nextSlotToday
+    ? nextSlotToday.open
+    : findNextOpenTime(hours, holidays, tz, now);
 
   return { open: false, reason: "schedule", nextOpen, holidayReason: null };
 }
@@ -147,8 +160,12 @@ function findNextOpenTime(hours, holidays, tz, now) {
     if (holidays.some((h) => h.date === futureStr)) continue;
     const futureDow = new Date(future.toLocaleString("en-US", { timeZone: tz })).getDay();
     const dayName = DAY_NAMES[futureDow];
-    const daySchedule = hours[dayName];
-    if (daySchedule) return daySchedule.open;
+    const slots = normalizeDaySlots(hours[dayName]);
+    if (slots.length > 0) {
+      // Primer slot del día por open time
+      const first = [...slots].sort((a, b) => a.open.localeCompare(b.open))[0];
+      return first.open;
+    }
   }
   return null;
 }

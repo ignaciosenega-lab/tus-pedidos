@@ -13,8 +13,26 @@ interface Holiday {
 }
 
 interface ScheduleData {
-  hours: Record<string, DayHours | null>;
+  // Cada día puede tener múltiples turnos (ej. corte de almuerzo / cena).
+  // null o array vacío = cerrado ese día.
+  hours: Record<string, DayHours[] | null>;
   holidays: Holiday[];
+}
+
+// Acepta el formato legacy ({open, close}) y el nuevo (array). Devuelve [].
+function normalizeDaySlots(value: unknown): DayHours[] {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value.filter(
+      (s): s is DayHours =>
+        !!s && typeof (s as DayHours).open === "string" && typeof (s as DayHours).close === "string"
+    );
+  }
+  if (typeof value === "object" && value && "open" in value && "close" in value) {
+    const v = value as DayHours;
+    return [{ open: v.open, close: v.close }];
+  }
+  return [];
 }
 
 interface BranchData {
@@ -103,8 +121,16 @@ export default function ConfigPage() {
       setIsOpen(!!data.is_open);
       const pc = typeof data.payment_config === "object" && data.payment_config ? data.payment_config : {};
       setPayment({ ...DEFAULT_PAYMENT, ...pc });
-      const sc: ScheduleData = typeof data.schedule === "object" && data.schedule ? data.schedule : DEFAULT_SCHEDULE;
-      setSchedule({ ...DEFAULT_SCHEDULE, hours: { ...DEFAULT_SCHEDULE.hours, ...(sc.hours || {}) }, holidays: sc.holidays || [] });
+      const sc = typeof data.schedule === "object" && data.schedule ? (data.schedule as any) : DEFAULT_SCHEDULE;
+      // Normalizamos cada día al formato array de slots; convierte el shape
+      // legacy ({open, close}) en [{open, close}] sin tocar el server.
+      const rawHours = (sc.hours || {}) as Record<string, unknown>;
+      const normalizedHours: Record<string, DayHours[] | null> = { ...DEFAULT_SCHEDULE.hours };
+      for (const day of DAYS) {
+        const slots = normalizeDaySlots(rawHours[day]);
+        normalizedHours[day] = slots.length > 0 ? slots : null;
+      }
+      setSchedule({ hours: normalizedHours, holidays: sc.holidays || [] });
     } catch (err: any) {
       setError(err.message || "Error al cargar configuración");
     } finally {
@@ -302,22 +328,38 @@ export default function ConfigPage() {
       {/* Horarios */}
       <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 space-y-4">
         <h3 className="text-lg font-semibold text-white mb-2">Horarios de Atención</h3>
-        <p className="text-sm text-gray-400">Configurá los horarios de apertura y cierre para cada día. Si no activás un día, la sucursal estará cerrada ese día.</p>
+        <p className="text-sm text-gray-400">
+          Configurá los turnos de apertura para cada día. Podés agregar más de un turno por día
+          (por ejemplo, almuerzo y cena). Si un día no tiene turnos, la sucursal estará cerrada.
+        </p>
 
-        <div className="space-y-3">
+        <div className="space-y-2">
           {DAYS.map((day) => {
-            const dayHours = schedule.hours[day];
-            const enabled = dayHours !== null;
+            const slots = schedule.hours[day] ?? [];
+            const enabled = slots.length > 0;
+
+            const updateSlots = (next: DayHours[] | null) => {
+              const newHours = { ...schedule.hours };
+              newHours[day] = next && next.length > 0 ? next : null;
+              setSchedule({ ...schedule, hours: newHours });
+            };
+
             return (
-              <div key={day} className="flex items-center gap-3">
-                <label className="flex items-center gap-2 w-32 shrink-0 cursor-pointer">
+              <div
+                key={day}
+                className="flex items-start gap-3 py-2 border-b border-gray-800 last:border-b-0"
+              >
+                {/* Toggle del día */}
+                <label className="flex items-center gap-2 w-32 shrink-0 cursor-pointer pt-1.5">
                   <input
                     type="checkbox"
                     checked={enabled}
                     onChange={(e) => {
-                      const newHours = { ...schedule.hours };
-                      newHours[day] = e.target.checked ? { open: "19:00", close: "23:00" } : null;
-                      setSchedule({ ...schedule, hours: newHours });
+                      if (e.target.checked) {
+                        updateSlots([{ open: "19:00", close: "23:00" }]);
+                      } else {
+                        updateSlots(null);
+                      }
                     }}
                     className="w-4 h-4 bg-gray-800 border-gray-700 rounded text-emerald-600 focus:ring-emerald-500"
                   />
@@ -325,33 +367,70 @@ export default function ConfigPage() {
                     {DAY_LABELS[day]}
                   </span>
                 </label>
-                {enabled && dayHours && (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="time"
-                      value={dayHours.open}
-                      onChange={(e) => {
-                        const newHours = { ...schedule.hours };
-                        newHours[day] = { ...dayHours, open: e.target.value };
-                        setSchedule({ ...schedule, hours: newHours });
+
+                {/* Slots del día */}
+                {enabled ? (
+                  <div className="flex-1 space-y-1.5">
+                    {slots.map((slot, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <input
+                          type="time"
+                          value={slot.open}
+                          onChange={(e) => {
+                            const next = slots.map((s, i) =>
+                              i === idx ? { ...s, open: e.target.value } : s
+                            );
+                            updateSlots(next);
+                          }}
+                          className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-emerald-500"
+                        />
+                        <span className="text-gray-500 text-sm">a</span>
+                        <input
+                          type="time"
+                          value={slot.close}
+                          onChange={(e) => {
+                            const next = slots.map((s, i) =>
+                              i === idx ? { ...s, close: e.target.value } : s
+                            );
+                            updateSlots(next);
+                          }}
+                          className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-emerald-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => updateSlots(slots.filter((_, i) => i !== idx))}
+                          title="Quitar turno"
+                          aria-label={`Quitar turno ${idx + 1} de ${DAY_LABELS[day]}`}
+                          className="ml-1 w-7 h-7 flex items-center justify-center rounded-md text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Sugerencia inteligente: el siguiente turno arranca
+                        // 1h después del cierre del último, o 12:00–15:00 si es el primero.
+                        const last = slots[slots.length - 1];
+                        const fallback = { open: "12:00", close: "15:00" };
+                        const next = last
+                          ? { open: last.close, close: last.close }
+                          : fallback;
+                        updateSlots([...slots, next]);
                       }}
-                      className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-emerald-500"
-                    />
-                    <span className="text-gray-500 text-sm">a</span>
-                    <input
-                      type="time"
-                      value={dayHours.close}
-                      onChange={(e) => {
-                        const newHours = { ...schedule.hours };
-                        newHours[day] = { ...dayHours, close: e.target.value };
-                        setSchedule({ ...schedule, hours: newHours });
-                      }}
-                      className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-sm focus:outline-none focus:border-emerald-500"
-                    />
+                      className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors mt-1"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                      Agregar horario
+                    </button>
                   </div>
-                )}
-                {!enabled && (
-                  <span className="text-sm text-gray-600 italic">Cerrado</span>
+                ) : (
+                  <span className="text-sm text-gray-600 italic pt-1.5">Cerrado</span>
                 )}
               </div>
             );
