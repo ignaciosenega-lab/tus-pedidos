@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { loadGoogleMaps, isGoogleMapsConfigured } from "../utils/loadGoogleMaps";
 
 interface Props {
   onSelect: (result: {
@@ -8,8 +9,6 @@ interface Props {
   }) => void;
   value: string;
 }
-
-const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY as string | undefined;
 
 export default function GoogleAddressPicker({ onSelect, value }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -24,26 +23,10 @@ export default function GoogleAddressPicker({ onSelect, value }: Props) {
 
   // Load Google Maps script
   useEffect(() => {
-    if (!API_KEY) return;
-    if (window.google?.maps?.places) {
-      setLoaded(true);
-      return;
-    }
-
-    const existing = document.querySelector(
-      'script[src*="maps.googleapis.com"]'
-    );
-    if (existing) {
-      existing.addEventListener("load", () => setLoaded(true));
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEY}&libraries=places`;
-    script.async = true;
-    script.defer = true;
-    script.onload = () => setLoaded(true);
-    document.head.appendChild(script);
+    if (!isGoogleMapsConfigured()) return;
+    loadGoogleMaps(["places"])
+      .then(() => setLoaded(true))
+      .catch(() => setLoaded(false));
   }, []);
 
   // Init autocomplete
@@ -113,7 +96,7 @@ export default function GoogleAddressPicker({ onSelect, value }: Props) {
         } as React.CSSProperties}
       />
 
-      {API_KEY ? (
+      {isGoogleMapsConfigured() ? (
         <div
           ref={mapRef}
           className="w-full h-48 rounded-lg overflow-hidden mt-2"

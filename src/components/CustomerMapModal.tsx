@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-
-const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY as string | undefined;
+import { loadGoogleMaps, isGoogleMapsConfigured } from "../utils/loadGoogleMaps";
 
 interface CustomerPoint {
   name: string;
@@ -41,31 +40,10 @@ export default function CustomerMapModal({ customers, branchAddress, onClose }: 
 
   // Load Google Maps script with visualization library
   useEffect(() => {
-    if (!API_KEY) return;
-
-    if (window.google?.maps?.visualization) {
-      setLoaded(true);
-      return;
-    }
-
-    // Remove existing script that may not have visualization lib
-    const existing = document.querySelector('script[src*="maps.googleapis.com"]');
-    if (existing) {
-      // Check if visualization is already loaded
-      if (window.google?.maps?.visualization) {
-        setLoaded(true);
-        return;
-      }
-      // Need to wait for it or it's missing the lib - reload
-      existing.remove();
-    }
-
-    const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEY}&libraries=places,visualization`;
-    script.async = true;
-    script.defer = true;
-    script.onload = () => setLoaded(true);
-    document.head.appendChild(script);
+    if (!isGoogleMapsConfigured()) return;
+    loadGoogleMaps(["places", "visualization"])
+      .then(() => setLoaded(true))
+      .catch(() => setLoaded(false));
   }, []);
 
   // Init map once loaded
@@ -200,7 +178,7 @@ export default function CustomerMapModal({ customers, branchAddress, onClose }: 
     if (heatmapRef.current) heatmapRef.current.setMap(mode === "heatmap" ? map : null);
   }, [mode]);
 
-  if (!API_KEY) {
+  if (!isGoogleMapsConfigured()) {
     return (
       <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-4" onClick={onClose}>
         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 text-center max-w-md" onClick={(e) => e.stopPropagation()}>
