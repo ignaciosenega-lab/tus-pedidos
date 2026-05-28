@@ -76,6 +76,8 @@ export interface Topping {
   price: number;
 }
 
+export type PromotionType = "percentage" | "same_product_quantity";
+
 export interface Promotion {
   id: string;
   name: string;
@@ -85,6 +87,8 @@ export interface Promotion {
   dateFrom: string;
   dateTo: string;
   weeklyRepeat: boolean;
+  type?: PromotionType;
+  minQuantity?: number;
 }
 
 export interface ActivePromotion {
@@ -92,6 +96,21 @@ export interface ActivePromotion {
   name: string;
   percentage: number;
   timeTo: string | null; // "HH:MM" or null
+  type?: PromotionType;
+  minQuantity?: number;
+}
+
+// Promo "2x1 al mismo producto" — el descuento depende de la cantidad pedida
+// del MISMO ítem en el carrito, por eso se calcula client-side al armar el
+// pedido (y se reverifica server-side al crear el order).
+export interface SameProductPromo {
+  id: number;
+  name: string;
+  percentage: number;
+  min_quantity: number;
+  apply_scope: "all" | "categories" | "products";
+  productIds: string[];
+  categoryIds: string[];
 }
 
 export type UserStatus = "activo" | "inactivo" | "bloqueado";

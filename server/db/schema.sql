@@ -170,6 +170,11 @@ CREATE TABLE IF NOT EXISTS promotions (
   date_to       TEXT    NOT NULL DEFAULT '',
   weekly_repeat INTEGER NOT NULL DEFAULT 0,
   is_active     INTEGER NOT NULL DEFAULT 1,
+  -- Tipo de promo: 'percentage' (default — descuento % al precio del producto,
+  -- comportamiento clásico) o 'same_product_quantity' (cada `min_quantity`
+  -- unidades del MISMO producto en el carrito recibe `percentage` off).
+  type          TEXT    NOT NULL DEFAULT 'percentage',
+  min_quantity  INTEGER NOT NULL DEFAULT 1,
   created_at    TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
 
@@ -285,6 +290,9 @@ CREATE TABLE IF NOT EXISTS orders (
   subtotal        REAL    NOT NULL DEFAULT 0,
   delivery_cost   REAL    NOT NULL DEFAULT 0,
   discount        REAL    NOT NULL DEFAULT 0,
+  -- Descuento auto-aplicado por promos 'same_product_quantity' (estilo 2x1).
+  -- Separado de `discount` (que es el del cupón) para tener traza.
+  promotion_discount REAL NOT NULL DEFAULT 0,
   total           REAL    NOT NULL DEFAULT 0,
   coupon_code     TEXT,
   status          TEXT    NOT NULL DEFAULT 'pending'

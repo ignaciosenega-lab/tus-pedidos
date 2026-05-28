@@ -52,6 +52,24 @@ function getDb() {
       db.exec("ALTER TABLE promotions ADD COLUMN time_to TEXT NOT NULL DEFAULT ''");
     }
 
+    // Migrations: tipo de promo y mínimo de unidades para promos "2x1 al
+    // mismo producto". Filas legacy quedan con type='percentage' (sin cambio
+    // de comportamiento) y min_quantity=1.
+    const promoCols2 = db.prepare("PRAGMA table_info(promotions)").all().map((c) => c.name);
+    if (!promoCols2.includes("type")) {
+      db.exec("ALTER TABLE promotions ADD COLUMN type TEXT NOT NULL DEFAULT 'percentage'");
+    }
+    if (!promoCols2.includes("min_quantity")) {
+      db.exec("ALTER TABLE promotions ADD COLUMN min_quantity INTEGER NOT NULL DEFAULT 1");
+    }
+
+    // Migration: descuento auto-aplicado por promos 'same_product_quantity'
+    // se persiste separado del cupón en orders.promotion_discount.
+    const orderCols = db.prepare("PRAGMA table_info(orders)").all().map((c) => c.name);
+    if (!orderCols.includes("promotion_discount")) {
+      db.exec("ALTER TABLE orders ADD COLUMN promotion_discount REAL NOT NULL DEFAULT 0");
+    }
+
     // Migration: add neighborhood to app_users
     const appUserCols = db.prepare("PRAGMA table_info(app_users)").all().map((c) => c.name);
     if (!appUserCols.includes("neighborhood")) {

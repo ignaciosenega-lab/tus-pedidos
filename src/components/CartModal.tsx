@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useCart, useCartDispatch, cartTotal } from "../store/cartContext";
+import { useMemo, useState } from "react";
+import { useCart, useCartDispatch, cartTotal, computeAutoPromoDiscount } from "../store/cartContext";
 import { useStorefront } from "../hooks/useStorefront";
 import { formatPrice, formatTotal } from "../utils/money";
 
@@ -19,9 +19,17 @@ interface Props {
 export default function CartModal({ onClose, onCheckout, appliedCoupon, onApplyCoupon }: Props) {
   const { items } = useCart();
   const dispatch = useCartDispatch();
-  const { branchId } = useStorefront();
+  const { branchId, sameProductPromos } = useStorefront();
   const subtotal = cartTotal(items);
-  const total = appliedCoupon ? Math.max(0, subtotal - appliedCoupon.discount) : subtotal;
+  // Descuento auto-aplicado por promos "2x1 al mismo producto". El server
+  // vuelve a calcular esto al crear el order (fuente de verdad); acá es
+  // solo feedback inmediato del UI.
+  const autoPromo = useMemo(
+    () => computeAutoPromoDiscount(items, sameProductPromos),
+    [items, sameProductPromos]
+  );
+  const couponDiscount = appliedCoupon?.discount ?? 0;
+  const total = Math.max(0, subtotal - autoPromo.total - couponDiscount);
 
   const [couponCode, setCouponCode] = useState("");
   const [couponLoading, setCouponLoading] = useState(false);
@@ -239,6 +247,30 @@ export default function CartModal({ onClose, onCheckout, appliedCoupon, onApplyC
             {/* Separator */}
             <div className="h-px bg-white/10" />
 
+            {/* Auto-promo lines (2x1 al mismo producto, etc.) */}
+            {autoPromo.lines.length > 0 && (
+              <div className="space-y-1.5">
+                {autoPromo.lines.map((line, i) => (
+                  <div
+                    key={`${line.promoId}-${line.productId}-${i}`}
+                    className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm"
+                  >
+                    <div className="min-w-0">
+                      <span className="font-medium" style={{ color: "var(--general-text)" }}>
+                        🎁 {line.promoName}
+                      </span>
+                      <span className="ml-1 opacity-60" style={{ color: "var(--general-text)" }}>
+                        · {line.productName} ({line.units} un.)
+                      </span>
+                    </div>
+                    <span className="text-xs font-semibold text-amber-300 shrink-0">
+                      -{formatTotal(line.discount)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Coupon input */}
             {!appliedCoupon ? (
               <div>
@@ -286,7 +318,7 @@ export default function CartModal({ onClose, onCheckout, appliedCoupon, onApplyC
             <div className="flex items-center justify-between">
               <span className="text-lg font-bold" style={{ color: "var(--title-text)" }}>Total</span>
               <div className="text-right">
-                {appliedCoupon && (
+                {(appliedCoupon || autoPromo.total > 0) && (
                   <span className="text-sm line-through opacity-50 mr-2" style={{ color: "var(--general-text)" }}>
                     {formatTotal(subtotal)}
                   </span>

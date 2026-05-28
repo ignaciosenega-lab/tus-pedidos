@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useBranchId } from "../../hooks/useBranchId";
 
+type PromoType = "percentage" | "same_product_quantity";
+
 interface Promotion {
   id: number;
   branch_id: number;
@@ -16,6 +18,8 @@ interface Promotion {
   apply_all_branches: number;
   time_from: string;
   time_to: string;
+  type?: PromoType;
+  min_quantity?: number;
   productIds: number[];
   categoryIds: number[];
   branch_ids: number[];
@@ -51,6 +55,8 @@ interface PromoFormData {
   time_mode: TimeMode;
   time_from: string;
   time_to: string;
+  type: PromoType;
+  min_quantity: number;
 }
 
 const DAY_NAMES_ES = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
@@ -103,6 +109,8 @@ export default function PromotionsPage() {
       time_mode: "all_day",
       time_from: "",
       time_to: "",
+      type: "percentage",
+      min_quantity: 2,
     };
   }
 
@@ -180,6 +188,8 @@ export default function PromotionsPage() {
       time_mode: (promo.time_from || promo.time_to) ? "range" : "all_day",
       time_from: promo.time_from || "",
       time_to: promo.time_to || "",
+      type: (promo.type === "same_product_quantity" ? "same_product_quantity" : "percentage") as PromoType,
+      min_quantity: Math.max(2, Number(promo.min_quantity) || 2),
     });
     loadCatalog();
     setShowModal(true);
@@ -201,6 +211,11 @@ export default function PromotionsPage() {
       : formData.date_from;
     const dateTo = formData.weekly_repeat ? "" : formData.date_to;
 
+    if (formData.type === "same_product_quantity" && formData.min_quantity < 2) {
+      alert("La cantidad mínima debe ser 2 o más para promos de unidades repetidas");
+      return;
+    }
+
     const payload: any = {
       name: formData.name,
       percentage: formData.percentage,
@@ -215,6 +230,8 @@ export default function PromotionsPage() {
       branch_ids: formData.branch_scope === "selected" ? formData.branch_ids : [],
       time_from: formData.time_mode === "range" ? formData.time_from : "",
       time_to: formData.time_mode === "range" ? formData.time_to : "",
+      type: formData.type,
+      min_quantity: formData.type === "same_product_quantity" ? formData.min_quantity : 1,
     };
 
     try {
@@ -390,8 +407,19 @@ export default function PromotionsPage() {
             <tbody className="divide-y divide-gray-800">
               {promos.map((promo) => (
                 <tr key={promo.id} className="hover:bg-gray-800/50 transition-colors">
-                  <td className="px-4 py-3 text-sm text-white font-medium">{promo.name}</td>
-                  <td className="px-4 py-3 text-sm text-emerald-400 font-medium">{promo.percentage}%</td>
+                  <td className="px-4 py-3 text-sm text-white font-medium">
+                    {promo.name}
+                    {promo.type === "same_product_quantity" && (
+                      <span className="ml-2 inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded-full">
+                        🎁 {Number(promo.min_quantity) || 2}x1
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-emerald-400 font-medium">
+                    {promo.type === "same_product_quantity"
+                      ? `Llevá ${Number(promo.min_quantity) || 2} = ${promo.percentage}% off`
+                      : `${promo.percentage}%`}
+                  </td>
                   <td className="px-4 py-3 text-sm text-gray-300">{getScopeLabel(promo)}</td>
                   <td className="px-4 py-3 text-sm text-gray-400">{getTimeLabel(promo)}</td>
                   {isMaster && (
@@ -460,14 +488,72 @@ export default function PromotionsPage() {
                   placeholder="Promo 2x1, Descuento fin de semana..." required />
               </div>
 
-              {/* Percentage */}
+              {/* Type */}
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Descuento (%)</label>
-                <input type="number" value={formData.percentage}
-                  onChange={(e) => setFormData({ ...formData, percentage: Number(e.target.value) })}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
-                  min="0" max="100" step="1" />
+                <label className="block text-sm font-medium text-gray-300 mb-2">Tipo de promoción</label>
+                <div className="space-y-2">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input type="radio" name="promo_type" value="percentage"
+                      checked={formData.type === "percentage"}
+                      onChange={() => setFormData({ ...formData, type: "percentage" })}
+                      className="mt-1 text-emerald-500" />
+                    <span className="text-sm text-white">
+                      <span className="font-medium">Porcentaje de descuento</span>
+                      <span className="block text-xs text-gray-400">Se le aplica un % off al precio del producto en el catálogo.</span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input type="radio" name="promo_type" value="same_product_quantity"
+                      checked={formData.type === "same_product_quantity"}
+                      onChange={() => setFormData({ ...formData, type: "same_product_quantity", percentage: formData.percentage || 50 })}
+                      className="mt-1 text-emerald-500" />
+                    <span className="text-sm text-white">
+                      <span className="font-medium">Descuento por unidades del mismo producto (estilo 2x1)</span>
+                      <span className="block text-xs text-gray-400">
+                        Por cada N unidades del MISMO producto en el carrito, se aplica el % a esas N unidades. Las sobrantes pagan precio lleno.
+                      </span>
+                    </span>
+                  </label>
+                </div>
               </div>
+
+              {/* Percentage + min_quantity (combo cuando es same_product_quantity) */}
+              {formData.type === "same_product_quantity" ? (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-1">
+                        Cantidad mínima
+                      </label>
+                      <input type="number" value={formData.min_quantity}
+                        onChange={(e) => setFormData({ ...formData, min_quantity: Math.max(2, Number(e.target.value) || 2) })}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                        min="2" max="50" step="1" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-1">
+                        % de descuento
+                      </label>
+                      <input type="number" value={formData.percentage}
+                        onChange={(e) => setFormData({ ...formData, percentage: Number(e.target.value) })}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                        min="1" max="100" step="1" />
+                    </div>
+                  </div>
+                  <p className="text-xs text-emerald-400/80 -mt-2">
+                    Por cada {formData.min_quantity} unidades iguales, el cliente recibe {formData.percentage}% off en esas {formData.min_quantity} unidades.
+                    {formData.min_quantity === 2 && formData.percentage === 50 && " (Equivale a 2x1.)"}
+                  </p>
+                </>
+              ) : (
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Descuento (%)</label>
+                  <input type="number" value={formData.percentage}
+                    onChange={(e) => setFormData({ ...formData, percentage: Number(e.target.value) })}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+                    min="0" max="100" step="1" />
+                </div>
+              )}
 
               {/* Apply scope */}
               <div>

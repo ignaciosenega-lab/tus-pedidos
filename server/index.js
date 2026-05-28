@@ -226,7 +226,12 @@ function isPromotionActiveToday(promo) {
 }
 
 function applyPromotionsToProducts(products, promoRows, db) {
-  const activePromos = promoRows.filter(isPromotionActiveToday);
+  // Solo el tipo 'percentage' modifica el precio mostrado del catálogo. Las
+  // promos 'same_product_quantity' se aplican a nivel carrito porque
+  // dependen de la cantidad pedida — no tocan el precio base del producto.
+  const activePromos = promoRows.filter(
+    (p) => (p.type || "percentage") === "percentage" && isPromotionActiveToday(p)
+  );
   if (activePromos.length === 0) return;
 
   const promoProductSets = {};
@@ -274,6 +279,107 @@ function applyPromotionsToProducts(products, promoRows, db) {
       product.activePromotion = bestPromoName;
     }
   }
+}
+
+// Devuelve las rows de promotions que aplican a una sucursal: propias +
+// apply_all_branches + las que la incluyen via promotion_branches. Mismo
+// patrón que usa readStateFromDb.
+function getPromoRowsForBranch(db, branchId) {
+  return db.prepare(`
+    SELECT DISTINCT p.* FROM promotions p
+    LEFT JOIN promotion_branches pb ON p.id = pb.promotion_id
+    WHERE p.branch_id = ? OR p.apply_all_branches = 1 OR pb.branch_id = ?
+    ORDER BY p.id
+  `).all(branchId, branchId);
+}
+
+// Devuelve las promos activas de tipo 'same_product_quantity' para una sucursal,
+// en una forma compacta apta para enviar al cliente y para recomputar el
+// descuento del carrito server-side.
+function getActiveSameProductPromos(db, promoRows) {
+  const out = [];
+  for (const promo of promoRows) {
+    if ((promo.type || "percentage") !== "same_product_quantity") continue;
+    if (!isPromotionActiveToday(promo)) continue;
+    const scope = promo.apply_scope || (promo.apply_to_all ? "all" : "products");
+    let productIds = [];
+    let categoryIds = [];
+    if (scope === "products") {
+      productIds = db
+        .prepare("SELECT product_id FROM promotion_products WHERE promotion_id = ?")
+        .all(promo.id)
+        .map((r) => String(r.product_id));
+    } else if (scope === "categories") {
+      categoryIds = db
+        .prepare("SELECT category_id FROM promotion_categories WHERE promotion_id = ?")
+        .all(promo.id)
+        .map((r) => String(r.category_id));
+    }
+    out.push({
+      id: promo.id,
+      name: promo.name,
+      percentage: promo.percentage,
+      min_quantity: promo.min_quantity || 2,
+      apply_scope: scope,
+      productIds,
+      categoryIds,
+    });
+  }
+  return out;
+}
+
+// Calcula el descuento auto-aplicado por promos 'same_product_quantity'
+// dado el carrito. Comportamiento por pares: por cada `min_quantity` unidades
+// del MISMO ítem dentro del scope, esas unidades reciben `percentage` off.
+// Las unidades sobrantes (qty % min_quantity) pagan precio lleno.
+// Si un mismo ítem califica para varias promos, gana la de mayor descuento.
+// Devuelve { total, lines: [{ promoId, promoName, productId, productName, units, discount }] }.
+function computeSameProductDiscounts(items, promos) {
+  if (!Array.isArray(items) || items.length === 0 || promos.length === 0) {
+    return { total: 0, lines: [] };
+  }
+  const lines = [];
+  let total = 0;
+  for (const item of items) {
+    const qty = Number(item.quantity || item.qty || 0);
+    if (qty <= 0) continue;
+    const productId = String(item.productId ?? item.product_id ?? "");
+    const categoryId = String(item.categoryId ?? item.category_id ?? "");
+    const unitPrice = Number(item.originalPrice ?? item.price ?? 0);
+    if (unitPrice <= 0) continue;
+
+    let bestLine = null;
+    for (const promo of promos) {
+      let inScope = false;
+      if (promo.apply_scope === "all") inScope = true;
+      else if (promo.apply_scope === "products") inScope = promo.productIds.includes(productId);
+      else if (promo.apply_scope === "categories") inScope = promo.categoryIds.includes(categoryId);
+      if (!inScope) continue;
+
+      const minQty = Math.max(2, Number(promo.min_quantity) || 2);
+      if (qty < minQty) continue;
+
+      const pairs = Math.floor(qty / minQty);
+      const discountedUnits = pairs * minQty;
+      const perUnit = Math.round((unitPrice * Number(promo.percentage)) / 100);
+      const itemDiscount = discountedUnits * perUnit;
+      if (!bestLine || itemDiscount > bestLine.discount) {
+        bestLine = {
+          promoId: promo.id,
+          promoName: promo.name,
+          productId,
+          productName: item.productName || item.name || "",
+          units: discountedUnits,
+          discount: itemDiscount,
+        };
+      }
+    }
+    if (bestLine) {
+      lines.push(bestLine);
+      total += bestLine.discount;
+    }
+  }
+  return { total, lines };
 }
 
 // Resuelve los cupones activos que aplican a una sucursal para un código dado,
@@ -414,12 +520,7 @@ function readStateFromDb(branchSlug) {
   }).filter(Boolean);
 
   // ── Promotions (own + cross-branch) ──
-  const promoRows = db.prepare(`
-    SELECT DISTINCT p.* FROM promotions p
-    LEFT JOIN promotion_branches pb ON p.id = pb.promotion_id
-    WHERE p.branch_id = ? OR p.apply_all_branches = 1 OR pb.branch_id = ?
-    ORDER BY p.id
-  `).all(branch.id, branch.id);
+  const promoRows = getPromoRowsForBranch(db, branch.id);
   const promotions = promoRows.map((pr) => {
     const ppRows = db.prepare("SELECT product_id FROM promotion_products WHERE promotion_id = ?").all(pr.id);
     return {
@@ -442,10 +543,19 @@ function readStateFromDb(branchSlug) {
       name: pr.name,
       percentage: pr.percentage,
       timeTo: pr.time_to || null,
+      type: pr.type || "percentage",
+      minQuantity: pr.min_quantity || 1,
     }));
 
   // ── Apply active promotions to product prices ──
+  // (Solo afecta a las promos type='percentage'; las 'same_product_quantity'
+  //  se aplican a nivel carrito.)
   applyPromotionsToProducts(products, promoRows, db);
+
+  // ── Promos por unidades repetidas (estilo 2x1) ──
+  // Las exponemos en una forma compacta para que el carrito recompute
+  // el descuento on-the-fly. El server vuelve a calcular al crear el order.
+  const sameProductPromos = getActiveSameProductPromos(db, promoRows);
 
   // ── Coupons (own + cross-branch) ──
   const couponRows = db.prepare(`
@@ -564,6 +674,7 @@ function readStateFromDb(branchSlug) {
     categories,
     promotions,
     activePromotions,
+    sameProductPromos,
     coupons,
     deliveryZones,
     users,
@@ -1108,9 +1219,16 @@ app.post("/api/coupons/validate", (req, res) => {
     const originalTotalInScope = itemsInScope.reduce(
       (sum, i) => sum + (i.originalPrice ?? i.price ?? 0) * (i.quantity || 1), 0,
     );
-    const promoDiscountInScope = itemsInScope.reduce(
+    const oldPromoDiscountInScope = itemsInScope.reduce(
       (sum, i) => sum + (((i.originalPrice ?? i.price ?? 0) - (i.price ?? 0)) * (i.quantity || 1)), 0,
     );
+    // Auto-promo (same_product_quantity): el descuento depende de la cantidad
+    // y NO baja item.price, así que lo recomputamos aparte y lo sumamos al
+    // "promo ya descontado" para evitar doble dipping con el cupón.
+    const branchPromoRows = getPromoRowsForBranch(db, branchId);
+    const branchSameProductPromos = getActiveSameProductPromos(db, branchPromoRows);
+    const autoOnScope = computeSameProductDiscounts(itemsInScope, branchSameProductPromos);
+    const promoDiscountInScope = oldPromoDiscountInScope + autoOnScope.total;
 
     let couponDiscount;
     if (coupon.type === "percentage") {
@@ -1125,7 +1243,8 @@ app.post("/api/coupons/validate", (req, res) => {
     console.warn(
       `[coupon-validate] code=${coupon.code} id=${coupon.id} branch=${branchId} ` +
       `type=${coupon.type} value=${coupon.value} | originalInScope=${originalTotalInScope} ` +
-      `promoDisc=${promoDiscountInScope} couponDisc=${couponDiscount} -> discount=${discount}`
+      `oldPromoDisc=${oldPromoDiscountInScope} autoPromoDisc=${autoOnScope.total} ` +
+      `couponDisc=${couponDiscount} -> discount=${discount}`
     );
 
     if (discount === 0) {
@@ -1202,20 +1321,34 @@ app.post("/api/orders", (req, res) => {
       }
     }
 
+    // Recomputamos server-side el descuento auto-promo (estilo 2x1) a partir
+    // de los items y las promos activas de la sucursal. El cliente NO es
+    // fuente de verdad para esto: lo recomputamos por seguridad.
+    const orderPromoRows = getPromoRowsForBranch(db, branchId);
+    const orderSameProductPromos = getActiveSameProductPromos(db, orderPromoRows);
+    const autoPromo = computeSameProductDiscounts(items || [], orderSameProductPromos);
+    const promotionDiscount = autoPromo.total;
+
+    const couponDiscount = Number(discount) || 0;
+    const computedTotal = Math.max(
+      0,
+      (Number(subtotal) || 0) + (Number(deliveryCost) || 0) - couponDiscount - promotionDiscount
+    );
+    const orderTotal = computedTotal;
+
     // Insert order
-    const orderTotal = total || 0;
     const result = db.prepare(`
       INSERT INTO orders (
         branch_id, customer_name, customer_phone,
         delivery_type, address, lat, lng, floor,
         date, time, instructions, payment_method,
-        items, subtotal, delivery_cost, discount, total, coupon_code
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        items, subtotal, delivery_cost, discount, promotion_discount, total, coupon_code
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       branchId, customerName, cleanPhone,
       deliveryType || "delivery", address || "", lat || null, lng || null, floor || "",
       date || "", time || "", instructions || "", paymentMethod || "Efectivo",
-      JSON.stringify(items || []), subtotal || 0, deliveryCost || 0, discount || 0, orderTotal, couponCode || null,
+      JSON.stringify(items || []), subtotal || 0, deliveryCost || 0, couponDiscount, promotionDiscount, orderTotal, couponCode || null,
     );
 
     // Increment coupon used_count — SOLO el cupón concreto que se aplicó,

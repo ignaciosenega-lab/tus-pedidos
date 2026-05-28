@@ -137,3 +137,85 @@ export function cartItemCount(items: CartItem[]): number {
 export function cartTotal(items: CartItem[]): number {
   return items.reduce((sum, i) => sum + i.price * i.quantity, 0);
 }
+
+/* ── Auto-promo "2x1 del mismo producto" ─────────
+   Computa el descuento auto-aplicado por promos de tipo
+   `same_product_quantity`. Comportamiento por pares: por cada
+   min_quantity unidades del MISMO ítem (mismo productId+variantId)
+   se aplica `percentage` off; las sobrantes pagan precio lleno.
+   Si un ítem califica para varias promos, gana la de mayor
+   descuento. El server recomputa al crear el order (fuente de
+   verdad) — este helper solo es para feedback inmediato del UI.
+*/
+
+export interface SameProductPromoLite {
+  id: number;
+  name: string;
+  percentage: number;
+  min_quantity: number;
+  apply_scope: "all" | "categories" | "products";
+  productIds: string[];
+  categoryIds: string[];
+}
+
+export interface AutoPromoLine {
+  promoId: number;
+  promoName: string;
+  productId: string;
+  productName: string;
+  units: number;     // unidades a las que se aplica el descuento
+  discount: number;  // monto $ descontado
+}
+
+export interface AutoPromoResult {
+  total: number;
+  lines: AutoPromoLine[];
+}
+
+export function computeAutoPromoDiscount(
+  items: CartItem[],
+  promos: SameProductPromoLite[]
+): AutoPromoResult {
+  if (!items.length || !promos.length) return { total: 0, lines: [] };
+  const lines: AutoPromoLine[] = [];
+  let total = 0;
+  for (const item of items) {
+    if (!item.quantity || item.quantity <= 0) continue;
+    const unitPrice = item.originalPrice ?? item.price ?? 0;
+    if (unitPrice <= 0) continue;
+
+    let bestLine: AutoPromoLine | null = null;
+    for (const promo of promos) {
+      let inScope = false;
+      if (promo.apply_scope === "all") inScope = true;
+      else if (promo.apply_scope === "products")
+        inScope = promo.productIds.includes(String(item.productId));
+      else if (promo.apply_scope === "categories")
+        inScope = promo.categoryIds.includes(String(item.categoryId));
+      if (!inScope) continue;
+
+      const minQty = Math.max(2, Number(promo.min_quantity) || 2);
+      if (item.quantity < minQty) continue;
+
+      const pairs = Math.floor(item.quantity / minQty);
+      const discountedUnits = pairs * minQty;
+      const perUnit = Math.round((unitPrice * Number(promo.percentage)) / 100);
+      const lineDiscount = discountedUnits * perUnit;
+      if (!bestLine || lineDiscount > bestLine.discount) {
+        bestLine = {
+          promoId: promo.id,
+          promoName: promo.name,
+          productId: String(item.productId),
+          productName: item.productName,
+          units: discountedUnits,
+          discount: lineDiscount,
+        };
+      }
+    }
+    if (bestLine) {
+      lines.push(bestLine);
+      total += bestLine.discount;
+    }
+  }
+  return { total, lines };
+}

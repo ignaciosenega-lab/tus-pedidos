@@ -535,14 +535,25 @@ router.get("/:id/promotions", requireAuth, requireBranchAccess("id"), (req, res)
 router.post("/:id/promotions", requireAuth, requireBranchAccess("id"), (req, res) => {
   const db = req.app.locals.db;
   const branchId = Number(req.params.id);
-  const { name, percentage, apply_to_all, apply_scope, date_from, date_to, weekly_repeat, productIds, categoryIds, apply_all_branches, branch_ids, time_from, time_to } = req.body;
+  const { name, percentage, apply_to_all, apply_scope, date_from, date_to, weekly_repeat, productIds, categoryIds, apply_all_branches, branch_ids, time_from, time_to, type, min_quantity } = req.body;
   if (!name) return res.status(400).json({ error: "Nombre es requerido" });
 
   const effectiveScope = apply_scope || (apply_to_all ? "all" : "products");
+  const effectiveType = type === "same_product_quantity" ? "same_product_quantity" : "percentage";
+  let effectiveMinQty = Math.max(1, Math.floor(Number(min_quantity) || 1));
+  if (effectiveType === "same_product_quantity") {
+    if (effectiveMinQty < 2) {
+      return res.status(400).json({ error: "min_quantity debe ser ≥ 2 para promos de unidades repetidas" });
+    }
+    const pct = Number(percentage) || 0;
+    if (pct <= 0 || pct > 100) {
+      return res.status(400).json({ error: "El porcentaje debe estar entre 1 y 100" });
+    }
+  }
 
   const result = db.prepare(`
-    INSERT INTO promotions (branch_id, name, percentage, apply_to_all, apply_scope, date_from, date_to, weekly_repeat, apply_all_branches, time_from, time_to, is_active)
-    VALUES (@branch_id, @name, @percentage, @apply_to_all, @apply_scope, @date_from, @date_to, @weekly_repeat, @apply_all_branches, @time_from, @time_to, 1)
+    INSERT INTO promotions (branch_id, name, percentage, apply_to_all, apply_scope, date_from, date_to, weekly_repeat, apply_all_branches, time_from, time_to, type, min_quantity, is_active)
+    VALUES (@branch_id, @name, @percentage, @apply_to_all, @apply_scope, @date_from, @date_to, @weekly_repeat, @apply_all_branches, @time_from, @time_to, @type, @min_quantity, 1)
   `).run({
     branch_id: branchId, name, percentage: percentage || 0,
     apply_to_all: effectiveScope === "all" ? 1 : 0,
@@ -551,6 +562,8 @@ router.post("/:id/promotions", requireAuth, requireBranchAccess("id"), (req, res
     weekly_repeat: weekly_repeat ? 1 : 0,
     apply_all_branches: apply_all_branches ? 1 : 0,
     time_from: time_from || "", time_to: time_to || "",
+    type: effectiveType,
+    min_quantity: effectiveMinQty,
   });
   const promoId = Number(result.lastInsertRowid);
 
@@ -585,13 +598,29 @@ router.put("/:id/promotions/:promoId", requireAuth, requireBranchAccess("id"), (
   const existing = db.prepare("SELECT * FROM promotions WHERE id = ? AND branch_id = ?").get(promoId, branchId);
   if (!existing) return res.status(404).json({ error: "Promoción no encontrada" });
 
-  const { name, percentage, apply_to_all, apply_scope, date_from, date_to, weekly_repeat, is_active, productIds, categoryIds, apply_all_branches, branch_ids, time_from, time_to } = req.body;
+  const { name, percentage, apply_to_all, apply_scope, date_from, date_to, weekly_repeat, is_active, productIds, categoryIds, apply_all_branches, branch_ids, time_from, time_to, type, min_quantity } = req.body;
 
   const effectiveScope = apply_scope !== undefined ? apply_scope : (existing.apply_scope || "all");
+  const effectiveType = type !== undefined
+    ? (type === "same_product_quantity" ? "same_product_quantity" : "percentage")
+    : (existing.type || "percentage");
+  const requestedMinQty = min_quantity !== undefined
+    ? Math.max(1, Math.floor(Number(min_quantity) || 1))
+    : (existing.min_quantity || 1);
+  const effectiveMinQty = effectiveType === "same_product_quantity"
+    ? Math.max(2, requestedMinQty)
+    : requestedMinQty;
+  if (effectiveType === "same_product_quantity") {
+    const pct = percentage !== undefined ? Number(percentage) || 0 : existing.percentage;
+    if (pct <= 0 || pct > 100) {
+      return res.status(400).json({ error: "El porcentaje debe estar entre 1 y 100" });
+    }
+  }
   db.prepare(`
     UPDATE promotions SET name=@name, percentage=@percentage, apply_to_all=@apply_to_all, apply_scope=@apply_scope,
     date_from=@date_from, date_to=@date_to, weekly_repeat=@weekly_repeat, is_active=@is_active,
-    apply_all_branches=@apply_all_branches, time_from=@time_from, time_to=@time_to WHERE id=@id
+    apply_all_branches=@apply_all_branches, time_from=@time_from, time_to=@time_to,
+    type=@type, min_quantity=@min_quantity WHERE id=@id
   `).run({
     id: promoId,
     name: name !== undefined ? name : existing.name,
@@ -605,6 +634,8 @@ router.put("/:id/promotions/:promoId", requireAuth, requireBranchAccess("id"), (
     apply_all_branches: apply_all_branches !== undefined ? (apply_all_branches ? 1 : 0) : (existing.apply_all_branches || 0),
     time_from: time_from !== undefined ? time_from : (existing.time_from || ""),
     time_to: time_to !== undefined ? time_to : (existing.time_to || ""),
+    type: effectiveType,
+    min_quantity: effectiveMinQty,
   });
 
   if (productIds !== undefined) {
