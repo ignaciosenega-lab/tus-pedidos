@@ -173,6 +173,25 @@ CREATE TABLE IF NOT EXISTS product_exclusive_menus (
 CREATE INDEX IF NOT EXISTS idx_pem_menu ON product_exclusive_menus(menu_id);
 
 -- ================================================================
+-- CONFIG_SNAPSHOTS — puntos de restauración del catálogo/promos/etc.
+-- ================================================================
+-- Guarda un snapshot JSON de las tablas de configuración. Permite volver
+-- atrás a un punto previo sin tocar orders, app_users ni audit_logs.
+CREATE TABLE IF NOT EXISTS config_snapshots (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT    NOT NULL,
+  created_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+  created_by  TEXT,                                      -- username del master, null para automáticos
+  source      TEXT    NOT NULL DEFAULT 'manual'
+                      CHECK (source IN ('manual', 'auto')),
+  reason      TEXT,                                      -- ej. 'csv-import', 'price-scan', '24h'
+  size_bytes  INTEGER NOT NULL DEFAULT 0,
+  payload     TEXT    NOT NULL                           -- JSON con todas las tablas config
+);
+
+CREATE INDEX IF NOT EXISTS idx_snapshots_created ON config_snapshots(created_at DESC);
+
+-- ================================================================
 -- PROMOTIONS
 -- ================================================================
 CREATE TABLE IF NOT EXISTS promotions (

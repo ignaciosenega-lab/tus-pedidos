@@ -23,6 +23,7 @@ const MASTER_NAV_ITEMS = [
   { to: "/admin/usuarios", label: "Usuarios Admin", icon: "M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" },
   { to: "/admin/actualizar-precios", label: "Actualizar precios", icon: "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" },
   { to: "/admin/auditoria", label: "Historial precios", icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" },
+  { to: "/admin/versiones", label: "Versiones", icon: "M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" },
   { to: "/admin/recursos", label: "Recursos", icon: "M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" },
   { to: "/admin/megafody", label: "MegaFody", icon: "M13 10V3L4 14h7v7l9-11h-7z" },
 ];

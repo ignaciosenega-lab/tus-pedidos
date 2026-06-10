@@ -87,6 +87,27 @@ function getDb() {
       `);
     }
 
+    // Migration: puntos de restauración del catálogo / promos / etc.
+    const snapsExists = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='config_snapshots'")
+      .get();
+    if (!snapsExists) {
+      db.exec(`
+        CREATE TABLE config_snapshots (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          name        TEXT    NOT NULL,
+          created_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+          created_by  TEXT,
+          source      TEXT    NOT NULL DEFAULT 'manual'
+                      CHECK (source IN ('manual', 'auto')),
+          reason      TEXT,
+          size_bytes  INTEGER NOT NULL DEFAULT 0,
+          payload     TEXT    NOT NULL
+        );
+        CREATE INDEX idx_snapshots_created ON config_snapshots(created_at DESC);
+      `);
+    }
+
     // Migration: add neighborhood to app_users
     const appUserCols = db.prepare("PRAGMA table_info(app_users)").all().map((c) => c.name);
     if (!appUserCols.includes("neighborhood")) {

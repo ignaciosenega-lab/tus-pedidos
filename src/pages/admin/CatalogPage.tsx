@@ -201,6 +201,15 @@ function MasterCatalog() {
         return;
       }
 
+      // Auto-snapshot pre import: si algo del CSV sale mal, queda fácil
+      // restaurar desde Versiones. Falla silenciosa: si el endpoint no está
+      // disponible (deploy viejo), seguimos.
+      try {
+        await apiFetch("/api/snapshots/auto?reason=csv-import", { method: "POST" });
+      } catch {
+        /* no rompemos el import si el snapshot falla */
+      }
+
       // 1) Create new categories and build a map: csvStringId → numeric DB id
       const catIdMap = new Map<string, number>();
 

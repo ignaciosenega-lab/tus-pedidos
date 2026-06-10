@@ -15,6 +15,8 @@ const menusRoutes = require("./routes/menus");
 const campaignsRoutes = require("./routes/campaigns");
 const globalRoutes = require("./routes/global");
 const menuPublicRoutes = require("./routes/menu-public");
+const snapshotsRoutes = require("./routes/snapshots");
+const { takeAutoSnapshot } = require("./lib/snapshots");
 const { processCampaignQueue } = require("./services/campaignWorker");
 
 const app = express();
@@ -1131,6 +1133,25 @@ app.use("/api/global", globalRoutes);
 
 // Public menu feed (no auth — consumed by external tools like JIRO_FQC to compare against PDF)
 app.use("/api/public", menuPublicRoutes);
+app.use("/api/snapshots", snapshotsRoutes);
+
+// Auto-snapshot diario: al startup, intenta tomar uno si el último auto tiene
+// >24h; después programa un timer para repetirlo cada 24h. Si el server se
+// reinicia, el timer arranca de cero pero el chequeo de minIntervalMs evita
+// duplicados ruidosos.
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+try {
+  takeAutoSnapshot(db, { reason: "24h", minIntervalMs: ONE_DAY_MS });
+} catch (e) {
+  console.warn("[snapshots] auto-snapshot inicial saltado:", e.message);
+}
+setInterval(() => {
+  try {
+    takeAutoSnapshot(db, { reason: "24h", minIntervalMs: ONE_DAY_MS });
+  } catch (e) {
+    console.warn("[snapshots] auto-snapshot programado saltado:", e.message);
+  }
+}, ONE_DAY_MS);
 
 // Get state (public — storefront needs to read products)
 // Uses subdomain detection: canning.pedidos.jirosushi.com.ar → branchSlug "canning"

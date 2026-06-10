@@ -1,6 +1,7 @@
 const express = require("express");
 const { requireAuth, requireRole } = require("../middleware/auth");
 const jiroScraper = require("../lib/jiro-scraper");
+const { takeAutoSnapshot } = require("../lib/snapshots");
 
 const router = express.Router();
 
@@ -625,6 +626,13 @@ router.post("/price-apply", (req, res) => {
     }
 
     const db = req.app.locals.db;
+    // Auto-snapshot pre bulk price update — para poder revertir si los precios
+    // scrapeados salieron mal.
+    try {
+      takeAutoSnapshot(db, { reason: "price-apply", minIntervalMs: 5 * 60 * 1000 });
+    } catch (e) {
+      console.warn("[snapshots] pre-price-apply saltado:", e.message);
+    }
     const now = new Date();
     const pad = (n) => String(n).padStart(2, "0");
     const batchId = `jiro-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
