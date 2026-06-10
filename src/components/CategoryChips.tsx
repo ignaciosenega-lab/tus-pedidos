@@ -51,18 +51,22 @@ export default function CategoryChips({
             <button
               key={cat.id}
               onClick={() => onSelect(cat.id)}
-              className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 border-l-2 ${
-                isSelected
-                  ? "border-current"
-                  : "border-transparent hover:bg-white/5"
-              }`}
+              className="w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 border-l-2"
               style={
                 isSelected
                   ? {
-                      backgroundColor: "color-mix(in srgb, var(--btn-bg) 18%, transparent)",
+                      backgroundColor:
+                        "color-mix(in srgb, var(--btn-bg) 22%, transparent)",
+                      borderLeftColor: "var(--btn-bg)",
                       color: "var(--btn-bg)",
                     }
-                  : { color: "var(--general-text)" }
+                  : {
+                      // No-activo: tinte rojo (color de marca) bien suave.
+                      backgroundColor:
+                        "color-mix(in srgb, var(--btn-bg) 8%, transparent)",
+                      borderLeftColor: "transparent",
+                      color: "color-mix(in srgb, var(--btn-bg) 90%, white)",
+                    }
               }
             >
               {isSelected && (
@@ -103,9 +107,13 @@ export default function CategoryChips({
               ...(isSelected
                 ? { backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }
                 : {
-                    backgroundColor: "transparent",
-                    color: "var(--general-text)",
-                    border: "1px solid rgba(255,255,255,0.15)",
+                    // Tinte rojo de marca con transparencia + borde sutil
+                    // del mismo color en vez del borde blanco neutro.
+                    backgroundColor:
+                      "color-mix(in srgb, var(--btn-bg) 12%, transparent)",
+                    color: "color-mix(in srgb, var(--btn-bg) 92%, white)",
+                    border:
+                      "1px solid color-mix(in srgb, var(--btn-bg) 35%, transparent)",
                   }),
             }}
           >
