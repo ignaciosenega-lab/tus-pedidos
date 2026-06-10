@@ -500,7 +500,17 @@ function readStateFromDb(branchSlug) {
     .forEach((o) => { variantOverrides[o.variant_id] = o; });
 
   // ── Products + Variants + Toppings (with overrides applied) ──
-  const prodRows = db.prepare("SELECT * FROM products ORDER BY id").all();
+  // Regla de visibilidad por exclusividad de menú:
+  //  • Producto sin filas en product_exclusive_menus → global (lo ven todas).
+  //  • Producto con filas → solo aparece si branch.menu_id está en esa lista.
+  // `branch.menu_id ?? -1` evita un bind null si la sucursal no tiene menú
+  // asignado (en ese caso solo entran los productos sin exclusividad).
+  const prodRows = db.prepare(`
+    SELECT p.* FROM products p
+    WHERE NOT EXISTS (SELECT 1 FROM product_exclusive_menus pem WHERE pem.product_id = p.id)
+       OR EXISTS (SELECT 1 FROM product_exclusive_menus pem WHERE pem.product_id = p.id AND pem.menu_id = ?)
+    ORDER BY p.id
+  `).all(branch.menu_id ?? -1);
   const products = prodRows.map((p) => {
     const override = productOverrides[p.id];
     const isAvailable = override?.is_available !== null && override?.is_available !== undefined

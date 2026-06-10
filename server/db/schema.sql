@@ -158,6 +158,21 @@ CREATE TABLE IF NOT EXISTS branch_category_visibility (
 CREATE INDEX IF NOT EXISTS idx_bcv_branch ON branch_category_visibility(branch_id);
 
 -- ================================================================
+-- PRODUCT_EXCLUSIVE_MENUS
+-- ================================================================
+-- Si un producto NO tiene filas acá → es global (lo ven todas las sucursales,
+-- comportamiento por default). Si SÍ tiene filas → solo se ve en sucursales
+-- cuyo branches.menu_id esté en esa lista. Permite "productos propios" de un
+-- menú/sucursal sin necesidad de migrar todo el catálogo.
+CREATE TABLE IF NOT EXISTS product_exclusive_menus (
+  product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  menu_id    INTEGER NOT NULL REFERENCES menus(id) ON DELETE CASCADE,
+  PRIMARY KEY (product_id, menu_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pem_menu ON product_exclusive_menus(menu_id);
+
+-- ================================================================
 -- PROMOTIONS
 -- ================================================================
 CREATE TABLE IF NOT EXISTS promotions (

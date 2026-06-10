@@ -32,9 +32,16 @@ interface Product {
     price: number;
     stock: number | null;
   }>;
+  // Menús donde el producto está disponible. Vacío/undefined = todos los menús.
+  exclusiveMenuIds?: number[];
   // Branch override fields
   is_available?: number;
   has_override?: boolean;
+}
+
+interface MenuOption {
+  id: number;
+  name: string;
 }
 
 export default function CatalogPage() {
@@ -62,6 +69,7 @@ function MasterCatalog() {
   const { apiFetch } = useApi();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [menus, setMenus] = useState<MenuOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterCat, setFilterCat] = useState<string>("all");
@@ -79,12 +87,14 @@ function MasterCatalog() {
   async function loadData() {
     try {
       setLoading(true);
-      const [prods, cats] = await Promise.all([
+      const [prods, cats, mns] = await Promise.all([
         apiFetch<Product[]>("/api/catalog/products"),
         apiFetch<Category[]>("/api/catalog/categories"),
+        apiFetch<MenuOption[]>("/api/menus").catch(() => []),
       ]);
       setProducts(prods);
       setCategories(cats);
+      setMenus(mns);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -141,6 +151,7 @@ function MasterCatalog() {
     gallery: string[];
     variants: Array<{ label: string; price: number; stock: number | null; sort_order: number }>;
     toppings: Array<{ name: string; price: number; sort_order: number }>;
+    exclusiveMenuIds: number[];
   }) {
     setSaving(true);
     try {
@@ -372,7 +383,24 @@ function MasterCatalog() {
                           className="w-10 h-10 rounded-lg object-cover shrink-0"
                         />
                         <div className="min-w-0">
-                          <p className="text-white font-medium truncate">{p.name}</p>
+                          <p className="text-white font-medium truncate">
+                            {p.name}
+                            {Array.isArray(p.exclusiveMenuIds) && p.exclusiveMenuIds.length > 0 && (
+                              <span
+                                className="ml-2 inline-flex items-center gap-1 text-[10px] font-semibold bg-violet-500/20 text-violet-300 px-1.5 py-0.5 rounded-full align-middle"
+                                title={
+                                  "Solo en menús: " +
+                                  p.exclusiveMenuIds
+                                    .map((mid) => menus.find((mm) => mm.id === mid)?.name || `#${mid}`)
+                                    .join(", ")
+                                }
+                              >
+                                🔒 {p.exclusiveMenuIds.length === 1
+                                  ? menus.find((mm) => mm.id === p.exclusiveMenuIds![0])?.name || "1 menú"
+                                  : `${p.exclusiveMenuIds.length} menús`}
+                              </span>
+                            )}
+                          </p>
                           <p className="text-gray-500 text-xs truncate sm:hidden">{catName(p.category_id)}</p>
                         </div>
                       </div>
@@ -434,6 +462,7 @@ function MasterCatalog() {
         <ProductEditModal
           product={editingProduct}
           categories={categories}
+          menus={menus}
           saving={saving}
           onSave={saveProduct}
           onClose={() => setEditingProduct(null)}
@@ -449,12 +478,14 @@ function MasterCatalog() {
 function ProductEditModal({
   product,
   categories,
+  menus,
   saving,
   onSave,
   onClose,
 }: {
   product: Product;
   categories: Category[];
+  menus: MenuOption[];
   saving: boolean;
   onSave: (data: any) => void;
   onClose: () => void;
@@ -475,8 +506,21 @@ function ProductEditModal({
   const [variants, setVariants] = useState<Array<{ label: string; price: number; stock: string }>>(
     product.variants?.map((v) => ({ label: v.label, price: v.price, stock: v.stock != null ? String(v.stock) : "" })) || []
   );
+  // Disponibilidad por menú: vacío = "Visible en todos los menús".
+  const [exclusiveMenuIds, setExclusiveMenuIds] = useState<number[]>(
+    Array.isArray(product.exclusiveMenuIds) ? [...product.exclusiveMenuIds] : []
+  );
+  const [restrictByMenu, setRestrictByMenu] = useState(
+    Array.isArray(product.exclusiveMenuIds) && product.exclusiveMenuIds.length > 0
+  );
 
   const isNew = !product.id;
+
+  function toggleMenuId(id: number) {
+    setExclusiveMenuIds((prev) =>
+      prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]
+    );
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -500,6 +544,9 @@ function ProductEditModal({
         sort_order: i,
       })) : [],
       toppings: [],
+      // [] = visible para todas las sucursales (global).
+      // [menuIds] = solo en sucursales con ese branches.menu_id.
+      exclusiveMenuIds: restrictByMenu ? exclusiveMenuIds : [],
     });
   }
 
@@ -660,6 +707,67 @@ function ProductEditModal({
             </label>
           </div>
 
+          {/* Disponibilidad por menú */}
+          {menus.length > 0 && (
+            <div className="border-t border-gray-800 pt-4">
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Disponibilidad por menú
+              </label>
+              <div className="space-y-2">
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name={`restrict-${product.id || "new"}`}
+                    checked={!restrictByMenu}
+                    onChange={() => setRestrictByMenu(false)}
+                    className="mt-1 accent-emerald-500"
+                  />
+                  <span className="text-white">
+                    Visible en todos los menús
+                    <span className="block text-xs text-gray-400">
+                      Por default. El producto aparece en todas las sucursales.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name={`restrict-${product.id || "new"}`}
+                    checked={restrictByMenu}
+                    onChange={() => setRestrictByMenu(true)}
+                    className="mt-1 accent-emerald-500"
+                  />
+                  <span className="text-white">
+                    Solo en menús específicos
+                    <span className="block text-xs text-gray-400">
+                      El producto aparece solo en sucursales con uno de los menús seleccionados.
+                    </span>
+                  </span>
+                </label>
+                {restrictByMenu && (
+                  <div className="ml-6 mt-2 space-y-1.5 border border-gray-800 rounded-lg p-3 bg-gray-900/50">
+                    {menus.map((m) => (
+                      <label key={m.id} className="flex items-center gap-2 text-sm text-gray-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={exclusiveMenuIds.includes(m.id)}
+                          onChange={() => toggleMenuId(m.id)}
+                          className="accent-emerald-500"
+                        />
+                        {m.name}
+                      </label>
+                    ))}
+                    {exclusiveMenuIds.length === 0 && (
+                      <p className="text-xs text-amber-400 mt-2">
+                        ⚠ Sin menús seleccionados, el producto no se va a ver en ninguna sucursal.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Actions */}
           <div className="flex justify-end gap-3 pt-2">
             <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors">
@@ -688,6 +796,10 @@ function BranchCatalog() {
   const [filterCat, setFilterCat] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<"all" | "alta" | "baja">("all");
   const [error, setError] = useState("");
+  // Productos propios (exclusivos del menú de esta sucursal).
+  const [ownProducts, setOwnProducts] = useState<Product[]>([]);
+  const [editingOwn, setEditingOwn] = useState<Product | null>(null);
+  const [savingOwn, setSavingOwn] = useState(false);
 
   useEffect(() => {
     if (!branchId) {
@@ -700,15 +812,72 @@ function BranchCatalog() {
   async function loadData() {
     try {
       setLoading(true);
-      const data = await apiFetch<{ products: Product[]; categories: Category[] }>(
-        `/api/branches/${branchId}/catalog`
-      );
-      setProducts(data.products);
-      setCategories(data.categories);
+      const [cat, own] = await Promise.all([
+        apiFetch<{ products: Product[]; categories: Category[] }>(
+          `/api/branches/${branchId}/catalog`
+        ),
+        apiFetch<Product[]>(`/api/branches/${branchId}/own-products`).catch(() => []),
+      ]);
+      setProducts(cat.products);
+      setCategories(cat.categories);
+      setOwnProducts(own);
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  function newOwnProduct(): Product {
+    return {
+      id: 0,
+      name: "",
+      description: "",
+      category_id: categories[0]?.id ?? 0,
+      image_url: "",
+      type: "simple",
+      base_price: 0,
+      stock: null,
+      is_active: 1,
+      is_featured: 0,
+      is_private: 0,
+      badges: [],
+      gallery: [],
+      variants: [],
+    };
+  }
+
+  async function saveOwnProduct(data: any) {
+    setSavingOwn(true);
+    try {
+      if (editingOwn && editingOwn.id) {
+        const updated = await apiFetch<Product>(
+          `/api/branches/${branchId}/own-products/${editingOwn.id}`,
+          { method: "PUT", body: JSON.stringify(data) }
+        );
+        setOwnProducts((prev) => prev.map((p) => (p.id === editingOwn.id ? updated : p)));
+      } else {
+        const created = await apiFetch<Product>(
+          `/api/branches/${branchId}/own-products`,
+          { method: "POST", body: JSON.stringify({ ...data, is_active: true }) }
+        );
+        setOwnProducts((prev) => [created, ...prev]);
+      }
+      setEditingOwn(null);
+    } catch (err: any) {
+      alert("Error al guardar: " + err.message);
+    } finally {
+      setSavingOwn(false);
+    }
+  }
+
+  async function deleteOwnProduct(id: number) {
+    if (!confirm("¿Eliminar este producto propio? Esta acción no se puede deshacer.")) return;
+    try {
+      await apiFetch(`/api/branches/${branchId}/own-products/${id}`, { method: "DELETE" });
+      setOwnProducts((prev) => prev.filter((p) => p.id !== id));
+    } catch (err: any) {
+      alert("Error al eliminar: " + err.message);
     }
   }
 
@@ -781,6 +950,73 @@ function BranchCatalog() {
             Podés activar o desactivar productos para tu sucursal. Los precios e imágenes se editan desde el catálogo global.
           </p>
         </div>
+      </div>
+
+      {/* Productos propios de la sucursal */}
+      <div className="mb-8 bg-gray-900 border border-violet-900/40 rounded-xl p-5">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div>
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              🔒 Productos propios
+            </h3>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Items exclusivos de tu sucursal. No los ven otras sucursales.
+            </p>
+          </div>
+          <button
+            onClick={() => setEditingOwn(newOwnProduct())}
+            className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap"
+          >
+            + Nuevo
+          </button>
+        </div>
+        {ownProducts.length === 0 ? (
+          <div className="text-center py-6 text-gray-500 text-sm">
+            Todavía no tenés productos propios. Crealos con "+ Nuevo".
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {ownProducts.map((p) => (
+              <div
+                key={p.id}
+                className="flex items-center gap-3 bg-gray-800/40 rounded-lg p-2.5"
+              >
+                <img
+                  src={p.image_url || "https://via.placeholder.com/40"}
+                  alt={p.name}
+                  className="w-12 h-12 rounded-lg object-cover shrink-0"
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-white font-medium truncate">{p.name}</p>
+                  <p className="text-xs text-gray-400 truncate">
+                    {categories.find((c) => c.id === p.category_id)?.name ?? "—"} ·{" "}
+                    <span className="text-emerald-400 font-semibold">
+                      {formatPrice(p.type === "simple" ? p.base_price : p.variants?.[0]?.price ?? 0)}
+                    </span>
+                  </p>
+                </div>
+                <button
+                  onClick={() => setEditingOwn(p)}
+                  className="text-gray-400 hover:text-white transition-colors p-1.5"
+                  title="Editar"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => deleteOwnProduct(p.id)}
+                  className="text-gray-400 hover:text-red-400 transition-colors p-1.5"
+                  title="Eliminar"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3 mb-5">
@@ -871,6 +1107,17 @@ function BranchCatalog() {
           </table>
         </div>
       </div>
+
+      {editingOwn && (
+        <ProductEditModal
+          product={editingOwn}
+          categories={categories}
+          menus={[]}
+          saving={savingOwn}
+          onSave={saveOwnProduct}
+          onClose={() => setEditingOwn(null)}
+        />
+      )}
     </div>
   );
 }

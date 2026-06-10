@@ -94,12 +94,18 @@ router.get("/products", (req, res) => {
       .prepare("SELECT * FROM product_toppings WHERE product_id = ? ORDER BY sort_order, id")
       .all(p.id);
 
+    const exclusiveMenuIds = db
+      .prepare("SELECT menu_id FROM product_exclusive_menus WHERE product_id = ?")
+      .all(p.id)
+      .map((r) => r.menu_id);
+
     return {
       ...p,
       badges: safeParseJson(p.badges, []),
       gallery: safeParseJson(p.gallery, []),
       variants,
       toppings,
+      exclusiveMenuIds,
     };
   });
 
@@ -122,6 +128,10 @@ router.get("/products/:id", (req, res) => {
   const toppings = db
     .prepare("SELECT * FROM product_toppings WHERE product_id = ? ORDER BY sort_order, id")
     .all(id);
+  const exclusiveMenuIds = db
+    .prepare("SELECT menu_id FROM product_exclusive_menus WHERE product_id = ?")
+    .all(id)
+    .map((r) => r.menu_id);
 
   res.json({
     ...product,
@@ -129,8 +139,26 @@ router.get("/products/:id", (req, res) => {
     gallery: safeParseJson(product.gallery, []),
     variants,
     toppings,
+    exclusiveMenuIds,
   });
 });
+
+// Sincroniza las filas de product_exclusive_menus para un producto.
+// Si `ids` es undefined, no toca nada (sin cambio de exclusividad).
+// Si es un array (vacío o no), borra las existentes e inserta las nuevas:
+// array vacío → producto global (visible para todos los menús).
+function syncExclusiveMenuIds(db, productId, ids) {
+  if (!Array.isArray(ids)) return;
+  db.prepare("DELETE FROM product_exclusive_menus WHERE product_id = ?").run(productId);
+  if (ids.length === 0) return;
+  const ins = db.prepare(
+    "INSERT OR IGNORE INTO product_exclusive_menus (product_id, menu_id) VALUES (?, ?)"
+  );
+  ids.forEach((mid) => {
+    const m = Number(mid);
+    if (Number.isFinite(m) && m > 0) ins.run(productId, m);
+  });
+}
 
 // POST /api/catalog/products
 router.post("/products", (req, res) => {
@@ -150,6 +178,7 @@ router.post("/products", (req, res) => {
       gallery,
       variants,
       toppings,
+      exclusiveMenuIds,
     } = req.body;
 
     if (!name || !category_id) {
@@ -218,6 +247,10 @@ router.post("/products", (req, res) => {
         });
       }
 
+      // Exclusividad por menú (opcional). Si no se envía o llega vacío, el
+      // producto queda global como hasta hoy.
+      syncExclusiveMenuIds(db, productId, exclusiveMenuIds);
+
       return productId;
     });
 
@@ -229,6 +262,10 @@ router.post("/products", (req, res) => {
     const createdToppings = db
       .prepare("SELECT * FROM product_toppings WHERE product_id = ? ORDER BY sort_order, id")
       .all(productId);
+    const createdExclusive = db
+      .prepare("SELECT menu_id FROM product_exclusive_menus WHERE product_id = ?")
+      .all(productId)
+      .map((r) => r.menu_id);
 
     res.status(201).json({
       ...created,
@@ -236,6 +273,7 @@ router.post("/products", (req, res) => {
       gallery: safeParseJson(created.gallery, []),
       variants: createdVariants,
       toppings: createdToppings,
+      exclusiveMenuIds: createdExclusive,
     });
   } catch (e) {
     console.error("Error creating product:", e.message);
@@ -273,6 +311,7 @@ router.put("/products/:id", (req, res) => {
       gallery,
       variants,
       toppings,
+      exclusiveMenuIds,
       _audit, // { batch_id, source } — metadata opcional para agrupar cambios
     } = req.body;
 
@@ -341,6 +380,9 @@ router.put("/products/:id", (req, res) => {
           });
         }
       }
+
+      // Exclusividad por menú (solo si el cliente la incluye en el payload).
+      syncExclusiveMenuIds(db, id, exclusiveMenuIds);
     });
 
     updateProduct();
@@ -352,6 +394,10 @@ router.put("/products/:id", (req, res) => {
     const updatedToppings = db
       .prepare("SELECT * FROM product_toppings WHERE product_id = ? ORDER BY sort_order, id")
       .all(id);
+    const updatedExclusive = db
+      .prepare("SELECT menu_id FROM product_exclusive_menus WHERE product_id = ?")
+      .all(id)
+      .map((r) => r.menu_id);
 
     // Registrar diff de precios en audit_logs
     recordPriceChanges(db, {
@@ -375,6 +421,7 @@ router.put("/products/:id", (req, res) => {
       gallery: safeParseJson(updated.gallery, []),
       variants: updatedVariants,
       toppings: updatedToppings,
+      exclusiveMenuIds: updatedExclusive,
     });
   } catch (e) {
     console.error("Error updating product:", e.message);
@@ -897,3 +944,4 @@ function recordPriceChanges(db, { user_id, product_id, product_name, before, aft
 }
 
 module.exports = router;
+module.exports.syncExclusiveMenuIds = syncExclusiveMenuIds;

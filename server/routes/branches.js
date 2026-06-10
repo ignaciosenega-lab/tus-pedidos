@@ -1438,4 +1438,287 @@ function safeParseJson(str, fallback) {
   }
 }
 
+/* ══════════════════════════════════════════════════
+   OWN-PRODUCTS (productos propios de una sucursal,
+   exclusivos del menú de esa sucursal)
+   ══════════════════════════════════════════════════ */
+
+const { syncExclusiveMenuIds } = require("./catalog");
+
+// Helper: levantar el menu_id de una sucursal o devolver null si no tiene.
+function getBranchMenuId(db, branchId) {
+  const row = db.prepare("SELECT menu_id FROM branches WHERE id = ?").get(branchId);
+  return row?.menu_id ?? null;
+}
+
+// Helper: chequea que el producto sea "propio" de esta sucursal — la única
+// fila en product_exclusive_menus debe ser para este menu_id. Si está
+// compartido con otros menús o no tiene exclusividad, NO se puede editar
+// desde el panel del branch admin (para evitar conflictos con master).
+function isProductOwnedByMenu(db, productId, menuId) {
+  const rows = db
+    .prepare("SELECT menu_id FROM product_exclusive_menus WHERE product_id = ?")
+    .all(productId);
+  return rows.length === 1 && rows[0].menu_id === menuId;
+}
+
+// Helper: hidrata producto con variants/toppings/exclusiveMenuIds.
+function hydrateProduct(db, p) {
+  if (!p) return null;
+  const variants = db
+    .prepare("SELECT * FROM product_variants WHERE product_id = ? ORDER BY sort_order, id")
+    .all(p.id);
+  const toppings = db
+    .prepare("SELECT * FROM product_toppings WHERE product_id = ? ORDER BY sort_order, id")
+    .all(p.id);
+  const exclusiveMenuIds = db
+    .prepare("SELECT menu_id FROM product_exclusive_menus WHERE product_id = ?")
+    .all(p.id)
+    .map((r) => r.menu_id);
+  return {
+    ...p,
+    badges: safeParseJson(p.badges, []),
+    gallery: safeParseJson(p.gallery, []),
+    variants,
+    toppings,
+    exclusiveMenuIds,
+  };
+}
+
+// GET /api/branches/:id/own-products — productos exclusivos del menú de esta sucursal
+router.get("/:id/own-products", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+  const menuId = getBranchMenuId(db, branchId);
+  if (!menuId) {
+    return res.json([]);
+  }
+  // Productos cuya ÚNICA exclusividad es este menú.
+  const rows = db.prepare(`
+    SELECT p.* FROM products p
+    WHERE EXISTS (SELECT 1 FROM product_exclusive_menus pem WHERE pem.product_id = p.id AND pem.menu_id = ?)
+      AND NOT EXISTS (SELECT 1 FROM product_exclusive_menus pem2 WHERE pem2.product_id = p.id AND pem2.menu_id != ?)
+    ORDER BY p.id DESC
+  `).all(menuId, menuId);
+  res.json(rows.map((p) => hydrateProduct(db, p)));
+});
+
+// POST /api/branches/:id/own-products — crear producto exclusivo del menú
+router.post("/:id/own-products", requireAuth, requireBranchAccess("id"), (req, res) => {
+  try {
+    const db = req.app.locals.db;
+    const branchId = Number(req.params.id);
+    const menuId = getBranchMenuId(db, branchId);
+    if (!menuId) {
+      return res.status(400).json({
+        error: "Esta sucursal no tiene un menú asignado. Pedile al master que le asigne uno antes de cargar productos propios.",
+      });
+    }
+
+    const {
+      name,
+      description,
+      category_id,
+      image_url,
+      type,
+      base_price,
+      stock,
+      badges,
+      is_active,
+      is_featured,
+      is_private,
+      gallery,
+      variants,
+      toppings,
+    } = req.body;
+
+    if (!name || !category_id) {
+      return res.status(400).json({ error: "Nombre y categoría son requeridos" });
+    }
+    const category = db.prepare("SELECT id FROM categories WHERE id = ?").get(category_id);
+    if (!category) {
+      return res.status(400).json({ error: "La categoría no existe" });
+    }
+
+    const createTx = db.transaction(() => {
+      const result = db.prepare(`
+        INSERT INTO products (name, description, category_id, image_url, type, base_price, stock, badges, is_active, is_featured, is_private, gallery)
+        VALUES (@name, @description, @category_id, @image_url, @type, @base_price, @stock, @badges, @is_active, @is_featured, @is_private, @gallery)
+      `).run({
+        name,
+        description: description || "",
+        category_id,
+        image_url: image_url || "",
+        type: type === "options" ? "options" : "simple",
+        base_price: base_price || 0,
+        stock: stock != null ? stock : null,
+        badges: JSON.stringify(badges || []),
+        is_active: is_active !== false ? 1 : 0,
+        is_featured: is_featured ? 1 : 0,
+        is_private: is_private ? 1 : 0,
+        gallery: JSON.stringify(gallery || []),
+      });
+      const productId = Number(result.lastInsertRowid);
+
+      if (Array.isArray(variants) && variants.length > 0) {
+        const insV = db.prepare(
+          "INSERT INTO product_variants (product_id, label, price, stock, sort_order) VALUES (@product_id, @label, @price, @stock, @sort_order)"
+        );
+        variants.forEach((v, idx) => {
+          insV.run({
+            product_id: productId,
+            label: v.label || "",
+            price: v.price || 0,
+            stock: v.stock != null ? v.stock : null,
+            sort_order: v.sort_order !== undefined ? v.sort_order : idx,
+          });
+        });
+      }
+      if (Array.isArray(toppings) && toppings.length > 0) {
+        const insT = db.prepare(
+          "INSERT INTO product_toppings (product_id, name, price, sort_order) VALUES (@product_id, @name, @price, @sort_order)"
+        );
+        toppings.forEach((t, idx) => {
+          insT.run({
+            product_id: productId,
+            name: t.name || "",
+            price: t.price || 0,
+            sort_order: t.sort_order !== undefined ? t.sort_order : idx,
+          });
+        });
+      }
+
+      // El producto SIEMPRE queda exclusivo del menú de esta sucursal.
+      syncExclusiveMenuIds(db, productId, [menuId]);
+
+      return productId;
+    });
+
+    const productId = createTx();
+    const created = db.prepare("SELECT * FROM products WHERE id = ?").get(productId);
+    res.status(201).json(hydrateProduct(db, created));
+  } catch (e) {
+    console.error("Error creating own-product:", e.message);
+    res.status(500).json({ error: "Error al crear: " + e.message });
+  }
+});
+
+// PUT /api/branches/:id/own-products/:prodId — editar producto propio
+router.put("/:id/own-products/:prodId", requireAuth, requireBranchAccess("id"), (req, res) => {
+  try {
+    const db = req.app.locals.db;
+    const branchId = Number(req.params.id);
+    const prodId = Number(req.params.prodId);
+    const menuId = getBranchMenuId(db, branchId);
+    if (!menuId) {
+      return res.status(400).json({ error: "Esta sucursal no tiene un menú asignado." });
+    }
+    if (!isProductOwnedByMenu(db, prodId, menuId)) {
+      return res.status(403).json({
+        error: "Este producto no es exclusivo de tu sucursal — solo el master puede editarlo.",
+      });
+    }
+    const existing = db.prepare("SELECT * FROM products WHERE id = ?").get(prodId);
+    if (!existing) return res.status(404).json({ error: "Producto no encontrado" });
+
+    const {
+      name, description, category_id, image_url, type, base_price, stock,
+      badges, is_active, is_featured, is_private, gallery, variants, toppings,
+    } = req.body;
+    const safeType = type === "simple" || type === "options" ? type : existing.type;
+
+    const updateTx = db.transaction(() => {
+      db.prepare(`
+        UPDATE products SET
+          name = @name, description = @description, category_id = @category_id,
+          image_url = @image_url, type = @type, base_price = @base_price, stock = @stock,
+          badges = @badges, is_active = @is_active, is_featured = @is_featured,
+          is_private = @is_private, gallery = @gallery
+        WHERE id = @id
+      `).run({
+        id: prodId,
+        name: name !== undefined ? name : existing.name,
+        description: description !== undefined ? description : existing.description,
+        category_id: category_id !== undefined ? category_id : existing.category_id,
+        image_url: image_url !== undefined ? image_url : existing.image_url,
+        type: safeType,
+        base_price: base_price !== undefined ? base_price : existing.base_price,
+        stock: stock !== undefined ? stock : existing.stock,
+        badges: badges !== undefined ? JSON.stringify(badges) : existing.badges,
+        is_active: is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active,
+        is_featured: is_featured !== undefined ? (is_featured ? 1 : 0) : existing.is_featured,
+        is_private: is_private !== undefined ? (is_private ? 1 : 0) : existing.is_private,
+        gallery: gallery !== undefined ? JSON.stringify(gallery) : existing.gallery,
+      });
+
+      if (variants !== undefined) {
+        db.prepare("DELETE FROM product_variants WHERE product_id = ?").run(prodId);
+        if (variants.length > 0) {
+          const insV = db.prepare(
+            "INSERT INTO product_variants (product_id, label, price, stock, sort_order) VALUES (@product_id, @label, @price, @stock, @sort_order)"
+          );
+          variants.forEach((v, idx) => {
+            insV.run({
+              product_id: prodId,
+              label: v.label || "",
+              price: v.price || 0,
+              stock: v.stock != null ? v.stock : null,
+              sort_order: v.sort_order !== undefined ? v.sort_order : idx,
+            });
+          });
+        }
+      }
+      if (toppings !== undefined) {
+        db.prepare("DELETE FROM product_toppings WHERE product_id = ?").run(prodId);
+        if (toppings.length > 0) {
+          const insT = db.prepare(
+            "INSERT INTO product_toppings (product_id, name, price, sort_order) VALUES (@product_id, @name, @price, @sort_order)"
+          );
+          toppings.forEach((t, idx) => {
+            insT.run({
+              product_id: prodId,
+              name: t.name || "",
+              price: t.price || 0,
+              sort_order: t.sort_order !== undefined ? t.sort_order : idx,
+            });
+          });
+        }
+      }
+      // No tocamos exclusiveMenuIds — el producto sigue siendo propio de su menú.
+    });
+
+    updateTx();
+    const updated = db.prepare("SELECT * FROM products WHERE id = ?").get(prodId);
+    res.json(hydrateProduct(db, updated));
+  } catch (e) {
+    console.error("Error updating own-product:", e.message);
+    res.status(500).json({ error: "Error al actualizar: " + e.message });
+  }
+});
+
+// DELETE /api/branches/:id/own-products/:prodId
+router.delete("/:id/own-products/:prodId", requireAuth, requireBranchAccess("id"), (req, res) => {
+  try {
+    const db = req.app.locals.db;
+    const branchId = Number(req.params.id);
+    const prodId = Number(req.params.prodId);
+    const menuId = getBranchMenuId(db, branchId);
+    if (!menuId) {
+      return res.status(400).json({ error: "Esta sucursal no tiene un menú asignado." });
+    }
+    if (!isProductOwnedByMenu(db, prodId, menuId)) {
+      return res.status(403).json({
+        error: "Este producto no es exclusivo de tu sucursal — solo el master puede eliminarlo.",
+      });
+    }
+    // El CASCADE definido en el schema borra product_variants, product_toppings,
+    // branch_product_overrides y product_exclusive_menus automáticamente.
+    db.prepare("DELETE FROM products WHERE id = ?").run(prodId);
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("Error deleting own-product:", e.message);
+    res.status(500).json({ error: "Error al eliminar: " + e.message });
+  }
+});
+
 module.exports = router;

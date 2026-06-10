@@ -70,6 +70,23 @@ function getDb() {
       db.exec("ALTER TABLE orders ADD COLUMN promotion_discount REAL NOT NULL DEFAULT 0");
     }
 
+    // Migration: productos exclusivos por menú (productos "propios" de una
+    // sucursal/menú). Si un producto NO tiene filas acá → es global; si tiene
+    // filas → solo aparece en sucursales con branches.menu_id en esa lista.
+    const pemExists = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='product_exclusive_menus'")
+      .get();
+    if (!pemExists) {
+      db.exec(`
+        CREATE TABLE product_exclusive_menus (
+          product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+          menu_id    INTEGER NOT NULL REFERENCES menus(id) ON DELETE CASCADE,
+          PRIMARY KEY (product_id, menu_id)
+        );
+        CREATE INDEX idx_pem_menu ON product_exclusive_menus(menu_id);
+      `);
+    }
+
     // Migration: add neighborhood to app_users
     const appUserCols = db.prepare("PRAGMA table_info(app_users)").all().map((c) => c.name);
     if (!appUserCols.includes("neighborhood")) {
