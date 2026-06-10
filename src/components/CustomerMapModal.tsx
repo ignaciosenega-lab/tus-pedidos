@@ -42,8 +42,20 @@ export default function CustomerMapModal({ customers, branchAddress, onClose }: 
   useEffect(() => {
     if (!isGoogleMapsConfigured()) return;
     loadGoogleMaps(["places", "visualization"])
-      .then(() => setLoaded(true))
-      .catch(() => setLoaded(false));
+      .then(() => {
+        const hasViz = !!(window as any).google?.maps?.visualization;
+        if (!hasViz) {
+          console.warn(
+            "[CustomerMapModal] Google Maps cargó pero la lib 'visualization' no está disponible. " +
+            "El heatmap se va a deshabilitar; los markers de clientes siguen funcionando."
+          );
+        }
+        setLoaded(true);
+      })
+      .catch((e) => {
+        console.error("[CustomerMapModal] Falló la carga de Google Maps:", e);
+        setLoaded(false);
+      });
   }, []);
 
   // Init map once loaded
@@ -125,9 +137,23 @@ export default function CustomerMapModal({ customers, branchAddress, onClose }: 
     markersRef.current = [];
     if (heatmapRef.current) heatmapRef.current.setMap(null);
 
+    // Log defensivo para diagnosticar "no se ven los clientes".
+    const validCustomers = customers.filter(
+      (c) => typeof c.lat === "number" && typeof c.lng === "number" && c.lat !== 0 && c.lng !== 0
+    );
+    console.info(
+      `[CustomerMapModal] customers recibidos: ${customers.length}, con coordenadas válidas: ${validCustomers.length}`
+    );
+    if (customers.length > 0 && validCustomers.length === 0) {
+      console.warn(
+        "[CustomerMapModal] Hay clientes pero ninguno tiene lat/lng válidos. " +
+        "Revisar que /api/orders esté guardando coordenadas (form.lat/lng del Google Address Picker)."
+      );
+    }
+
     const heatmapData: google.maps.LatLng[] = [];
 
-    customers.forEach((c) => {
+    validCustomers.forEach((c) => {
       const pos = new google.maps.LatLng(c.lat, c.lng);
       heatmapData.push(pos);
 
@@ -161,13 +187,21 @@ export default function CustomerMapModal({ customers, branchAddress, onClose }: 
       markersRef.current.push(marker);
     });
 
-    // Heatmap layer
-    heatmapRef.current = new google.maps.visualization.HeatmapLayer({
-      data: heatmapData,
-      map: mode === "heatmap" ? map : null,
-      radius: 40,
-      opacity: 0.7,
-    });
+    // Heatmap layer — si la lib 'visualization' no está disponible, NO romper
+    // el effect: los markers ya quedaron pintados.
+    try {
+      const vis = (window as any).google?.maps?.visualization;
+      if (vis) {
+        heatmapRef.current = new vis.HeatmapLayer({
+          data: heatmapData,
+          map: mode === "heatmap" ? map : null,
+          radius: 40,
+          opacity: 0.7,
+        });
+      }
+    } catch (e) {
+      console.error("[CustomerMapModal] No se pudo crear el HeatmapLayer:", e);
+    }
   }, [mapReady, customers, mode]);
 
   // Toggle visibility when mode changes
