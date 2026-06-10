@@ -475,6 +475,7 @@ function MasterCatalog() {
           saving={saving}
           onSave={saveProduct}
           onClose={() => setEditingProduct(null)}
+          onCategoryCreated={(cat) => setCategories((prev) => [...prev, cat])}
         />
       )}
     </div>
@@ -491,6 +492,7 @@ function ProductEditModal({
   saving,
   onSave,
   onClose,
+  onCategoryCreated,
 }: {
   product: Product;
   categories: Category[];
@@ -498,6 +500,7 @@ function ProductEditModal({
   saving: boolean;
   onSave: (data: any) => void;
   onClose: () => void;
+  onCategoryCreated?: (cat: Category) => void;
 }) {
   const { apiFetch } = useApi();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -515,6 +518,34 @@ function ProductEditModal({
   const [variants, setVariants] = useState<Array<{ label: string; price: number; stock: string }>>(
     product.variants?.map((v) => ({ label: v.label, price: v.price, stock: v.stock != null ? String(v.stock) : "" })) || []
   );
+  // Crear categoría nueva inline desde el selector.
+  const [creatingCat, setCreatingCat] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+  const [savingCat, setSavingCat] = useState(false);
+
+  async function handleCreateCategory() {
+    const name = newCatName.trim();
+    if (!name) return;
+    if (categories.some((c) => c.name.toLowerCase() === name.toLowerCase())) {
+      alert("Ya existe una categoría con ese nombre.");
+      return;
+    }
+    setSavingCat(true);
+    try {
+      const created = await apiFetch<Category>("/api/catalog/categories", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      });
+      onCategoryCreated?.(created);
+      setCategoryId(created.id);
+      setNewCatName("");
+      setCreatingCat(false);
+    } catch (e: any) {
+      alert("Error al crear categoría: " + e.message);
+    } finally {
+      setSavingCat(false);
+    }
+  }
   // Disponibilidad por menú: vacío = "Visible en todos los menús".
   const [exclusiveMenuIds, setExclusiveMenuIds] = useState<number[]>(
     Array.isArray(product.exclusiveMenuIds) ? [...product.exclusiveMenuIds] : []
@@ -619,11 +650,66 @@ function ProductEditModal({
           {/* Category */}
           <div>
             <label className={labelClass}>Categoría *</label>
-            <select value={categoryId} onChange={(e) => setCategoryId(Number(e.target.value))} className={inputClass}>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
+            {creatingCat ? (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  autoFocus
+                  value={newCatName}
+                  onChange={(e) => setNewCatName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleCreateCategory();
+                    }
+                    if (e.key === "Escape") {
+                      setCreatingCat(false);
+                      setNewCatName("");
+                    }
+                  }}
+                  placeholder="Nombre de la categoría"
+                  className={inputClass + " flex-1"}
+                />
+                <button
+                  type="button"
+                  onClick={handleCreateCategory}
+                  disabled={savingCat || !newCatName.trim()}
+                  className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-2 rounded-lg text-sm font-semibold whitespace-nowrap"
+                >
+                  {savingCat ? "..." : "Crear"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setCreatingCat(false); setNewCatName(""); }}
+                  disabled={savingCat}
+                  className="px-2 text-gray-400 hover:text-white"
+                  title="Cancelar"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <select
+                  value={categoryId}
+                  onChange={(e) => setCategoryId(Number(e.target.value))}
+                  className={inputClass + " flex-1"}
+                >
+                  {categories.length === 0 && <option value={0}>— sin categorías —</option>}
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setCreatingCat(true)}
+                  className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-emerald-400 px-3 py-2 rounded-lg text-sm font-semibold whitespace-nowrap"
+                  title="Crear una categoría nueva"
+                >
+                  + Nueva
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Image */}
