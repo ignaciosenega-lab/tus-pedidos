@@ -82,10 +82,12 @@ export function loadGoogleMaps(libraries: Library[] = []): Promise<void> {
 
   inflight = new Promise<void>((resolve, reject) => {
     const script = document.createElement("script");
-    // loading=async es el patrón recomendado por Google desde Mar 2024:
-    // https://goo.gle/js-api-loading. Sin esto, Google tira un warning en consola
-    // y reserva el derecho a degradar performance.
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEY}${libsParam}&loading=async`;
+    // Notar: aunque Google recomienda `loading=async`, ese modo cambia el
+    // contrato de inicialización (hay que usar await importLibrary y no
+    // `new google.maps.Map` directo). Como todo el código asume el patrón
+    // clásico, NO agregamos `loading=async` — solo genera un warning en
+    // consola pero el mapa funciona.
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEY}${libsParam}`;
     script.async = true;
     script.defer = true;
     script.onload = () => {

@@ -130,6 +130,9 @@ export default function CustomerMapModal({ customers, branchAddress, onClose }: 
     const validCustomers = customers.filter(
       (c) => typeof c.lat === "number" && typeof c.lng === "number" && c.lat !== 0 && c.lng !== 0
     );
+    console.info(
+      `[CustomerMapModal] customers recibidos: ${customers.length}, con coordenadas válidas: ${validCustomers.length}`
+    );
     if (customers.length > 0 && validCustomers.length === 0) {
       console.warn(
         "[CustomerMapModal] Hay clientes pero ninguno tiene lat/lng válidos. " +
