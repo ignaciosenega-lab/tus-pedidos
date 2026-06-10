@@ -67,7 +67,7 @@ export default function ProductCard({ product, onOptions, onAdd }: Props) {
         </div>
 
         {/* Description */}
-        <p className="text-sm mt-1.5 line-clamp-2 flex-1 opacity-70" style={{ color: "var(--general-text)" }}>
+        <p className="text-sm mt-1.5 flex-1 opacity-70 whitespace-pre-line" style={{ color: "var(--general-text)" }}>
           {product.description}
         </p>
 

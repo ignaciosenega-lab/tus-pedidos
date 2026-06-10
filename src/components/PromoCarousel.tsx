@@ -181,7 +181,7 @@ export default function PromoCarousel({ products, onAdd, onOptions }: Props) {
                     </div>
                   </div>
 
-                  <p className="text-sm opacity-70 line-clamp-3" style={{ color: "var(--general-text)" }}>
+                  <p className="text-sm opacity-70 whitespace-pre-line" style={{ color: "var(--general-text)" }}>
                     {product.description}
                   </p>
 
