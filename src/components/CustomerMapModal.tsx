@@ -30,28 +30,18 @@ export default function CustomerMapModal({ customers, branchAddress, onClose }: 
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
   const markersRef = useRef<google.maps.Marker[]>([]);
-  const heatmapRef = useRef<google.maps.visualization.HeatmapLayer | null>(null);
   const circleRef = useRef<google.maps.Circle | null>(null);
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
 
   const [loaded, setLoaded] = useState(false);
-  const [mode, setMode] = useState<"points" | "heatmap">("points");
   const [mapReady, setMapReady] = useState(false);
 
-  // Load Google Maps script with visualization library
+  // Load Google Maps script. Antes pedíamos también 'visualization' para el
+  // HeatmapLayer; Google lo eliminó en v3.65, así que ya no es necesario.
   useEffect(() => {
     if (!isGoogleMapsConfigured()) return;
-    loadGoogleMaps(["places", "visualization"])
-      .then(() => {
-        const hasViz = !!(window as any).google?.maps?.visualization;
-        if (!hasViz) {
-          console.warn(
-            "[CustomerMapModal] Google Maps cargó pero la lib 'visualization' no está disponible. " +
-            "El heatmap se va a deshabilitar; los markers de clientes siguen funcionando."
-          );
-        }
-        setLoaded(true);
-      })
+    loadGoogleMaps(["places"])
+      .then(() => setLoaded(true))
       .catch((e) => {
         console.error("[CustomerMapModal] Falló la carga de Google Maps:", e);
         setLoaded(false);
@@ -127,7 +117,7 @@ export default function CustomerMapModal({ customers, branchAddress, onClose }: 
     }
   }, [loaded, branchAddress, customers]);
 
-  // Add customer markers & heatmap data
+  // Add customer markers
   useEffect(() => {
     if (!mapReady || !mapInstanceRef.current) return;
     const map = mapInstanceRef.current;
@@ -135,14 +125,10 @@ export default function CustomerMapModal({ customers, branchAddress, onClose }: 
     // Clear previous markers
     markersRef.current.forEach((m) => m.setMap(null));
     markersRef.current = [];
-    if (heatmapRef.current) heatmapRef.current.setMap(null);
 
-    // Log defensivo para diagnosticar "no se ven los clientes".
+    // Filtrar clientes sin coords válidas antes de iterar.
     const validCustomers = customers.filter(
       (c) => typeof c.lat === "number" && typeof c.lng === "number" && c.lat !== 0 && c.lng !== 0
-    );
-    console.info(
-      `[CustomerMapModal] customers recibidos: ${customers.length}, con coordenadas válidas: ${validCustomers.length}`
     );
     if (customers.length > 0 && validCustomers.length === 0) {
       console.warn(
@@ -151,15 +137,12 @@ export default function CustomerMapModal({ customers, branchAddress, onClose }: 
       );
     }
 
-    const heatmapData: google.maps.LatLng[] = [];
-
     validCustomers.forEach((c) => {
       const pos = new google.maps.LatLng(c.lat, c.lng);
-      heatmapData.push(pos);
 
       const marker = new google.maps.Marker({
         position: pos,
-        map: mode === "points" ? map : null,
+        map,
         icon: {
           path: google.maps.SymbolPath.CIRCLE,
           scale: 7,
@@ -186,31 +169,7 @@ export default function CustomerMapModal({ customers, branchAddress, onClose }: 
 
       markersRef.current.push(marker);
     });
-
-    // Heatmap layer — si la lib 'visualization' no está disponible, NO romper
-    // el effect: los markers ya quedaron pintados.
-    try {
-      const vis = (window as any).google?.maps?.visualization;
-      if (vis) {
-        heatmapRef.current = new vis.HeatmapLayer({
-          data: heatmapData,
-          map: mode === "heatmap" ? map : null,
-          radius: 40,
-          opacity: 0.7,
-        });
-      }
-    } catch (e) {
-      console.error("[CustomerMapModal] No se pudo crear el HeatmapLayer:", e);
-    }
-  }, [mapReady, customers, mode]);
-
-  // Toggle visibility when mode changes
-  useEffect(() => {
-    if (!mapInstanceRef.current) return;
-    const map = mapInstanceRef.current;
-    markersRef.current.forEach((m) => m.setMap(mode === "points" ? map : null));
-    if (heatmapRef.current) heatmapRef.current.setMap(mode === "heatmap" ? map : null);
-  }, [mode]);
+  }, [mapReady, customers]);
 
   if (!isGoogleMapsConfigured()) {
     return (
@@ -233,25 +192,9 @@ export default function CustomerMapModal({ customers, branchAddress, onClose }: 
             <span className="text-sm text-gray-400">{customers.length} clientes con ubicación</span>
           </div>
           <div className="flex items-center gap-3">
-            {/* Toggle */}
-            <div className="flex bg-gray-800 rounded-lg overflow-hidden">
-              <button
-                onClick={() => setMode("points")}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                  mode === "points" ? "bg-emerald-600 text-white" : "text-gray-400 hover:text-white"
-                }`}
-              >
-                Puntos
-              </button>
-              <button
-                onClick={() => setMode("heatmap")}
-                className={`px-3 py-1.5 text-xs font-medium transition-colors ${
-                  mode === "heatmap" ? "bg-emerald-600 text-white" : "text-gray-400 hover:text-white"
-                }`}
-              >
-                Mapa de calor
-              </button>
-            </div>
+            {/* (Antes había un toggle Puntos / Mapa de calor; Google eliminó
+                 HeatmapLayer en Maps JS API v3.65, así que el mapa de calor
+                 dejó de funcionar y lo sacamos.) */}
             <button
               onClick={onClose}
               className="text-gray-400 hover:text-white transition-colors w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-800"

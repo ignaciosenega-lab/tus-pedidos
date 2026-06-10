@@ -82,7 +82,10 @@ export function loadGoogleMaps(libraries: Library[] = []): Promise<void> {
 
   inflight = new Promise<void>((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEY}${libsParam}`;
+    // loading=async es el patrón recomendado por Google desde Mar 2024:
+    // https://goo.gle/js-api-loading. Sin esto, Google tira un warning en consola
+    // y reserva el derecho a degradar performance.
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${API_KEY}${libsParam}&loading=async`;
     script.async = true;
     script.defer = true;
     script.onload = () => {
