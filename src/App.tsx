@@ -53,6 +53,22 @@ export default function App() {
     }
   }, [branchId]);
 
+  // Mide la altura real del HeaderBar y la expone como CSS variable
+  // `--header-height`. La usan la barra sticky de categorías (mobile) y el
+  // sidebar (desktop) para quedar alineados sin solaparse al header.
+  useEffect(() => {
+    const header = document.querySelector("header.sticky") as HTMLElement | null;
+    if (!header) return;
+    const update = () => {
+      const h = header.getBoundingClientRect().height;
+      document.documentElement.style.setProperty("--header-height", `${h}px`);
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(header);
+    return () => ro.disconnect();
+  }, [businessConfig.logo, businessConfig.title]);
+
   // Only show active (alta), non-private products
   const products: Product[] = useMemo(
     () => adminProducts.filter((p) => p.status === "alta" && !p.private),
@@ -209,9 +225,9 @@ export default function App() {
           </p>
         </section>
 
-        {/* Promo carousel */}
+        {/* Promo carousel — full width, antes del split */}
         {promoProducts.length > 0 && (
-          <section className="mt-6">
+          <section className="mt-6 mb-4">
             <PromoCarousel
               products={promoProducts}
               onAdd={handleAddSimple}
@@ -220,42 +236,81 @@ export default function App() {
           </section>
         )}
 
-        {/* Categories */}
-        <section className="mt-4">
+        {/* Categorías sticky horizontales — visible en mobile/tablet (< lg).
+            Se pega debajo del header gracias a la CSS var --header-height. */}
+        <div
+          className="sticky z-30 lg:hidden -mx-4 px-4 py-2 border-b border-white/5"
+          style={{
+            top: "var(--header-height, 64px)",
+            backgroundColor: "var(--body-bg)",
+          }}
+        >
           <CategoryChips
             categories={visibleCategories}
             selected={selectedCategory}
             onSelect={setSelectedCategory}
+            variant="horizontal"
           />
-        </section>
+        </div>
 
-        {/* Search and sort */}
-        <section className="mt-4">
-          <SearchAndSort
-            search={search}
-            onSearchChange={setSearch}
-            sort={sort}
-            onSortChange={setSort}
-          />
-        </section>
-
-        {/* Products grid */}
-        <section className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {filteredProducts.length === 0 ? (
-            <div className="col-span-full text-center py-12 opacity-50">
-              No se encontraron productos
-            </div>
-          ) : (
-            filteredProducts.map((product) => (
-              <ProductCard
-                key={product.id}
-                product={product}
-                onOptions={handleOpenOptions}
-                onAdd={handleAddSimple}
+        {/* Layout split a partir de lg: sidebar de categorías + área de productos. */}
+        <div className="lg:grid lg:grid-cols-[240px_1fr] lg:gap-6 mt-4">
+          {/* Sidebar (desktop) */}
+          <aside className="hidden lg:block">
+            <div
+              className="sticky"
+              style={{
+                top: "calc(var(--header-height, 64px) + 1rem)",
+                maxHeight: "calc(100vh - var(--header-height, 64px) - 2rem)",
+                overflowY: "auto",
+              }}
+            >
+              <h3
+                className="text-[10px] font-semibold uppercase tracking-wider opacity-60 mb-2 px-3"
+                style={{ color: "var(--general-text)" }}
+              >
+                Categorías
+              </h3>
+              <CategoryChips
+                categories={visibleCategories}
+                selected={selectedCategory}
+                onSelect={setSelectedCategory}
+                variant="vertical"
               />
-            ))
-          )}
-        </section>
+            </div>
+          </aside>
+
+          {/* Área de productos */}
+          <div className="min-w-0">
+            {/* Search and sort */}
+            <section className="mt-4 lg:mt-0">
+              <SearchAndSort
+                search={search}
+                onSearchChange={setSearch}
+                sort={sort}
+                onSortChange={setSort}
+              />
+            </section>
+
+            {/* Products grid */}
+            <section className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+              {filteredProducts.length === 0 ? (
+                <div className="col-span-full text-center py-12 opacity-50">
+                  No se encontraron productos
+                </div>
+              ) : (
+                filteredProducts.map((product) => (
+                  <ProductCard
+                    key={product.id}
+                    product={product}
+                    onOptions={handleOpenOptions}
+                    onAdd={handleAddSimple}
+                  />
+                ))
+              )}
+            </section>
+          </div>
+        </div>
       </main>
       </div>
 
