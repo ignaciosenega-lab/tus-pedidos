@@ -23,6 +23,7 @@ import ResourcesPage from "./pages/admin/ResourcesPage";
 import MetricsPage from "./pages/admin/MetricsPage";
 import GlobalOperationsPage from "./pages/admin/GlobalOperationsPage";
 import SnapshotsPage from "./pages/admin/SnapshotsPage";
+import HelpPage from "./pages/admin/HelpPage";
 import MegaFodyLayout from "./pages/admin/megafody/MegaFodyLayout";
 import MegaFodyHome from "./pages/admin/megafody/MegaFodyHome";
 import DeliveryPage from "./pages/admin/megafody/DeliveryPage";
@@ -74,6 +75,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="usuarios" element={<MasterOnly><AdminUsersPage /></MasterOnly>} />
               <Route path="auditoria" element={<MasterOnly><AuditPage /></MasterOnly>} />
               <Route path="versiones" element={<MasterOnly><SnapshotsPage /></MasterOnly>} />
+              <Route path="ayuda" element={<HelpPage />} />
               <Route path="actualizar-precios" element={<MasterOnly><PriceScanPage /></MasterOnly>} />
               <Route path="recursos" element={<MasterOnly><ResourcesPage /></MasterOnly>} />
               <Route path="operacion-global" element={<MasterOnly><GlobalOperationsPage /></MasterOnly>} />
