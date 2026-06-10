@@ -8,11 +8,24 @@ interface CouponInfo {
   discount: number;
 }
 
+interface AutoPromoLineMsg {
+  promoName: string;
+  productName: string;
+  units: number;
+  discount: number;
+}
+
+interface AutoPromoInfo {
+  total: number;
+  lines: AutoPromoLineMsg[];
+}
+
 export function buildWhatsAppMessage(
   items: CartItem[],
   checkout: CheckoutData,
   storeAddress: string,
-  coupon?: CouponInfo
+  coupon?: CouponInfo,
+  autoPromo?: AutoPromoInfo
 ): string {
   // Current order timestamp
   const now = new Date();
@@ -39,10 +52,22 @@ export function buildWhatsAppMessage(
     msg += `${i + 1}- ${label}   $${plainPrice(item.price)} x ${item.quantity} = $ ${plainPrice(subtotal)}\n`;
   });
 
-  if (coupon && coupon.discount > 0) {
+  const autoPromoTotal = autoPromo?.total || 0;
+  const couponDiscount = (coupon && coupon.discount > 0) ? coupon.discount : 0;
+  const hasAnyDiscount = autoPromoTotal > 0 || couponDiscount > 0;
+
+  if (hasAnyDiscount) {
     msg += `\nSubtotal: $${plainTotal(total)}\n`;
-    msg += `Cupón ${coupon.code}: -$${plainTotal(coupon.discount)}\n`;
-    msg += `Total a pagar: $${plainTotal(Math.max(0, total - coupon.discount))}\n`;
+    // Líneas de auto-promo (2x1 al mismo producto, etc.)
+    if (autoPromo && autoPromo.lines.length > 0) {
+      autoPromo.lines.forEach((line) => {
+        msg += `🎁 ${line.promoName} (${line.productName} x${line.units}): -$${plainTotal(line.discount)}\n`;
+      });
+    }
+    if (couponDiscount > 0 && coupon) {
+      msg += `Cupón ${coupon.code}: -$${plainTotal(couponDiscount)}\n`;
+    }
+    msg += `Total a pagar: $${plainTotal(Math.max(0, total - autoPromoTotal - couponDiscount))}\n`;
   } else {
     msg += `\nTotal a pagar: $${plainTotal(total)}\n`;
   }

@@ -1,5 +1,5 @@
-import { useState, useCallback } from "react";
-import { useCart, useCartDispatch } from "../store/cartContext";
+import { useState, useCallback, useMemo } from "react";
+import { useCart, useCartDispatch, computeAutoPromoDiscount } from "../store/cartContext";
 import { useStorefront } from "../hooks/useStorefront";
 import { getDateOptions, getTimeSlots } from "../utils/dateTime";
 import { buildWhatsAppMessage, buildWhatsAppUrl } from "../utils/whatsapp";
@@ -23,7 +23,15 @@ interface Props {
 export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onRemoveCoupon }: Props) {
   const { items } = useCart();
   const dispatch = useCartDispatch();
-  const { businessConfig, branchId, deliveryZones, delayMinutes } = useStorefront();
+  const { businessConfig, branchId, deliveryZones, delayMinutes, sameProductPromos } = useStorefront();
+
+  // Descuento auto-aplicado por promos "2x1 al mismo producto". Mismo cálculo
+  // que el CartModal hace para mostrar el total al cliente — acá lo replicamos
+  // para que el payload a /api/orders y el mensaje de WhatsApp queden alineados.
+  const autoPromo = useMemo(
+    () => computeAutoPromoDiscount(items, sameProductPromos),
+    [items, sameProductPromos]
+  );
 
   const dateOptions = getDateOptions();
 
@@ -114,11 +122,12 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
 
     const discount = appliedCoupon?.discount || 0;
     const couponCode = appliedCoupon?.code || null;
-    const message = buildWhatsAppMessage(items, form, businessConfig.address, appliedCoupon || undefined);
+    const message = buildWhatsAppMessage(items, form, businessConfig.address, appliedCoupon || undefined, autoPromo);
     const url = buildWhatsAppUrl(businessConfig.whatsapp || businessConfig.phone, message);
 
     // Calculate total
     const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    const total = Math.max(0, subtotal - autoPromo.total - discount);
 
     const orderPayload = {
       branchId,
@@ -145,7 +154,12 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
       subtotal,
       deliveryCost: 0,
       discount,
-      total: Math.max(0, subtotal - discount),
+      // Auto-descuento por promos "2x1 al mismo producto". El server lo
+      // recomputa por su cuenta (fuente de verdad), pero lo mandamos para que
+      // analytics/logs queden alineados con lo que vio el cliente.
+      autoPromoDiscount: autoPromo.total,
+      autoPromoBreakdown: autoPromo.lines,
+      total,
       couponCode,
     };
 
@@ -168,7 +182,8 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
         branchId,
         subtotal,
         discount,
-        total: Math.max(0, subtotal - discount),
+        autoPromoDiscount: autoPromo.total,
+        total,
         couponCode,
         itemCount: items.reduce((sum, i) => sum + i.quantity, 0),
         items: items.map((i) => ({
