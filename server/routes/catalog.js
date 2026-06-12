@@ -5,7 +5,37 @@ const { takeAutoSnapshot } = require("../lib/snapshots");
 
 const router = express.Router();
 
-// All catalog routes require master role (global catalog management)
+// Crear categoría: lo permite CUALQUIER admin autenticado (master o de
+// sucursal), porque los "productos propios" de una sucursal necesitan
+// categorizar y las categorías son globales. Se define ANTES del guard master
+// para que no le aplique requireRole("master"). El resto del catálogo global
+// sigue siendo master-only.
+router.post("/categories", requireAuth, (req, res) => {
+  const { name, sort_order } = req.body;
+  const cleanName = (name || "").trim();
+  if (!cleanName) {
+    return res.status(400).json({ error: "El nombre es requerido" });
+  }
+
+  const db = req.app.locals.db;
+  // Idempotente: si ya existe (case-insensitive), devolvemos la existente en
+  // vez de duplicar (la tabla categories no tiene constraint UNIQUE).
+  const existing = db
+    .prepare("SELECT * FROM categories WHERE lower(name) = lower(?)")
+    .get(cleanName);
+  if (existing) {
+    return res.status(200).json(existing);
+  }
+
+  const result = db
+    .prepare("INSERT INTO categories (name, sort_order, is_active) VALUES (@name, @sort_order, 1)")
+    .run({ name: cleanName, sort_order: sort_order || 0 });
+
+  const category = db.prepare("SELECT * FROM categories WHERE id = ?").get(result.lastInsertRowid);
+  res.status(201).json(category);
+});
+
+// All other catalog routes require master role (global catalog management)
 router.use(requireAuth, requireRole("master"));
 
 /* ══════════════════════════════════════════════════
@@ -19,22 +49,6 @@ router.get("/categories", (req, res) => {
     .prepare("SELECT * FROM categories ORDER BY sort_order, id")
     .all();
   res.json(categories);
-});
-
-// POST /api/catalog/categories
-router.post("/categories", (req, res) => {
-  const { name, sort_order } = req.body;
-  if (!name) {
-    return res.status(400).json({ error: "El nombre es requerido" });
-  }
-
-  const db = req.app.locals.db;
-  const result = db
-    .prepare("INSERT INTO categories (name, sort_order, is_active) VALUES (@name, @sort_order, 1)")
-    .run({ name, sort_order: sort_order || 0 });
-
-  const category = db.prepare("SELECT * FROM categories WHERE id = ?").get(result.lastInsertRowid);
-  res.status(201).json(category);
 });
 
 // PUT /api/catalog/categories/:id
