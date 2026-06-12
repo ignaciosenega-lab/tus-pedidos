@@ -43,10 +43,22 @@ app.use(express.json({ limit: "50mb" }));
 // Subdomain detection: extracts branch slug from Host header
 // e.g. canning.pedidos.jirosushi.com.ar → slug "canning"
 const BRANCH_DOMAIN = process.env.BRANCH_DOMAIN || ""; // e.g. "pedidos.jirosushi.com.ar"
+// Carta pública de solo lectura: subdominio dedicado (ej. menu.jirosushi.com.ar)
+// que muestra el catálogo de UNA sucursal fija, sin opción de compra.
+const MENU_HOST = process.env.MENU_HOST || "";              // e.g. "menu.jirosushi.com.ar"
+const MENU_BRANCH_SLUG = process.env.MENU_BRANCH_SLUG || ""; // sucursal cuya carta se muestra (vacío → primera activa)
 console.log("BRANCH_DOMAIN configured as:", BRANCH_DOMAIN || "(not set)");
+if (MENU_HOST) console.log("MENU_HOST configured as:", MENU_HOST, "→ sucursal:", MENU_BRANCH_SLUG || "(primera activa)");
 app.use((req, _res, next) => {
   req.branchSlug = null;
+  req.menuMode = false;
   const host = (req.hostname || req.headers.host || "").split(":")[0];
+  // Host de carta pública: fuerza modo solo-lectura sobre una sucursal fija.
+  if (MENU_HOST && host === MENU_HOST) {
+    req.menuMode = true;
+    req.branchSlug = MENU_BRANCH_SLUG || null;
+    return next();
+  }
   if (BRANCH_DOMAIN && host.endsWith(BRANCH_DOMAIN)) {
     const prefix = host.slice(0, -(BRANCH_DOMAIN.length + 1)); // +1 for the dot
     if (prefix && prefix !== "master" && prefix !== "www") {
@@ -450,6 +462,58 @@ function resolveCouponsForBranch(db, code, branchId) {
            OR EXISTS (SELECT 1 FROM coupon_branches cb WHERE cb.coupon_id = c.id AND cb.branch_id = @branchId))
     ORDER BY match_rank DESC, c.id DESC
   `).all({ code: String(code).trim(), branchId });
+}
+
+// Fuente de verdad del descuento de un cupón dado el carrito. NO apila con las
+// promos activas: devuelve el descuento INCREMENTAL del cupón por encima de lo
+// que la promo (percentage baked-in + auto 2x1) ya descuenta. Si la promo es
+// igual o mejor, devuelve 0. Usado tanto por /api/coupons/validate como por la
+// creación del pedido — el server recalcula SIEMPRE y nunca confía en el
+// `discount` cacheado del cliente (que queda viejo si el carrito cambia luego
+// de aplicar el cupón, lo que reintroducía el stacking con promos 2x1).
+function computeCouponNetDiscount(db, coupon, items, branchId) {
+  const targets = coupon.apply_to !== "all"
+    ? db.prepare("SELECT * FROM coupon_targets WHERE coupon_id = ?").all(coupon.id)
+    : [];
+  const targetCatIds = targets.filter((t) => t.target_type === "category").map((t) => String(t.target_id));
+  const targetProdIds = targets.filter((t) => t.target_type === "product").map((t) => String(t.target_id));
+
+  const itemsInScope = (items || []).filter((item) => {
+    if (coupon.apply_to === "all") return true;
+    if (coupon.apply_to === "categories") return targetCatIds.includes(String(item.categoryId));
+    if (coupon.apply_to === "products") return targetProdIds.includes(String(item.productId));
+    return false;
+  });
+  if (itemsInScope.length === 0) {
+    return { discount: 0, couponDiscount: 0, promoDiscountInScope: 0, originalTotalInScope: 0, inScope: false };
+  }
+
+  const originalTotalInScope = itemsInScope.reduce(
+    (sum, i) => sum + (i.originalPrice ?? i.price ?? 0) * (i.quantity || 1), 0,
+  );
+  const oldPromoDiscountInScope = itemsInScope.reduce(
+    (sum, i) => sum + (((i.originalPrice ?? i.price ?? 0) - (i.price ?? 0)) * (i.quantity || 1)), 0,
+  );
+  // Auto-promo (same_product_quantity): depende de la cantidad y NO baja
+  // item.price, así que lo recomputamos aparte y lo sumamos al "promo ya
+  // descontado" para evitar doble dipping con el cupón.
+  const branchPromoRows = getPromoRowsForBranch(db, branchId);
+  const branchSameProductPromos = getActiveSameProductPromos(db, branchPromoRows);
+  const autoOnScope = computeSameProductDiscounts(itemsInScope, branchSameProductPromos);
+  const promoDiscountInScope = oldPromoDiscountInScope + autoOnScope.total;
+
+  let couponDiscount;
+  if (coupon.type === "percentage") {
+    couponDiscount = Math.round(originalTotalInScope * coupon.value / 100);
+  } else {
+    couponDiscount = Math.min(coupon.value, originalTotalInScope);
+  }
+
+  const discount = Math.max(0, couponDiscount - promoDiscountInScope);
+  return {
+    discount, couponDiscount, promoDiscountInScope, originalTotalInScope,
+    oldPromoDiscountInScope, autoPromoInScope: autoOnScope.total, inScope: true,
+  };
 }
 
 /* ══════════════════════════════════════════════════
@@ -1159,6 +1223,23 @@ app.get("/api/state", (req, res) => {
   res.set("Cache-Control", "no-store, no-cache, must-revalidate");
   res.set("Pragma", "no-cache");
   try {
+    // Host de carta pública: catálogo de solo lectura de una sucursal fija.
+    // Resolvemos la sucursal configurada (o la primera activa que no sea master)
+    // y marcamos menuMode para que el frontend oculte toda la UI de compra.
+    if (req.menuMode) {
+      let slug = req.branchSlug;
+      if (!slug) {
+        const firstBranch = db.prepare(
+          "SELECT slug FROM branches WHERE is_active = 1 AND slug != 'master' ORDER BY id LIMIT 1"
+        ).get();
+        slug = firstBranch ? firstBranch.slug : null;
+      }
+      const menuState = slug ? readStateFromDb(slug) : null;
+      if (!menuState) return res.json(null);
+      menuState.menuMode = true;
+      return res.json(menuState);
+    }
+
     // If on master domain (no branchSlug), return isMaster flag instead of first branch
     if (!req.branchSlug) {
       // Get first branch's style for theming the master page
@@ -1276,55 +1357,19 @@ app.post("/api/coupons/validate", (req, res) => {
       return res.json({ valid: false, message: `Pedido mínimo de $${coupon.min_order} para este cupón` });
     }
 
-    // Determine which items are in scope of the coupon
-    const targets = coupon.apply_to !== "all"
-      ? db.prepare("SELECT * FROM coupon_targets WHERE coupon_id = ?").all(coupon.id)
-      : [];
-    const targetCatIds = targets.filter((t) => t.target_type === "category").map((t) => String(t.target_id));
-    const targetProdIds = targets.filter((t) => t.target_type === "product").map((t) => String(t.target_id));
-
-    const itemsInScope = (items || []).filter((item) => {
-      if (coupon.apply_to === "all") return true;
-      if (coupon.apply_to === "categories") return targetCatIds.includes(String(item.categoryId));
-      if (coupon.apply_to === "products") return targetProdIds.includes(String(item.productId));
-      return false;
-    });
-
-    if (itemsInScope.length === 0) {
+    // Descuento NETO del cupón (no apila con promos; toma el mayor). Misma
+    // fuente de verdad que usa la creación del pedido.
+    const calc = computeCouponNetDiscount(db, coupon, items || [], branchId);
+    if (!calc.inScope) {
       return res.json({ valid: false, message: "Este cupón no aplica a los productos de tu pedido" });
     }
-
-    // Sums on items in scope, using ORIGINAL price (pre-promo) and the savings the promo
-    // is already giving the customer. Coupon never stacks with promo: if the promo is already
-    // a better deal, the coupon adds zero extra savings and we reject it.
-    const originalTotalInScope = itemsInScope.reduce(
-      (sum, i) => sum + (i.originalPrice ?? i.price ?? 0) * (i.quantity || 1), 0,
-    );
-    const oldPromoDiscountInScope = itemsInScope.reduce(
-      (sum, i) => sum + (((i.originalPrice ?? i.price ?? 0) - (i.price ?? 0)) * (i.quantity || 1)), 0,
-    );
-    // Auto-promo (same_product_quantity): el descuento depende de la cantidad
-    // y NO baja item.price, así que lo recomputamos aparte y lo sumamos al
-    // "promo ya descontado" para evitar doble dipping con el cupón.
-    const branchPromoRows = getPromoRowsForBranch(db, branchId);
-    const branchSameProductPromos = getActiveSameProductPromos(db, branchPromoRows);
-    const autoOnScope = computeSameProductDiscounts(itemsInScope, branchSameProductPromos);
-    const promoDiscountInScope = oldPromoDiscountInScope + autoOnScope.total;
-
-    let couponDiscount;
-    if (coupon.type === "percentage") {
-      couponDiscount = Math.round(originalTotalInScope * coupon.value / 100);
-    } else {
-      couponDiscount = Math.min(coupon.value, originalTotalInScope);
-    }
-
-    const discount = Math.max(0, couponDiscount - promoDiscountInScope);
+    const { discount, couponDiscount, originalTotalInScope, oldPromoDiscountInScope, autoPromoInScope } = calc;
 
     // Diag temporal: traza del cálculo para auditar descuentos que no cierran.
     console.warn(
       `[coupon-validate] code=${coupon.code} id=${coupon.id} branch=${branchId} ` +
       `type=${coupon.type} value=${coupon.value} | originalInScope=${originalTotalInScope} ` +
-      `oldPromoDisc=${oldPromoDiscountInScope} autoPromoDisc=${autoOnScope.total} ` +
+      `oldPromoDisc=${oldPromoDiscountInScope} autoPromoDisc=${autoPromoInScope} ` +
       `couponDisc=${couponDiscount} -> discount=${discount}`
     );
 
@@ -1410,7 +1455,14 @@ app.post("/api/orders", (req, res) => {
     const autoPromo = computeSameProductDiscounts(items || [], orderSameProductPromos);
     const promotionDiscount = autoPromo.total;
 
-    const couponDiscount = Number(discount) || 0;
+    // Recalculamos el descuento del cupón server-side (misma lógica que /validate):
+    // NUNCA confiamos en el `discount` que mandó el cliente, porque queda viejo si
+    // el carrito cambió luego de aplicar el cupón (subir cantidad y disparar un 2x1,
+    // agregar items, etc.) y se apilaría con el auto-promo recalculado. Tomar siempre
+    // el mayor entre cupón y promo, nunca la suma.
+    const couponDiscount = orderCoupon
+      ? computeCouponNetDiscount(db, orderCoupon, items || [], branchId).discount
+      : 0;
     const computedTotal = Math.max(
       0,
       (Number(subtotal) || 0) + (Number(deliveryCost) || 0) - couponDiscount - promotionDiscount

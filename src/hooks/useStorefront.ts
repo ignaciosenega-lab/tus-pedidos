@@ -13,6 +13,7 @@ interface StorefrontData {
   delayMinutes: number;
   businessConfig: BusinessConfig;
   styleConfig: StyleConfig;
+  menuMode: boolean;
   loading: boolean;
 }
 
@@ -67,6 +68,7 @@ export function useStorefront(): StorefrontData {
     delayMinutes: 30,
     businessConfig: defaultConfig,
     styleConfig: defaultStyleConfig,
+    menuMode: false,
     loading: true,
   });
 
@@ -97,6 +99,7 @@ export function useStorefront(): StorefrontData {
             delayMinutes: 30,
             businessConfig: { ...defaultConfig, ...(state.businessConfig || {}) },
             styleConfig: { ...defaultStyleConfig, ...sc },
+            menuMode: false,
             loading: false,
           });
           return;
@@ -114,6 +117,7 @@ export function useStorefront(): StorefrontData {
           delayMinutes: state.delayMinutes || 30,
           businessConfig: state.businessConfig || defaultConfig,
           styleConfig: { ...defaultStyleConfig, ...sc },
+          menuMode: !!state.menuMode,
           loading: false,
         });
       })

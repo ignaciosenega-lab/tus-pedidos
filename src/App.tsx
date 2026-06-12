@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import type { Product } from "./types";
-import { useCartDispatch } from "./store/cartContext";
+import { useCart, useCartDispatch } from "./store/cartContext";
 import { useStorefront } from "./hooks/useStorefront";
 
 import HeaderBar from "./components/HeaderBar";
@@ -40,9 +40,13 @@ function trackEvent(branchId: number, eventType: string, productId?: string) {
   }).catch(() => {});
 }
 
-export default function App() {
+export default function App({ menuOnly: menuOnlyProp = false }: { menuOnly?: boolean }) {
   const dispatch = useCartDispatch();
-  const { products: adminProducts, categories: adminCategories, businessConfig, isMaster, loading, branchId } = useStorefront();
+  const { items } = useCart();
+  const { products: adminProducts, categories: adminCategories, businessConfig, isMaster, loading, branchId, menuMode } = useStorefront();
+  // Modo carta (solo lectura): por prop (ruta /carta) o por host dedicado
+  // (ej. menu.jirosushi.com.ar, que el server marca con menuMode).
+  const menuOnly = menuOnlyProp || menuMode;
 
   // Track session once per page load
   const sessionTracked = useRef(false);
@@ -104,6 +108,52 @@ export default function App() {
   const [showCheckout, setShowCheckout] = useState(false);
   const [showPausedAlert, setShowPausedAlert] = useState(false);
   const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; name: string; discount: number } | null>(null);
+
+  // Re-valida el cupón aplicado cada vez que cambia el carrito. El descuento del
+  // cupón depende de las cantidades y de las promos vigentes (un 2x1 que recién
+  // se activa al subir la cantidad, etc.), así que un valor cacheado quedaría
+  // viejo y podría apilarse con el auto-descuento. Si el cupón ya no mejora la
+  // promo, se quita. El server igual recalcula al crear el pedido (fuente de
+  // verdad); esto mantiene el total mostrado y el mensaje de WhatsApp alineados.
+  const couponCode = appliedCoupon?.code;
+  useEffect(() => {
+    if (!couponCode || !branchId || items.length === 0) return;
+    let cancelled = false;
+    const subtotal = items.reduce((s, i) => s + i.price * i.quantity, 0);
+    fetch("/api/coupons/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        branchId,
+        code: couponCode,
+        subtotal,
+        items: items.map((i) => ({
+          productId: i.productId,
+          categoryId: i.categoryId,
+          quantity: i.quantity,
+          price: i.price,
+          originalPrice: i.originalPrice ?? i.price,
+        })),
+      }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data.valid) {
+          setAppliedCoupon((prev) =>
+            prev && prev.code === data.coupon.code && prev.discount !== data.coupon.discount
+              ? { ...prev, discount: data.coupon.discount }
+              : prev
+          );
+        } else {
+          setAppliedCoupon(null);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [couponCode, items, branchId]);
 
   // Filter + sort products
   const filteredProducts = useMemo(() => {
@@ -195,11 +245,14 @@ export default function App() {
   return (
     <div className="min-h-screen" style={{ backgroundColor: "var(--body-bg)", color: "var(--general-text)" }}>
       <ThemeStyles />
-      <HeaderBar onOpenCart={() => setShowCart(true)} />
+      <HeaderBar onOpenCart={() => setShowCart(true)} menuOnly={menuOnly} />
 
       {/* Content area below sticky header */}
       <div>
         {(() => {
+          // En modo carta (solo lectura) no mostramos el estado abierto/cerrado:
+          // es una carta de referencia, no la tienda operativa de una sucursal.
+          if (menuOnly) return null;
           const pausedUntil = (businessConfig as any).pausedUntil;
           const isPaused = pausedUntil && new Date(pausedUntil) > new Date();
           const showBanner = !businessConfig.isOpen || isPaused;
@@ -232,6 +285,7 @@ export default function App() {
               products={promoProducts}
               onAdd={handleAddSimple}
               onOptions={handleOpenOptions}
+              menuOnly={menuOnly}
             />
           </section>
         )}
@@ -305,6 +359,7 @@ export default function App() {
                     product={product}
                     onOptions={handleOpenOptions}
                     onAdd={handleAddSimple}
+                    menuOnly={menuOnly}
                   />
                 ))
               )}
@@ -314,8 +369,8 @@ export default function App() {
       </main>
       </div>
 
-      {/* Modals */}
-      {optionsProduct && (
+      {/* Modals — en modo carta (solo lectura) no hay compra, no se renderizan */}
+      {!menuOnly && optionsProduct && (
         <ProductOptionsModal
           product={optionsProduct}
           onClose={() => setOptionsProduct(null)}
@@ -323,7 +378,7 @@ export default function App() {
         />
       )}
 
-      {showCart && (
+      {!menuOnly && showCart && (
         <CartModal
           onClose={() => { setShowCart(false); setAppliedCoupon(null); }}
           onCheckout={handleOpenCheckout}
@@ -332,7 +387,7 @@ export default function App() {
         />
       )}
 
-      {showCheckout && (
+      {!menuOnly && showCheckout && (
         <CheckoutModal
           onClose={() => { setShowCheckout(false); setAppliedCoupon(null); }}
           isStoreOpen={businessConfig.isOpen}
@@ -341,7 +396,7 @@ export default function App() {
         />
       )}
 
-      {showPausedAlert && (
+      {!menuOnly && showPausedAlert && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60" onClick={() => setShowPausedAlert(false)}>
           <div className="bg-red-700 text-white rounded-xl p-6 mx-4 max-w-md text-center shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <svg className="w-12 h-12 mx-auto mb-3 opacity-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -368,8 +423,8 @@ export default function App() {
         </div>
       )}
 
-      {/* Floating WhatsApp button */}
-      {(businessConfig.whatsapp || businessConfig.phone) && (
+      {/* Floating WhatsApp button — oculto en modo carta (es acción de pedido) */}
+      {!menuOnly && (businessConfig.whatsapp || businessConfig.phone) && (
         <a
           href={`https://api.whatsapp.com/send?phone=${normalizePhoneForWhatsApp(businessConfig.whatsapp || businessConfig.phone)}&text=${encodeURIComponent("Hola, tuve un problema para hacer mi pedido.")}`}
           target="_blank"

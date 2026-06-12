@@ -60,6 +60,11 @@ createRoot(document.getElementById("root")!).render(
             {/* Storefront */}
             <Route path="/" element={<App />} />
 
+            {/* Carta / menú público de solo lectura (sin compra) — misma sucursal
+                que la tienda (se resuelve por subdominio), solo cambia el modo. */}
+            <Route path="/carta" element={<App menuOnly />} />
+            <Route path="/menu" element={<App menuOnly />} />
+
             {/* Admin login */}
             <Route path="/admin/login" element={<LoginPage />} />
 

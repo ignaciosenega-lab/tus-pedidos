@@ -5,9 +5,10 @@ interface Props {
   product: Product;
   onOptions: (product: Product) => void;
   onAdd: (product: Product) => void;
+  menuOnly?: boolean;
 }
 
-export default function ProductCard({ product, onOptions, onAdd }: Props) {
+export default function ProductCard({ product, onOptions, onAdd, menuOnly = false }: Props) {
   const displayPrice =
     product.type === "simple"
       ? product.basePrice!
@@ -71,7 +72,8 @@ export default function ProductCard({ product, onOptions, onAdd }: Props) {
           {product.description}
         </p>
 
-        {/* Full-width button */}
+        {/* Full-width button — oculto en modo carta (solo lectura) */}
+        {!menuOnly && (
         <div className="mt-3">
           {product.type === "options" ? (
             <button
@@ -98,6 +100,7 @@ export default function ProductCard({ product, onOptions, onAdd }: Props) {
             </button>
           )}
         </div>
+        )}
       </div>
     </div>
   );

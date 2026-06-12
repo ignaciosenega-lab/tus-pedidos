@@ -6,6 +6,7 @@ interface Props {
   products: Product[];
   onAdd: (product: Product) => void;
   onOptions: (product: Product) => void;
+  menuOnly?: boolean;
 }
 
 function getDiscountPercent(p: Product): number {
@@ -38,7 +39,7 @@ function getDisplayPrices(p: Product): { price: number; originalPrice: number | 
   };
 }
 
-export default function PromoCarousel({ products, onAdd, onOptions }: Props) {
+export default function PromoCarousel({ products, onAdd, onOptions, menuOnly = false }: Props) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -191,22 +192,24 @@ export default function PromoCarousel({ products, onAdd, onOptions }: Props) {
                     </p>
                   )}
 
-                  <button
-                    type="button"
-                    onClick={() => (isOptions ? onOptions(product) : onAdd(product))}
-                    data-testid={isOptions ? "open-product-options" : "add-to-cart"}
-                    data-product-id={product.id}
-                    data-product-name={product.name}
-                    data-product-price={price}
-                    className="mt-2 w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90 flex items-center justify-center gap-2"
-                    style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
-                      <circle cx="12" cy="12" r="10" />
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v8M8 12h8" />
-                    </svg>
-                    {isOptions ? "Elegir opciones" : "Añadir al pedido"}
-                  </button>
+                  {!menuOnly && (
+                    <button
+                      type="button"
+                      onClick={() => (isOptions ? onOptions(product) : onAdd(product))}
+                      data-testid={isOptions ? "open-product-options" : "add-to-cart"}
+                      data-product-id={product.id}
+                      data-product-name={product.name}
+                      data-product-price={price}
+                      className="mt-2 w-full py-2.5 rounded-lg text-sm font-semibold transition-opacity hover:opacity-90 flex items-center justify-center gap-2"
+                      style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="10" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v8M8 12h8" />
+                      </svg>
+                      {isOptions ? "Elegir opciones" : "Añadir al pedido"}
+                    </button>
+                  )}
                 </div>
               </div>
             );
