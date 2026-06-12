@@ -526,8 +526,13 @@ function ProductEditModal({
   async function handleCreateCategory() {
     const name = newCatName.trim();
     if (!name) return;
-    if (categories.some((c) => c.name.toLowerCase() === name.toLowerCase())) {
-      alert("Ya existe una categoría con ese nombre.");
+    // Si ya existe una categoría con ese nombre, la seleccionamos en vez de
+    // bloquear con un error: el usuario igual quiere que el producto quede ahí.
+    const existing = categories.find((c) => c.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      setCategoryId(existing.id);
+      setNewCatName("");
+      setCreatingCat(false);
       return;
     }
     setSavingCat(true);
@@ -562,13 +567,38 @@ function ProductEditModal({
     );
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return alert("El nombre es requerido");
+
+    // Si quedó una categoría nueva tipeada en el campo inline sin confirmar con
+    // "Crear", la resolvemos igual (creamos la nueva o seleccionamos la
+    // existente) para que el producto NO termine en la categoría por defecto.
+    let finalCategoryId = categoryId;
+    if (creatingCat && newCatName.trim()) {
+      const nm = newCatName.trim();
+      const existing = categories.find((c) => c.name.toLowerCase() === nm.toLowerCase());
+      if (existing) {
+        finalCategoryId = existing.id;
+      } else {
+        try {
+          const created = await apiFetch<Category>("/api/catalog/categories", {
+            method: "POST",
+            body: JSON.stringify({ name: nm }),
+          });
+          onCategoryCreated?.(created);
+          finalCategoryId = created.id;
+        } catch (err: any) {
+          alert("Error al crear categoría: " + err.message);
+          return;
+        }
+      }
+    }
+
     onSave({
       name: name.trim(),
       description: description.trim(),
-      category_id: categoryId,
+      category_id: finalCategoryId,
       image_url: imageUrl.trim(),
       type,
       base_price: type === "simple" ? basePrice : 0,
@@ -1211,6 +1241,7 @@ function BranchCatalog() {
           saving={savingOwn}
           onSave={saveOwnProduct}
           onClose={() => setEditingOwn(null)}
+          onCategoryCreated={(cat) => setCategories((prev) => [...prev, cat])}
         />
       )}
     </div>
