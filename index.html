@@ -18,7 +18,36 @@
     <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-TTT7PQ57"
     height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
     <!-- End Google Tag Manager (noscript) -->
-    <div id="root"></div>
+    <div id="root">
+      <!-- Fallback de arranque: React reemplaza este contenido al montar.
+           Si el bundle no carga/parsea (navegador viejo), queda visible y el
+           script de abajo muestra un mensaje accionable en vez de pantalla negra. -->
+      <div id="boot-fallback" style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;font-family:system-ui,-apple-system,sans-serif;color:#fff;background:#0a0a0a;">
+        <div id="boot-spinner" style="width:36px;height:36px;border:3px solid rgba(255,255,255,0.25);border-top-color:#fff;border-radius:50%;animation:bootspin 1s linear infinite;"></div>
+        <p id="boot-loading" style="margin-top:16px;opacity:0.7;">Cargando…</p>
+        <div id="boot-old" style="display:none;max-width:340px;margin-top:8px;">
+          <p style="font-weight:600;font-size:16px;">No pudimos cargar la tienda</p>
+          <p style="opacity:0.7;font-size:14px;margin-top:6px;">Tu navegador puede estar desactualizado. Actualizalo, o abrí el link en Chrome o Safari.</p>
+        </div>
+        <noscript><p style="margin-top:12px;">Necesitás activar JavaScript para usar la tienda.</p></noscript>
+      </div>
+      <style>@keyframes bootspin{to{transform:rotate(360deg)}}</style>
+    </div>
+    <script>
+      /* ES5 clásico (corre en navegadores viejos): si a los 7s React no montó
+         (sigue el fallback), avisamos que actualicen el navegador. */
+      (function () {
+        setTimeout(function () {
+          if (!document.getElementById("boot-fallback")) return; /* React montó: OK */
+          var spin = document.getElementById("boot-spinner");
+          var loading = document.getElementById("boot-loading");
+          var old = document.getElementById("boot-old");
+          if (spin) spin.style.display = "none";
+          if (loading) loading.style.display = "none";
+          if (old) old.style.display = "block";
+        }, 7000);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

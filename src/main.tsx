@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { CartProvider } from "./store/cartContext";
 import { AuthProvider, useAuth } from "./store/authContext";
+import ErrorBoundary from "./components/ErrorBoundary";
 import App from "./App";
 import AdminLayout from "./pages/AdminLayout";
 import LoginPage from "./pages/LoginPage";
@@ -56,6 +57,7 @@ createRoot(document.getElementById("root")!).render(
     <AuthProvider>
       <CartProvider>
         <BrowserRouter>
+          <ErrorBoundary>
           <Routes>
             {/* Storefront */}
             <Route path="/" element={<App />} />
@@ -103,6 +105,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="numeros-campana" element={<MasterOnly><CampaignNumbersPage /></MasterOnly>} />
             </Route>
           </Routes>
+          </ErrorBoundary>
         </BrowserRouter>
       </CartProvider>
     </AuthProvider>
