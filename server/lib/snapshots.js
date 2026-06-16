@@ -130,6 +130,61 @@ function restoreSnapshotPayload(db, payload) {
   tx();
 }
 
+// Productos (id, name) de una categoría dentro de un payload de snapshot.
+function categoryProductsInPayload(payload, categoryId) {
+  const prods = Array.isArray(payload && payload.products) ? payload.products : [];
+  return prods
+    .filter((p) => String(p.category_id) === String(categoryId))
+    .map((p) => ({ id: p.id, name: p.name }));
+}
+
+// Reinserta SOLO los productos de una categoría (y sus filas relacionadas:
+// variantes, toppings, exclusividad por menú, overrides) desde un payload, SIN
+// borrar nada. Idempotente: INSERT OR IGNORE; y a los que ya existieran
+// (desactivados/privados) los vuelve a dejar visibles. Sirve para recuperar una
+// categoría puntual sin hacer un rollback completo.
+function restoreCategoryFromPayload(db, payload, categoryId) {
+  const prods = (payload.products || []).filter(
+    (p) => String(p.category_id) === String(categoryId)
+  );
+  if (prods.length === 0) return { restored: 0, products: [] };
+
+  const prodIds = new Set(prods.map((p) => p.id));
+  const variants = (payload.product_variants || []).filter((v) => prodIds.has(v.product_id));
+  const variantIds = new Set(variants.map((v) => v.id));
+  const toppings = (payload.product_toppings || []).filter((t) => prodIds.has(t.product_id));
+  const exclusives = (payload.product_exclusive_menus || []).filter((e) => prodIds.has(e.product_id));
+  const prodOverrides = (payload.branch_product_overrides || []).filter((o) => prodIds.has(o.product_id));
+  const varOverrides = (payload.branch_variant_overrides || []).filter((o) => variantIds.has(o.variant_id));
+  const catRow = (payload.categories || []).find((c) => String(c.id) === String(categoryId));
+
+  const insertRows = (table, rows) => {
+    if (!rows.length) return;
+    const cols = Object.keys(rows[0]);
+    const stmt = db.prepare(
+      `INSERT OR IGNORE INTO ${table} (${cols.map((c) => `"${c}"`).join(",")}) VALUES (${cols.map(() => "?").join(",")})`
+    );
+    for (const r of rows) stmt.run(...cols.map((c) => r[c]));
+  };
+
+  const tx = db.transaction(() => {
+    db.exec("PRAGMA defer_foreign_keys = 1");
+    if (catRow) insertRows("categories", [catRow]);
+    insertRows("products", prods);
+    insertRows("product_variants", variants);
+    insertRows("product_toppings", toppings);
+    insertRows("product_exclusive_menus", exclusives);
+    insertRows("branch_product_overrides", prodOverrides);
+    insertRows("branch_variant_overrides", varOverrides);
+    // Garantizar visibilidad por si el producto existía desactivado/privado.
+    const upd = db.prepare("UPDATE products SET is_active = 1, is_private = 0 WHERE id = ?");
+    prods.forEach((p) => upd.run(p.id));
+  });
+  tx();
+
+  return { restored: prods.length, products: prods.map((p) => ({ id: p.id, name: p.name })) };
+}
+
 module.exports = {
   SNAPSHOT_VERSION,
   RESTORE_ORDER,
@@ -139,4 +194,6 @@ module.exports = {
   takeAutoSnapshot,
   pruneAutoSnapshots,
   restoreSnapshotPayload,
+  categoryProductsInPayload,
+  restoreCategoryFromPayload,
 };

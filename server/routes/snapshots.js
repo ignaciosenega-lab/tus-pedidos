@@ -6,6 +6,8 @@ const {
   createSnapshot,
   restoreSnapshotPayload,
   takeAutoSnapshot,
+  categoryProductsInPayload,
+  restoreCategoryFromPayload,
 } = require("../lib/snapshots");
 
 // GET /api/snapshots — lista sin payload (no pesa)
@@ -53,6 +55,63 @@ router.post("/auto", requireAuth, requireRole("master"), (req, res) => {
   } catch (e) {
     console.error("Error creating auto-snapshot:", e.message);
     res.status(500).json({ error: "Error al crear auto-snapshot: " + e.message });
+  }
+});
+
+// GET /api/snapshots/recover-category?category=Bebidas  (o ?categoryId=352)
+// Preview: en qué snapshots aparecen productos de esa categoría y cuáles.
+// DEBE ir antes de "/:id" para que no lo capture como id.
+router.get("/recover-category", requireAuth, requireRole("master"), (req, res) => {
+  try {
+    const db = req.app.locals.db;
+    let categoryId = req.query.categoryId ? Number(req.query.categoryId) : null;
+    const categoryName = req.query.category ? String(req.query.category).trim() : null;
+    if (!categoryId && categoryName) {
+      const cat = db.prepare("SELECT id FROM categories WHERE lower(name) = lower(?)").get(categoryName);
+      if (!cat) return res.status(404).json({ error: `No existe la categoría "${categoryName}"` });
+      categoryId = cat.id;
+    }
+    if (!categoryId) return res.status(400).json({ error: "Falta categoryId o category" });
+    const cat = db.prepare("SELECT id, name FROM categories WHERE id = ?").get(categoryId);
+
+    const snaps = db.prepare(
+      "SELECT id, name, created_at, reason, payload FROM config_snapshots ORDER BY created_at DESC, id DESC"
+    ).all();
+    const found = [];
+    for (const s of snaps) {
+      let payload;
+      try { payload = JSON.parse(s.payload); } catch { continue; }
+      const products = categoryProductsInPayload(payload, categoryId);
+      if (products.length) {
+        found.push({ snapshotId: s.id, name: s.name, created_at: s.created_at, reason: s.reason, count: products.length, products });
+      }
+    }
+    res.json({ categoryId, categoryName: (cat && cat.name) || categoryName, found });
+  } catch (e) {
+    console.error("Error en recover-category preview:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /api/snapshots/:id/recover-category  body { categoryId }
+// Recupera SOLO los productos de esa categoría desde el snapshot, sin tocar
+// nada más (no es un rollback). Toma un auto-snapshot previo por las dudas.
+router.post("/:id/recover-category", requireAuth, requireRole("master"), (req, res) => {
+  try {
+    const db = req.app.locals.db;
+    const id = Number(req.params.id);
+    const categoryId = Number(req.body && req.body.categoryId);
+    if (!categoryId) return res.status(400).json({ error: "Falta categoryId" });
+    const row = db.prepare("SELECT payload FROM config_snapshots WHERE id = ?").get(id);
+    if (!row) return res.status(404).json({ error: "Snapshot no encontrado" });
+
+    takeAutoSnapshot(db, { reason: `pre-recover-cat-${categoryId}`, minIntervalMs: 0 });
+    const payload = JSON.parse(row.payload);
+    const result = restoreCategoryFromPayload(db, payload, categoryId);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    console.error("Error en recover-category:", e.message);
+    res.status(500).json({ error: e.message });
   }
 });
 

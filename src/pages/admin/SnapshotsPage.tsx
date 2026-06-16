@@ -40,6 +40,53 @@ export default function SnapshotsPage() {
   const [working, setWorking] = useState(false);
   const [filter, setFilter] = useState<"all" | "manual" | "auto">("all");
 
+  // Recuperar una categoría puntual desde un snapshot (sin rollback completo).
+  const [recoverName, setRecoverName] = useState("");
+  const [recoverLoading, setRecoverLoading] = useState(false);
+  const [recoverData, setRecoverData] = useState<
+    | { categoryId: number; categoryName: string; found: { snapshotId: number; name: string; created_at: string; count: number }[] }
+    | null
+  >(null);
+  const [recoverMsg, setRecoverMsg] = useState<string | null>(null);
+
+  async function searchCategoryRecover() {
+    const q = recoverName.trim();
+    if (!q || recoverLoading) return;
+    setRecoverLoading(true);
+    setRecoverMsg(null);
+    setRecoverData(null);
+    try {
+      const data = await apiFetch<any>(`/api/snapshots/recover-category?category=${encodeURIComponent(q)}`);
+      setRecoverData(data);
+      if (!data.found || data.found.length === 0) {
+        setRecoverMsg(`No se encontraron productos de "${data.categoryName || q}" en ningún punto guardado.`);
+      }
+    } catch (e: any) {
+      setRecoverMsg("Error: " + e.message);
+    } finally {
+      setRecoverLoading(false);
+    }
+  }
+
+  async function applyCategoryRecover(snapshotId: number, categoryId: number, count: number, when: string) {
+    if (!window.confirm(`Vas a recuperar ${count} producto(s) de esta categoría desde el punto del ${formatDate(when)}.\n\nNo se borra ni se pisa nada más. ¿Continuar?`)) return;
+    setWorking(true);
+    try {
+      const res = await apiFetch<any>(`/api/snapshots/${snapshotId}/recover-category`, {
+        method: "POST",
+        body: JSON.stringify({ categoryId }),
+      });
+      alert(`Listo: se recuperaron ${res.restored} producto(s):\n` + (res.products || []).map((p: any) => "· " + p.name).join("\n"));
+      setRecoverData(null);
+      setRecoverName("");
+      await loadSnapshots();
+    } catch (e: any) {
+      alert("Error al recuperar: " + e.message);
+    } finally {
+      setWorking(false);
+    }
+  }
+
   useEffect(() => {
     loadSnapshots();
   }, []);
@@ -123,6 +170,53 @@ export default function SnapshotsPage() {
         >
           + Crear punto
         </button>
+      </div>
+
+      {/* Recuperar una categoría puntual (sin rollback completo) */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-6">
+        <h3 className="text-white font-semibold text-sm">Recuperar una categoría</h3>
+        <p className="text-xs text-gray-500 mt-1 mb-3">
+          ¿Se borraron los productos de una categoría? Buscala y restaurá solo esa, desde el punto donde todavía estaban — sin tocar el resto.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <input
+            type="text"
+            value={recoverName}
+            onChange={(e) => setRecoverName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && searchCategoryRecover()}
+            placeholder="Nombre de la categoría (ej. Bebidas)"
+            className="flex-1 min-w-[200px] bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+          />
+          <button
+            onClick={searchCategoryRecover}
+            disabled={recoverLoading || !recoverName.trim()}
+            className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-semibold"
+          >
+            {recoverLoading ? "Buscando…" : "Buscar"}
+          </button>
+        </div>
+        {recoverMsg && <p className="text-xs text-amber-400 mt-3">{recoverMsg}</p>}
+        {recoverData && recoverData.found.length > 0 && (
+          <div className="mt-3 space-y-2">
+            <p className="text-xs text-gray-400">
+              "{recoverData.categoryName}" encontrada en {recoverData.found.length} punto(s). Recuperá desde el más reciente que la tenga completa:
+            </p>
+            {recoverData.found.map((f) => (
+              <div key={f.snapshotId} className="flex items-center justify-between gap-3 bg-gray-800/60 border border-gray-700 rounded-lg px-3 py-2">
+                <span className="text-sm text-gray-200 min-w-0">
+                  {formatDate(f.created_at)} · <span className="text-emerald-400 font-semibold">{f.count} producto(s)</span>
+                </span>
+                <button
+                  onClick={() => applyCategoryRecover(f.snapshotId, recoverData.categoryId, f.count, f.created_at)}
+                  disabled={working}
+                  className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap"
+                >
+                  Recuperar
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Filtro */}
