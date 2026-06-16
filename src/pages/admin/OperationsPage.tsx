@@ -69,6 +69,7 @@ export default function OperationsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterTab>("active");
+  const [dateFilter, setDateFilter] = useState(""); // "" = todas; o "YYYY-MM-DD"
   const [delayMinutes, setDelayMinutes] = useState(30);
   const [savingDelay, setSavingDelay] = useState(false);
   const [pausedUntil, setPausedUntil] = useState<string | null>(null);
@@ -175,7 +176,17 @@ export default function OperationsPage() {
 
   const activeStatuses = ["pending", "confirmed", "preparing", "ready", "delivering"];
 
-  const filtered = orders.filter((o) => {
+  // Día de un pedido en hora Argentina ("YYYY-MM-DD"), igual formato que el
+  // value de <input type="date"> — evita corrimientos de zona horaria.
+  const dayAR = (o: Order) =>
+    o.created_at
+      ? new Date(o.created_at).toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" })
+      : "";
+
+  // Primero acotamos por fecha; los tabs y contadores reflejan el día elegido.
+  const byDate = dateFilter ? orders.filter((o) => dayAR(o) === dateFilter) : orders;
+
+  const filtered = byDate.filter((o) => {
     if (filter === "active") return activeStatuses.includes(o.status);
     if (filter === "delivered") return o.status === "delivered";
     if (filter === "cancelled") return o.status === "cancelled";
@@ -183,11 +194,22 @@ export default function OperationsPage() {
   });
 
   const counts = {
-    active: orders.filter((o) => activeStatuses.includes(o.status)).length,
-    delivered: orders.filter((o) => o.status === "delivered").length,
-    cancelled: orders.filter((o) => o.status === "cancelled").length,
-    all: orders.length,
+    active: byDate.filter((o) => activeStatuses.includes(o.status)).length,
+    delivered: byDate.filter((o) => o.status === "delivered").length,
+    cancelled: byDate.filter((o) => o.status === "cancelled").length,
+    all: byDate.length,
   };
+
+  // Resumen del día seleccionado: cantidad y total facturado (sin cancelados).
+  const daySummary = {
+    count: byDate.length,
+    total: byDate
+      .filter((o) => o.status !== "cancelled")
+      .reduce((sum, o) => sum + (o.total || 0), 0),
+  };
+
+  const todayAR = () =>
+    new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" });
 
   if (branchLoading || loading) {
     return (
@@ -321,6 +343,39 @@ export default function OperationsPage() {
               {savingPause ? "..." : "Pausar"}
             </button>
           </div>
+        )}
+      </div>
+
+      {/* Filtro por día */}
+      <div className="flex flex-wrap items-center gap-3 mb-4 bg-gray-900 border border-gray-800 rounded-lg p-3">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-gray-300 font-medium">Día</span>
+          <input
+            type="date"
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+            className="bg-gray-800 border border-gray-700 text-white text-sm rounded-md px-3 py-1.5 focus:outline-none focus:border-emerald-500"
+          />
+        </div>
+        <button
+          onClick={() => setDateFilter(todayAR())}
+          className="px-3 py-1.5 rounded-md text-sm font-medium bg-emerald-600 hover:bg-emerald-700 text-white"
+        >
+          Hoy
+        </button>
+        <button
+          onClick={() => setDateFilter("")}
+          className={`px-3 py-1.5 rounded-md text-sm font-medium ${
+            dateFilter ? "bg-gray-800 text-gray-300 hover:text-white" : "bg-gray-700 text-white"
+          }`}
+        >
+          Todas
+        </button>
+        {dateFilter && (
+          <span className="text-sm text-gray-400 sm:ml-auto">
+            {daySummary.count} {daySummary.count === 1 ? "pedido" : "pedidos"} ·{" "}
+            <span className="text-emerald-400 font-semibold">${daySummary.total.toLocaleString("es-AR")}</span>
+          </span>
         )}
       </div>
 
