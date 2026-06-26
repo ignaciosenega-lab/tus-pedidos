@@ -900,9 +900,9 @@ router.get("/:id/metrics/products", requireAuth, requireBranchAccess("id"), (req
   const viewMap = {};
   viewRows.forEach((r) => { viewMap[String(r.product_id)] = r.views; });
 
-  // Product sales from orders
+  // Product sales from orders (excluyendo cancelados)
   const orderRows = db.prepare(
-    `SELECT items FROM orders WHERE branch_id = ?${dateFilter}`
+    `SELECT items FROM orders WHERE branch_id = ? AND status != 'cancelled'${dateFilter}`
   ).all(...params);
 
   // Aggregate sales per product

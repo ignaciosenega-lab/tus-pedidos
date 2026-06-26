@@ -14,6 +14,7 @@ interface AppUser {
   total_spent: number;
   created_at: string;
   registered_at?: string;
+  branches?: { branchId: number; name: string; count: number; spent: number }[];
 }
 
 export default function UsersPage() {
@@ -30,24 +31,29 @@ export default function UsersPage() {
   const [mapLoading, setMapLoading] = useState(false);
 
   useEffect(() => {
-    if (!branchId && !viewAll) {
+    if (!isMaster && !branchId) {
       setLoading(false);
       return;
     }
     loadUsers();
-  }, [branchId, viewAll]);
+  }, [branchId, viewAll, isMaster]);
 
   async function loadUsers() {
     try {
       setLoading(true);
       setError(null);
-      const effectiveBranchId = branchId || branches[0]?.id;
-      if (!effectiveBranchId) return;
-      const url = viewAll && isMaster
-        ? `/api/branches/${effectiveBranchId}/customers?all=1`
-        : `/api/branches/${effectiveBranchId}/customers`;
-      const data = await apiFetch<AppUser[]>(url);
-      setUsers(data);
+      if (isMaster) {
+        // Vista master: clientes con desglose por sucursal. Filtra por local si
+        // hay uno seleccionado (no "Todas las sucursales").
+        const qs = !viewAll && branchId ? `?branchId=${branchId}` : "";
+        const data = await apiFetch<AppUser[]>(`/api/global/customers${qs}`);
+        setUsers(data);
+      } else {
+        const effectiveBranchId = branchId || branches[0]?.id;
+        if (!effectiveBranchId) return;
+        const data = await apiFetch<AppUser[]>(`/api/branches/${effectiveBranchId}/customers`);
+        setUsers(data);
+      }
     } catch (err: any) {
       setError(err.message || "Error al cargar clientes");
     } finally {
@@ -94,7 +100,7 @@ export default function UsersPage() {
     );
   }
 
-  if (!branchId && !viewAll) {
+  if (!isMaster && !branchId) {
     return (
       <div className="max-w-6xl">
         <div className="bg-yellow-900/20 border border-yellow-900/50 rounded-lg p-4 text-yellow-400">
@@ -126,7 +132,7 @@ export default function UsersPage() {
         <div className="flex items-center gap-3">
           {isMaster && branches.length > 0 && (
             <select
-              value={viewAll ? "all" : String(branchId)}
+              value={viewAll || !branchId ? "all" : String(branchId)}
               onChange={(e) => {
                 if (e.target.value === "all") {
                   setViewAll(true);
@@ -181,6 +187,7 @@ export default function UsersPage() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Teléfono</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Dirección</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Barrio</th>
+                {isMaster && <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Locales</th>}
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Compras</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Total gastado</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Registrado</th>
@@ -194,6 +201,18 @@ export default function UsersPage() {
                   <td className="px-4 py-3 text-sm text-gray-300">{user.phone || "-"}</td>
                   <td className="px-4 py-3 text-sm text-gray-400 max-w-xs truncate">{user.address || "-"}</td>
                   <td className="px-4 py-3 text-sm text-gray-400">{user.neighborhood || "-"}</td>
+                  {isMaster && (
+                    <td className="px-4 py-3 text-sm">
+                      <div className="flex flex-wrap gap-1">
+                        {(user.branches || []).map((b) => (
+                          <span key={b.branchId} className="inline-flex items-center gap-1 bg-gray-800 border border-gray-700 rounded-full px-2 py-0.5 text-xs text-gray-300">
+                            {b.name} <span className="text-emerald-400 font-semibold">×{b.count}</span>
+                          </span>
+                        ))}
+                        {(!user.branches || user.branches.length === 0) && <span className="text-gray-500">-</span>}
+                      </div>
+                    </td>
+                  )}
                   <td className="px-4 py-3 text-sm text-gray-300 text-center">{user.order_count || 0}</td>
                   <td className="px-4 py-3 text-sm text-emerald-400 font-medium">
                     ${user.total_spent ? user.total_spent.toLocaleString("es-AR") : "0"}

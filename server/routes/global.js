@@ -120,7 +120,7 @@ router.get("/metrics/products", (req, res) => {
   }
 
   const orderRows = db
-    .prepare(`SELECT o.branch_id, o.items FROM orders o WHERE 1=1${dateSql}${branchSql}`)
+    .prepare(`SELECT o.branch_id, o.items FROM orders o WHERE o.status != 'cancelled'${dateSql}${branchSql}`)
     .all(...dateParams, ...branchParams);
 
   // Aggregate sales per product, tracking which branches sold it
@@ -173,6 +173,157 @@ router.get("/metrics/products", (req, res) => {
 
   result.sort((a, b) => b.revenue - a.revenue);
   res.json(result);
+});
+
+// GET /api/global/customers?branchId= — clientes con desglose por sucursal.
+router.get("/customers", (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = req.query.branchId ? Number(req.query.branchId) : null;
+
+  // Pedidos por cliente (teléfono) y sucursal, excluyendo cancelados.
+  const rows = db.prepare(`
+    SELECT o.customer_phone AS phone, o.branch_id AS branchId, b.name AS branchName,
+           COUNT(*) AS count, COALESCE(SUM(o.total),0) AS spent, MAX(o.created_at) AS last_order
+    FROM orders o
+    LEFT JOIN branches b ON b.id = o.branch_id
+    WHERE o.status != 'cancelled' AND o.customer_phone != ''
+    GROUP BY o.customer_phone, o.branch_id
+  `).all();
+
+  const byPhone = {};
+  for (const r of rows) {
+    if (!byPhone[r.phone]) {
+      byPhone[r.phone] = { phone: r.phone, order_count: 0, total_spent: 0, last_order: null, branches: [] };
+    }
+    const c = byPhone[r.phone];
+    c.order_count += r.count;
+    c.total_spent += r.spent || 0;
+    if (!c.last_order || r.last_order > c.last_order) c.last_order = r.last_order;
+    c.branches.push({
+      branchId: r.branchId,
+      name: r.branchName || `Sucursal ${r.branchId}`,
+      count: r.count,
+      spent: Math.round(r.spent || 0),
+    });
+  }
+
+  const users = db.prepare(
+    "SELECT id, name, email, phone, address, neighborhood, registered_at FROM app_users"
+  ).all();
+  const userByPhone = {};
+  for (const u of users) userByPhone[u.phone] = u;
+
+  let result = Object.values(byPhone).map((c) => {
+    const u = userByPhone[c.phone] || {};
+    c.branches.sort((a, b) => b.count - a.count);
+    return {
+      id: u.id || null,
+      name: u.name || "",
+      email: u.email || "",
+      phone: c.phone,
+      address: u.address || "",
+      neighborhood: u.neighborhood || "",
+      registered_at: u.registered_at || null,
+      order_count: c.order_count,
+      total_spent: Math.round(c.total_spent),
+      branches: c.branches,
+    };
+  });
+
+  if (branchId) {
+    result = result.filter((c) => c.branches.some((b) => b.branchId === branchId));
+  }
+  result.sort((a, b) => String(b.last_order || "").localeCompare(String(a.last_order || "")));
+  res.json(result);
+});
+
+// GET /api/global/metrics/revenue?from=&to=&branchIds= — total, ranking y tendencia.
+router.get("/metrics/revenue", (req, res) => {
+  const db = req.app.locals.db;
+  const from = req.query.from || "";
+  const to = req.query.to || "";
+  const branchIds = parseBranchIds(req.query.branchIds);
+  const { sql: dateSql, params: dateParams } = parseDateFilter(from, to);
+
+  let branchSql = "";
+  const branchParams = [];
+  if (branchIds) {
+    branchSql = ` AND o.branch_id IN (${branchIds.map(() => "?").join(",")})`;
+    branchParams.push(...branchIds);
+  }
+  const where = `WHERE o.status != 'cancelled'${dateSql}${branchSql}`;
+  const params = [...dateParams, ...branchParams];
+
+  const totalRow = db
+    .prepare(`SELECT COUNT(*) orders, COALESCE(SUM(o.total),0) total FROM orders o ${where}`)
+    .get(...params);
+
+  const byBranch = db.prepare(`
+    SELECT o.branch_id branchId, b.name name, COUNT(*) orders, COALESCE(SUM(o.total),0) revenue
+    FROM orders o LEFT JOIN branches b ON b.id = o.branch_id
+    ${where} GROUP BY o.branch_id ORDER BY revenue DESC
+  `).all(...params);
+
+  // Agrupado por día en hora Argentina (created_at está en UTC → -3h).
+  const byDay = db.prepare(`
+    SELECT date(o.created_at, '-3 hours') date, COUNT(*) orders, COALESCE(SUM(o.total),0) revenue
+    FROM orders o ${where} GROUP BY date(o.created_at, '-3 hours') ORDER BY date ASC
+  `).all(...params);
+
+  res.json({
+    total: Math.round(totalRow.total),
+    orders: totalRow.orders,
+    byBranch: byBranch.map((r) => ({ branchId: r.branchId, name: r.name || `Sucursal ${r.branchId}`, orders: r.orders, revenue: Math.round(r.revenue) })),
+    byDay: byDay.map((r) => ({ date: r.date, orders: r.orders, revenue: Math.round(r.revenue) })),
+  });
+});
+
+// GET /api/global/health — chequeos de configuración / flujo que afectan al cliente.
+router.get("/health", (req, res) => {
+  const db = req.app.locals.db;
+  const issues = [];
+  const add = (type, severity, message, hint, branch, entity) =>
+    issues.push({ type, severity, message, hint, branch: branch || null, entity: entity || null });
+
+  // ── Config por sucursal ──
+  const branches = db.prepare("SELECT * FROM branches WHERE is_active = 1 AND slug != 'master'").all();
+  for (const b of branches) {
+    if (!String(b.whatsapp || "").trim() && !String(b.phone || "").trim()) {
+      add("config", "alta", `${b.name}: sin WhatsApp ni teléfono`, "Cargá un WhatsApp en Configuración; sin eso los pedidos no llegan al local.", b.name);
+    }
+    const zones = db.prepare("SELECT COUNT(*) n FROM delivery_zones WHERE branch_id = ?").get(b.id);
+    if (zones.n === 0) {
+      add("config", "media", `${b.name}: sin zonas de envío`, "Si hacés delivery, configurá las zonas para calcular el costo de envío.", b.name);
+    }
+  }
+
+  // ── Productos / categorías (global) ──
+  db.prepare("SELECT id, name FROM products WHERE is_active = 1 AND type = 'simple' AND (base_price IS NULL OR base_price <= 0)")
+    .all().forEach((p) => add("config", "alta", `Producto "${p.name}" sin precio`, "Asigná un precio o desactivá el producto: hoy se muestra en $0.", null, p.name));
+  db.prepare("SELECT id, name FROM products WHERE is_active = 1 AND (image_url IS NULL OR image_url = '')")
+    .all().forEach((p) => add("config", "baja", `Producto "${p.name}" sin imagen`, "Subí una foto; los productos con imagen venden más.", null, p.name));
+  db.prepare(`SELECT c.id, c.name FROM categories c WHERE c.is_active = 1
+              AND NOT EXISTS (SELECT 1 FROM products p WHERE p.category_id = c.id AND p.is_active = 1)`)
+    .all().forEach((c) => add("config", "media", `Categoría "${c.name}" sin productos`, "Agregá productos o desactivá la categoría: el cliente ve una sección vacía.", null, c.name));
+
+  // ── Promos / cupones sin sentido ──
+  db.prepare("SELECT code, name, value, date_to FROM coupons WHERE is_active = 1 AND date_to != '' AND date_to < date('now','-3 hours')")
+    .all().forEach((c) => add("promo", "media", `Cupón "${c.code}" vencido pero activo`, `Venció el ${c.date_to}. Desactivalo o extendé la fecha.`, null, c.code));
+  db.prepare("SELECT code, name FROM coupons WHERE is_active = 1 AND value <= 0")
+    .all().forEach((c) => add("promo", "media", `Cupón "${c.code}" con descuento 0`, "No mejora el precio: ponele un valor o desactivalo.", null, c.code));
+  db.prepare("SELECT id, name, date_to FROM promotions WHERE is_active = 1 AND date_to != '' AND date_to < date('now','-3 hours')")
+    .all().forEach((p) => add("promo", "media", `Promo "${p.name}" vencida pero activa`, `Venció el ${p.date_to}. Desactivala.`, null, p.name));
+
+  // ── Pedidos trabados (pendientes hace +2h) ──
+  db.prepare(`SELECT o.id, b.name bname, o.created_at FROM orders o
+              LEFT JOIN branches b ON b.id = o.branch_id
+              WHERE o.status = 'pending' AND o.created_at < datetime('now','-2 hours')
+              ORDER BY o.created_at ASC LIMIT 50`)
+    .all().forEach((o) => add("orders", "alta", `Pedido #${o.id} (${o.bname || "?"}) pendiente hace +2h`, "Confirmalo o cancelalo: el cliente está esperando respuesta.", o.bname, `#${o.id}`));
+
+  const order = { alta: 0, media: 1, baja: 2 };
+  issues.sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9));
+  res.json({ generatedAt: new Date().toISOString(), count: issues.length, issues });
 });
 
 function safeParseJson(str, fallback) {

@@ -23,6 +23,7 @@ import MenusPage from "./pages/admin/MenusPage";
 import ResourcesPage from "./pages/admin/ResourcesPage";
 import MetricsPage from "./pages/admin/MetricsPage";
 import GlobalOperationsPage from "./pages/admin/GlobalOperationsPage";
+import AlertsPage from "./pages/admin/AlertsPage";
 import SnapshotsPage from "./pages/admin/SnapshotsPage";
 import HelpPage from "./pages/admin/HelpPage";
 import MegaFodyLayout from "./pages/admin/megafody/MegaFodyLayout";
@@ -86,6 +87,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="actualizar-precios" element={<MasterOnly><PriceScanPage /></MasterOnly>} />
               <Route path="recursos" element={<MasterOnly><ResourcesPage /></MasterOnly>} />
               <Route path="operacion-global" element={<MasterOnly><GlobalOperationsPage /></MasterOnly>} />
+              <Route path="alertas" element={<MasterOnly><AlertsPage /></MasterOnly>} />
               <Route path="megafody" element={<MasterOnly><MegaFodyLayout /></MasterOnly>}>
                 <Route index element={<MegaFodyHome />} />
                 <Route path="delivery" element={<DeliveryPage />} />

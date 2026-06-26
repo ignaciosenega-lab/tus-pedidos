@@ -55,7 +55,14 @@ interface ProductMetric {
   branchCount: number;
 }
 
-type Tab = "orders" | "topProducts";
+type Tab = "orders" | "topProducts" | "revenue";
+
+interface RevenueData {
+  total: number;
+  orders: number;
+  byBranch: { branchId: number; name: string; orders: number; revenue: number }[];
+  byDay: { date: string; orders: number; revenue: number }[];
+}
 type SortKey = "productName" | "unitsSold" | "purchases" | "revenue" | "branchCount";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -108,6 +115,7 @@ export default function GlobalOperationsPage() {
   // Data
   const [orders, setOrders] = useState<GlobalOrder[]>([]);
   const [topProducts, setTopProducts] = useState<ProductMetric[]>([]);
+  const [revenue, setRevenue] = useState<RevenueData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -176,11 +184,26 @@ export default function GlobalOperationsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiFetch, dateFrom, dateTo, selectedBranchIds, categoryId]);
 
+  const loadRevenue = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await apiFetch<RevenueData>(`/api/global/metrics/revenue?${buildQuery(false)}`);
+      setRevenue(data);
+    } catch (err: any) {
+      setError(err.message || "Error cargando ventas");
+    } finally {
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiFetch, dateFrom, dateTo, selectedBranchIds]);
+
   // Auto-fetch when filters change or tab changes
   useEffect(() => {
     if (tab === "orders") loadOrders();
-    else loadTopProducts();
-  }, [tab, loadOrders, loadTopProducts]);
+    else if (tab === "topProducts") loadTopProducts();
+    else loadRevenue();
+  }, [tab, loadOrders, loadTopProducts, loadRevenue]);
 
   function toggleBranch(id: number) {
     setSelectedBranchIds((prev) => {
@@ -243,7 +266,7 @@ export default function GlobalOperationsPage() {
           <p className="text-gray-400">Pedidos y rendimiento de todas las sucursales en un mismo lugar</p>
         </div>
         <button
-          onClick={() => (tab === "orders" ? loadOrders() : loadTopProducts())}
+          onClick={() => (tab === "orders" ? loadOrders() : tab === "topProducts" ? loadTopProducts() : loadRevenue())}
           disabled={loading}
           className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
         >
@@ -403,6 +426,16 @@ export default function GlobalOperationsPage() {
         >
           Más vendidos
         </button>
+        <button
+          onClick={() => setTab("revenue")}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            tab === "revenue"
+              ? "bg-emerald-600 text-white"
+              : "bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700"
+          }`}
+        >
+          Ventas
+        </button>
       </div>
 
       {error && (
@@ -544,6 +577,84 @@ export default function GlobalOperationsPage() {
                 </div>
               )}
             </div>
+          )}
+        </>
+      )}
+
+      {/* Tab: Ventas */}
+      {tab === "revenue" && (
+        <>
+          {/* Accesos rápidos de período */}
+          <div className="flex flex-wrap gap-2 mb-4">
+            <button onClick={() => { setDateFrom(todayISO()); setDateTo(todayISO()); }}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-800 text-gray-300 hover:text-white">Hoy</button>
+            <button onClick={() => { setDateFrom(isoDateNDaysAgo(6)); setDateTo(todayISO()); }}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-800 text-gray-300 hover:text-white">Últimos 7 días</button>
+            <button onClick={() => { setDateFrom(isoDateNDaysAgo(29)); setDateTo(todayISO()); }}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-800 text-gray-300 hover:text-white">Últimos 30 días</button>
+          </div>
+
+          {loading ? (
+            <div className="text-center py-12 text-gray-500">Cargando…</div>
+          ) : !revenue ? null : (
+            <>
+              {/* Total del período */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                  <p className="text-xs text-gray-400 uppercase tracking-wider">Total facturado</p>
+                  <p className="text-3xl font-bold text-emerald-400 mt-1">${revenue.total.toLocaleString("es-AR")}</p>
+                </div>
+                <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+                  <p className="text-xs text-gray-400 uppercase tracking-wider">Pedidos (sin cancelados)</p>
+                  <p className="text-3xl font-bold text-white mt-1">{revenue.orders.toLocaleString("es-AR")}</p>
+                </div>
+              </div>
+
+              {/* Tendencia por día */}
+              {revenue.byDay.length > 0 && (
+                <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-6">
+                  <h3 className="text-sm font-semibold text-white mb-4">Tendencia por día</h3>
+                  <div className="flex items-end gap-1 h-40">
+                    {(() => {
+                      const max = Math.max(...revenue.byDay.map((d) => d.revenue), 1);
+                      return revenue.byDay.map((d) => (
+                        <div key={d.date} className="flex-1 flex flex-col items-center justify-end group" title={`${d.date}: $${d.revenue.toLocaleString("es-AR")} (${d.orders} pedidos)`}>
+                          <div className="w-full bg-emerald-600 hover:bg-emerald-500 rounded-t" style={{ height: `${Math.max(2, (d.revenue / max) * 100)}%` }} />
+                          <span className="text-[9px] text-gray-500 mt-1 rotate-0 truncate w-full text-center">{d.date.slice(5)}</span>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {/* Ranking de sucursales */}
+              <div className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-gray-800 border-b border-gray-700">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase w-12">#</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">Sucursal</th>
+                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-400 uppercase">Pedidos</th>
+                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase">Ventas</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-800">
+                    {revenue.byBranch.map((b, i) => (
+                      <tr key={b.branchId} className="hover:bg-gray-800/50 transition-colors">
+                        <td className="px-4 py-3 text-sm text-gray-500">{i + 1}</td>
+                        <td className="px-4 py-3 text-sm text-white">{b.name}</td>
+                        <td className="px-4 py-3 text-sm text-gray-300 text-center">{b.orders}</td>
+                        <td className="px-4 py-3 text-sm text-emerald-400 font-medium text-right">${b.revenue.toLocaleString("es-AR")}</td>
+                      </tr>
+                    ))}
+                    {revenue.byBranch.length === 0 && (
+                      <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-500">Sin ventas en el período</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </>
       )}
