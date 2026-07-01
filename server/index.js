@@ -1,4 +1,5 @@
 const express = require("express");
+const compression = require("compression");
 const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
@@ -37,6 +38,7 @@ console.log("SQLite database initialized");
 
 /* ── Middleware ────────────────────────────────── */
 app.set("trust proxy", true); // Required behind EasyPanel reverse proxy
+app.use(compression()); // gzip de respuestas (JSON de /api/state y assets) — clave en móviles lentos
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 
@@ -727,19 +729,11 @@ function readStateFromDb(branchSlug) {
     color: z.color,
   }));
 
-  // ── App Users ──
-  const userRows = db.prepare("SELECT * FROM app_users ORDER BY id").all();
-  const users = userRows.map((u) => ({
-    id: String(u.id),
-    name: u.name,
-    email: u.email,
-    phone: u.phone,
-    address: u.address,
-    status: u.status,
-    totalSpent: u.total_spent,
-    lastOrderDate: u.last_order_date,
-    registeredAt: u.registered_at,
-  }));
+  // NOTA: la lista de clientes (app_users) NO se incluye en /api/state. Es un
+  // endpoint público que consume la tienda, y mandar todos los clientes (nombre,
+  // teléfono, dirección) era un leak de datos + ~1.8MB de peso que hacía que el
+  // catálogo tardara en cargar. Los clientes se leen aparte por endpoints admin
+  // autenticados (/api/branches/:id/customers, /api/global/customers).
 
   // ── Business Config (from branch) ──
   const openStatus = isCurrentlyOpen(branch);
@@ -803,7 +797,6 @@ function readStateFromDb(branchSlug) {
     sameProductPromos,
     coupons,
     deliveryZones,
-    users,
     businessConfig,
     paymentConfig,
     styleConfig,
@@ -874,7 +867,11 @@ const writeStateToDb = db.transaction((state, branchSlug) => {
   db.prepare("DELETE FROM branch_category_visibility").run();
   db.prepare("DELETE FROM products").run();
   db.prepare("DELETE FROM categories").run();
-  db.prepare("DELETE FROM app_users").run();
+  // Solo tocar app_users si el payload trae la lista (ya no viene en /api/state).
+  // Evita borrar todos los clientes si se guarda un state sin `users`.
+  if (Array.isArray(state.users)) {
+    db.prepare("DELETE FROM app_users").run();
+  }
 
   // ── Categories ──
   const cats = state.categories || [];
@@ -1556,7 +1553,17 @@ app.use("/api/uploads", express.static(UPLOADS_DIR));
 /* ── Serve frontend (production) ─────────────── */
 const publicDir = path.join(__dirname, "public");
 if (fs.existsSync(publicDir)) {
-  app.use(express.static(publicDir));
+  app.use(express.static(publicDir, {
+    setHeaders: (res, filePath) => {
+      // Los assets de Vite tienen hash en el nombre → cachear fuerte (inmutables).
+      // index.html no se cachea, así que un deploy nuevo se toma enseguida.
+      if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      } else if (filePath.endsWith("index.html")) {
+        res.setHeader("Cache-Control", "no-cache");
+      }
+    },
+  }));
 
   // Branch-specific storefront
   app.get("/s/:slug", (req, res) => {
