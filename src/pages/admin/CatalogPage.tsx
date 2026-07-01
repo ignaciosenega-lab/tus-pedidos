@@ -79,6 +79,10 @@ function MasterCatalog() {
   const csvInputRef = useRef<HTMLInputElement>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [saving, setSaving] = useState(false);
+  // Edición rápida de precios inline (doble clic). values: {base} para simples,
+  // {[variantId]: precio} para productos con variantes.
+  const [priceEdit, setPriceEdit] = useState<{ productId: number; values: Record<string, string> } | null>(null);
+  const [savingPrice, setSavingPrice] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -124,6 +128,66 @@ function MasterCatalog() {
       );
     } catch (err: any) {
       alert("Error al cambiar estado: " + err.message);
+    }
+  }
+
+  function startPriceEdit(p: Product) {
+    if (p.type === "simple") {
+      setPriceEdit({ productId: p.id, values: { base: String(p.base_price ?? 0) } });
+    } else {
+      const values: Record<string, string> = {};
+      (p.variants ?? []).forEach((v) => {
+        values[String(v.id)] = String(v.price);
+      });
+      setPriceEdit({ productId: p.id, values });
+    }
+  }
+
+  async function savePriceEdit(p: Product) {
+    if (!priceEdit || priceEdit.productId !== p.id || savingPrice) return;
+    const changes: Array<{ kind: "base_price" | "variant"; variant_id?: number; to: number }> = [];
+    if (p.type === "simple") {
+      const to = Math.round(Number(priceEdit.values.base));
+      if (Number.isFinite(to) && to > 0 && to !== (p.base_price ?? 0)) {
+        changes.push({ kind: "base_price", to });
+      }
+    } else {
+      for (const v of p.variants ?? []) {
+        const to = Math.round(Number(priceEdit.values[String(v.id)]));
+        if (Number.isFinite(to) && to > 0 && to !== v.price) {
+          changes.push({ kind: "variant", variant_id: v.id, to });
+        }
+      }
+    }
+    if (changes.length === 0) {
+      setPriceEdit(null);
+      return;
+    }
+    setSavingPrice(true);
+    try {
+      // price-apply → queda auditado y reversible desde "Historial precios".
+      await apiFetch("/api/catalog/price-apply", {
+        method: "POST",
+        body: JSON.stringify({ changes: [{ product_id: p.id, changes }] }),
+      });
+      setProducts((prev) =>
+        prev.map((x) => {
+          if (x.id !== p.id) return x;
+          if (p.type === "simple") return { ...x, base_price: changes[0].to };
+          return {
+            ...x,
+            variants: (x.variants ?? []).map((v) => {
+              const ch = changes.find((c) => c.variant_id === v.id);
+              return ch ? { ...v, price: ch.to } : v;
+            }),
+          };
+        })
+      );
+      setPriceEdit(null);
+    } catch (err: any) {
+      setError("Error al guardar el precio: " + err.message);
+    } finally {
+      setSavingPrice(false);
     }
   }
 
@@ -415,7 +479,80 @@ function MasterCatalog() {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-gray-400 hidden sm:table-cell">{catName(p.category_id)}</td>
-                    <td className="px-4 py-3 text-emerald-400 font-medium">{formatPrice(price)}</td>
+                    <td className="px-4 py-3 text-emerald-400 font-medium">
+                      {priceEdit?.productId === p.id ? (
+                        p.type === "simple" ? (
+                          <input
+                            type="number"
+                            autoFocus
+                            disabled={savingPrice}
+                            value={priceEdit.values.base ?? ""}
+                            onChange={(e) =>
+                              setPriceEdit({ productId: p.id, values: { base: e.target.value } })
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") e.currentTarget.blur();
+                              else if (e.key === "Escape") setPriceEdit(null);
+                            }}
+                            onBlur={() => savePriceEdit(p)}
+                            className="w-24 bg-gray-900 border border-emerald-600 rounded px-2 py-1 text-white text-sm focus:outline-none"
+                          />
+                        ) : (
+                          <div
+                            className="space-y-1"
+                            onKeyDown={(e) => {
+                              if (e.key === "Escape") setPriceEdit(null);
+                            }}
+                          >
+                            {(p.variants ?? []).map((v) => (
+                              <div key={v.id} className="flex items-center gap-2">
+                                <span className="text-gray-400 text-xs w-10 shrink-0">{v.label}</span>
+                                <input
+                                  type="number"
+                                  disabled={savingPrice}
+                                  value={priceEdit.values[String(v.id)] ?? ""}
+                                  onChange={(e) =>
+                                    setPriceEdit((pe) =>
+                                      pe
+                                        ? { ...pe, values: { ...pe.values, [String(v.id)]: e.target.value } }
+                                        : pe
+                                    )
+                                  }
+                                  className="w-24 bg-gray-900 border border-emerald-600 rounded px-2 py-1 text-white text-sm focus:outline-none"
+                                />
+                              </div>
+                            ))}
+                            <div className="flex gap-2 pt-1">
+                              <button
+                                onClick={() => savePriceEdit(p)}
+                                disabled={savingPrice}
+                                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs rounded disabled:opacity-50"
+                              >
+                                {savingPrice ? "..." : "Guardar"}
+                              </button>
+                              <button
+                                onClick={() => setPriceEdit(null)}
+                                className="px-2 py-1 text-gray-400 hover:text-white text-xs"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      ) : (
+                        <span
+                          onDoubleClick={() => startPriceEdit(p)}
+                          title="Doble clic para editar el precio"
+                          className="cursor-pointer hover:underline decoration-dotted"
+                        >
+                          {p.type === "simple"
+                            ? formatPrice(price)
+                            : (p.variants ?? [])
+                                .map((v) => `${v.label} ${formatPrice(v.price)}`)
+                                .join(" · ")}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-gray-400 text-xs hidden md:table-cell">{stockDisplay}</td>
                     <td className="px-4 py-3">
                       <button
