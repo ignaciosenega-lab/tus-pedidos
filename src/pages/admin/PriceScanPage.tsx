@@ -76,6 +76,24 @@ interface CatalogCategory {
   name: string;
 }
 
+// Forma cruda que devuelve GET /api/catalog/products (id numérico, precios numéricos).
+interface CatalogProductLite {
+  id: number;
+  name: string;
+  type: "simple" | "options";
+  base_price: number;
+  variants: Array<{ id: number; label: string; price: number }>;
+}
+
+// Normaliza nombres para el buscador (minúsculas, sin acentos).
+function normalizeName(s: string): string {
+  return (s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim();
+}
+
 interface NewProductDraft {
   notFoundIdx: number;
   name: string;
@@ -293,6 +311,14 @@ export default function PriceScanPage() {
   // Resueltos manualmente — se suman al apply.
   const [resolved, setResolved] = useState<Record<number, ResolvedItem>>({});
   const [resolving, setResolving] = useState<Record<number, boolean>>({});
+  // Vínculos manuales a productos ya cargados. Key = `nf-{i}-{vi}` o `amb-{i}-{vi}`
+  // (permite mapear cada variante de un ítem a un producto distinto).
+  const [manualLinks, setManualLinks] = useState<Record<string, ResolvedItem>>({});
+  const [linking, setLinking] = useState<Record<string, boolean>>({});
+  // Qué paneles de vínculo manual están desplegados. Key = `nf-{i}` o `amb-{i}`.
+  const [openLinker, setOpenLinker] = useState<Record<string, boolean>>({});
+  // Todos los productos del catálogo — para el buscador del vínculo manual.
+  const [allProducts, setAllProducts] = useState<CatalogProductLite[]>([]);
   // Cambios de descripción — checkbox por product_id.
   const [selectedDesc, setSelectedDesc] = useState<Record<number, boolean>>({});
   // Categorías para el modal de "Agregar producto".
@@ -349,12 +375,21 @@ export default function PriceScanPage() {
     setAmbiguousChoice({});
     setResolved({});
     setResolving({});
+    setManualLinks({});
+    setLinking({});
+    setOpenLinker({});
     setSelectedDesc({});
     setCreatedNotFound({});
     // cargar categorías para el modal de alta — sólo una vez por sesión
     if (categories.length === 0) {
       apiFetch<CatalogCategory[]>("/api/catalog/categories")
         .then((cats) => setCategories(cats))
+        .catch(() => {/* silently */});
+    }
+    // cargar todos los productos para el buscador de vínculo manual — una vez por sesión
+    if (allProducts.length === 0) {
+      apiFetch<CatalogProductLite[]>("/api/catalog/products")
+        .then((prods) => setAllProducts(prods))
         .catch(() => {/* silently */});
     }
     try {
@@ -456,6 +491,61 @@ export default function PriceScanPage() {
     });
   };
 
+  // Vincula una variante de un ítem (no encontrado o ambiguo) a un producto ya cargado.
+  const linkVariant = async (
+    linkKey: string,
+    jiroName: string,
+    jiroVariant: { label: string | null; price: number },
+    target: CatalogProductLite,
+    variantId: number | null
+  ) => {
+    setLinking((l) => ({ ...l, [linkKey]: true }));
+    setError(null);
+    try {
+      const data = await apiFetch<{ status: "ok" | "ambiguous"; changes?: Change[]; reason?: string }>(
+        "/api/catalog/price-match",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            product_id: target.id,
+            jiro_variants: [{ label: jiroVariant.label, price: jiroVariant.price }],
+            variant_id: variantId || undefined,
+          }),
+        }
+      );
+      if (data.status !== "ok") {
+        setError(`No se pudo vincular: ${data.reason}`);
+        return;
+      }
+      if (!data.changes || data.changes.length === 0) {
+        setError(`"${target.name}" ya tiene ese precio — no hay cambios`);
+        return;
+      }
+      setManualLinks((m) => ({
+        ...m,
+        [linkKey]: {
+          key: linkKey,
+          jiro_name: jiroVariant.label ? `${jiroName} ${jiroVariant.label}` : jiroName,
+          product_id: target.id,
+          product_name: target.name,
+          changes: data.changes!,
+        },
+      }));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLinking((l) => ({ ...l, [linkKey]: false }));
+    }
+  };
+
+  const unlink = (linkKey: string) => {
+    setManualLinks((m) => {
+      const n = { ...m };
+      delete n[linkKey];
+      return n;
+    });
+  };
+
   const runApply = async () => {
     if (!result) return;
     const autoChanges = result.autoApply
@@ -468,15 +558,29 @@ export default function PriceScanPage() {
           to: c.to,
         })),
       }));
-    const manualChanges = Object.values(resolved).map((item) => ({
-      product_id: item.product_id,
-      changes: item.changes.map((c) => ({
-        kind: c.kind,
-        variant_id: c.variant_id,
-        to: c.to,
-      })),
+    // Resueltos de ambiguos + vínculos manuales a productos ya cargados.
+    const manualChanges = [...Object.values(resolved), ...Object.values(manualLinks)].map(
+      (item) => ({
+        product_id: item.product_id,
+        changes: item.changes.map((c) => ({
+          kind: c.kind,
+          variant_id: c.variant_id,
+          to: c.to,
+        })),
+      })
+    );
+    // Agrupar por product_id para no mandar entradas duplicadas del mismo producto
+    // (ej. dos variantes de un mismo producto vinculadas por separado).
+    const byProduct = new Map<number, Array<{ kind: string; variant_id?: number; to: number }>>();
+    for (const entry of [...autoChanges, ...manualChanges]) {
+      const acc = byProduct.get(entry.product_id) || [];
+      acc.push(...entry.changes);
+      byProduct.set(entry.product_id, acc);
+    }
+    const priceChanges = Array.from(byProduct.entries()).map(([product_id, changes]) => ({
+      product_id,
+      changes,
     }));
-    const priceChanges = [...autoChanges, ...manualChanges];
     const descChanges = (result.descriptionChanges || [])
       .filter((d) => selectedDesc[d.product_id])
       .map((d) => ({ product_id: d.product_id, to: d.to }));
@@ -528,10 +632,12 @@ export default function PriceScanPage() {
     ? result.autoApply.filter((i) => selected[i.product_id]).length
     : 0;
   const resolvedCount = Object.keys(resolved).length;
+  const manualLinkCount = Object.keys(manualLinks).length;
+  const manualCount = resolvedCount + manualLinkCount;
   const selectedDescCount = result
     ? (result.descriptionChanges || []).filter((d) => selectedDesc[d.product_id]).length
     : 0;
-  const selectedCount = selectedAutoCount + resolvedCount + selectedDescCount;
+  const selectedCount = selectedAutoCount + manualCount + selectedDescCount;
 
   const openCreateModal = (idx: number, item: NotFoundItem) => {
     const variants = item.jiro.variants || [];
@@ -1134,6 +1240,33 @@ export default function PriceScanPage() {
                           </button>
                         </div>
                       )}
+
+                      {/* Para ítems con varias variantes que van a varios productos distintos */}
+                      {!resolvedItem && item.jiro.variants.length > 1 && (
+                        <div className="mt-2">
+                          <button
+                            onClick={() =>
+                              setOpenLinker((o) => ({ ...o, [`amb-${i}`]: !o[`amb-${i}`] }))
+                            }
+                            className="text-xs text-emerald-300 hover:underline"
+                          >
+                            {openLinker[`amb-${i}`]
+                              ? "Cerrar"
+                              : "¿Va a varios productos? Vincular cada variante"}
+                          </button>
+                          {openLinker[`amb-${i}`] && (
+                            <ManualLinkPanel
+                              jiro={item.jiro}
+                              keyPrefix={`amb-${i}`}
+                              allProducts={allProducts}
+                              manualLinks={manualLinks}
+                              linking={linking}
+                              onLink={linkVariant}
+                              onUnlink={unlink}
+                            />
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -1149,35 +1282,73 @@ export default function PriceScanPage() {
                   Productos nuevos ({result.notFound.length})
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Estos productos están en Jiro pero no en TUS_PEDIDOS. Agregalos uno por uno si querés.
+                  No matchearon con ningún producto. Si ya lo tenés cargado (con otro nombre),
+                  usá <span className="text-emerald-300">Vincular a existente</span> para
+                  actualizar su precio. Si es realmente nuevo, <span className="text-emerald-300">Agregar nuevo</span>.
                 </p>
               </div>
               <div className="divide-y divide-gray-800">
                 {result.notFound.map((item, i) => {
                   const createdId = createdNotFound[i];
+                  const prefix = `nf-${i}`;
+                  const isOpen = !!openLinker[prefix];
+                  const linkedCount = item.jiro.variants.filter(
+                    (_, vi) => manualLinks[`${prefix}-${vi}`]
+                  ).length;
                   const variantText = item.jiro.variants
                     .map((v) => (v.label ? `${v.label} ${formatPrice(v.price)}` : formatPrice(v.price)))
                     .join(" · ");
                   return (
-                    <div key={i} className="px-5 py-3 flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-white text-sm font-medium">{item.jiro.name}</div>
-                        <div className="text-xs text-gray-500 mt-0.5">{variantText}</div>
-                        {item.jiro.description && (
-                          <div className="text-xs text-gray-400 italic mt-1">{item.jiro.description}</div>
+                    <div key={i} className="px-5 py-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-white text-sm font-medium">{item.jiro.name}</div>
+                          <div className="text-xs text-gray-500 mt-0.5">{variantText}</div>
+                          {item.jiro.description && (
+                            <div className="text-xs text-gray-400 italic mt-1">{item.jiro.description}</div>
+                          )}
+                          {linkedCount > 0 && (
+                            <div className="text-xs text-emerald-400 mt-1">
+                              ✓ {linkedCount}/{item.jiro.variants.length} vinculado
+                              {linkedCount > 1 ? "s" : ""} a productos existentes
+                            </div>
+                          )}
+                        </div>
+                        {createdId ? (
+                          <span className="text-emerald-400 text-xs font-semibold whitespace-nowrap">
+                            ✓ Agregado
+                          </span>
+                        ) : (
+                          <div className="flex flex-col gap-2 items-end">
+                            <button
+                              onClick={() =>
+                                setOpenLinker((o) => ({ ...o, [prefix]: !o[prefix] }))
+                              }
+                              className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-emerald-300 text-xs font-semibold rounded-lg whitespace-nowrap border border-gray-700"
+                            >
+                              {isOpen ? "Cerrar" : "Vincular a existente"}
+                            </button>
+                            {linkedCount === 0 && (
+                              <button
+                                onClick={() => openCreateModal(i, item)}
+                                className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold rounded-lg whitespace-nowrap"
+                              >
+                                + Agregar nuevo
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
-                      {createdId ? (
-                        <span className="text-emerald-400 text-xs font-semibold whitespace-nowrap">
-                          ✓ Agregado
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => openCreateModal(i, item)}
-                          className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold rounded-lg whitespace-nowrap"
-                        >
-                          + Agregar
-                        </button>
+                      {isOpen && !createdId && (
+                        <ManualLinkPanel
+                          jiro={item.jiro}
+                          keyPrefix={prefix}
+                          allProducts={allProducts}
+                          manualLinks={manualLinks}
+                          linking={linking}
+                          onLink={linkVariant}
+                          onUnlink={unlink}
+                        />
                       )}
                     </div>
                   );
@@ -1240,7 +1411,7 @@ export default function PriceScanPage() {
               <strong className="text-emerald-400">{selectedCount}</strong>{" "}
               {selectedCount === 1 ? "cambio listo" : "cambios listos"}
               <span className="text-gray-500 text-xs ml-2">
-                ({selectedAutoCount} automáticos + {resolvedCount} manuales)
+                ({selectedAutoCount} automáticos + {manualCount} manuales)
               </span>
             </div>
             <button
@@ -1429,6 +1600,173 @@ export default function PriceScanPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Una fila del panel de vínculo manual: busca un producto existente y lo vincula
+// a una variante (o al precio único) de un ítem del Excel.
+function VariantLinkRow({
+  linkKey,
+  jiroName,
+  variant,
+  allProducts,
+  linked,
+  busy,
+  onLink,
+  onUnlink,
+}: {
+  linkKey: string;
+  jiroName: string;
+  variant: { label: string | null; price: number };
+  allProducts: CatalogProductLite[];
+  linked?: ResolvedItem;
+  busy?: boolean;
+  onLink: (
+    linkKey: string,
+    jiroName: string,
+    variant: { label: string | null; price: number },
+    target: CatalogProductLite,
+    variantId: number | null
+  ) => void;
+  onUnlink: (linkKey: string) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [productId, setProductId] = useState<number | null>(null);
+  const [variantId, setVariantId] = useState<number | null>(null);
+
+  const label = variant.label || "precio";
+
+  if (linked) {
+    return (
+      <div className="flex items-center justify-between gap-2 bg-emerald-900/20 border border-emerald-800 rounded-lg px-3 py-2">
+        <div className="text-xs text-emerald-300">
+          <span className="text-gray-400">{label} {formatPrice(variant.price)}</span> → ✓{" "}
+          {linked.product_name}
+        </div>
+        <button
+          onClick={() => onUnlink(linkKey)}
+          className="text-xs text-gray-400 hover:text-white"
+        >
+          deshacer
+        </button>
+      </div>
+    );
+  }
+
+  const nq = normalizeName(q);
+  const matches =
+    nq.length >= 2
+      ? allProducts.filter((p) => normalizeName(p.name).includes(nq)).slice(0, 12)
+      : [];
+  const chosen = allProducts.find((p) => p.id === productId) || null;
+  const needsVariant = !!chosen && chosen.type === "options" && chosen.variants.length > 0;
+
+  return (
+    <div className="bg-gray-800/40 border border-gray-700 rounded-lg px-3 py-2 space-y-2">
+      <div className="text-xs text-gray-300">
+        {label} <span className="text-emerald-400">{formatPrice(variant.price)}</span>
+      </div>
+      <input
+        value={q}
+        onChange={(e) => {
+          setQ(e.target.value);
+          setProductId(null);
+          setVariantId(null);
+        }}
+        placeholder="Buscar producto ya cargado…"
+        className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+      />
+      {nq.length >= 2 && (
+        <select
+          value={productId ?? ""}
+          onChange={(e) => {
+            setProductId(Number(e.target.value) || null);
+            setVariantId(null);
+          }}
+          className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-600"
+        >
+          <option value="">
+            {matches.length ? "— elegí producto —" : "sin coincidencias"}
+          </option>
+          {matches.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name} ·{" "}
+              {p.type === "simple" ? formatPrice(p.base_price) : `${p.variants.length} var`}
+            </option>
+          ))}
+        </select>
+      )}
+      {needsVariant && (
+        <select
+          value={variantId ?? ""}
+          onChange={(e) => setVariantId(Number(e.target.value) || null)}
+          className="w-full bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:ring-1 focus:ring-emerald-600"
+        >
+          <option value="">— variante destino —</option>
+          {chosen!.variants.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.label} {formatPrice(v.price)}
+            </option>
+          ))}
+        </select>
+      )}
+      <button
+        disabled={!chosen || busy || (needsVariant && !variantId)}
+        onClick={() => chosen && onLink(linkKey, jiroName, variant, chosen, variantId)}
+        className="px-3 py-1 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold rounded disabled:opacity-40"
+      >
+        {busy ? "Vinculando…" : "Vincular"}
+      </button>
+    </div>
+  );
+}
+
+// Panel de vínculo manual: una fila por variante del ítem.
+function ManualLinkPanel({
+  jiro,
+  keyPrefix,
+  allProducts,
+  manualLinks,
+  linking,
+  onLink,
+  onUnlink,
+}: {
+  jiro: { name: string; variants: Array<{ label: string | null; price: number }> };
+  keyPrefix: string;
+  allProducts: CatalogProductLite[];
+  manualLinks: Record<string, ResolvedItem>;
+  linking: Record<string, boolean>;
+  onLink: (
+    linkKey: string,
+    jiroName: string,
+    variant: { label: string | null; price: number },
+    target: CatalogProductLite,
+    variantId: number | null
+  ) => void;
+  onUnlink: (linkKey: string) => void;
+}) {
+  return (
+    <div className="mt-2 space-y-2">
+      <div className="text-xs text-gray-500">
+        Vinculá cada precio a un producto ya cargado del catálogo:
+      </div>
+      {jiro.variants.map((v, vi) => {
+        const linkKey = `${keyPrefix}-${vi}`;
+        return (
+          <VariantLinkRow
+            key={linkKey}
+            linkKey={linkKey}
+            jiroName={jiro.name}
+            variant={v}
+            allProducts={allProducts}
+            linked={manualLinks[linkKey]}
+            busy={linking[linkKey]}
+            onLink={onLink}
+            onUnlink={onUnlink}
+          />
+        );
+      })}
     </div>
   );
 }
