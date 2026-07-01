@@ -83,6 +83,9 @@ function MasterCatalog() {
   // {[variantId]: precio} para productos con variantes.
   const [priceEdit, setPriceEdit] = useState<{ productId: number; values: Record<string, string> } | null>(null);
   const [savingPrice, setSavingPrice] = useState(false);
+  // Administrador de categorías (para borrar las que sobran).
+  const [showCatManager, setShowCatManager] = useState(false);
+  const [deletingCat, setDeletingCat] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -188,6 +191,48 @@ function MasterCatalog() {
       setError("Error al guardar el precio: " + err.message);
     } finally {
       setSavingPrice(false);
+    }
+  }
+
+  const productCountFor = (catId: number) =>
+    products.filter((p) => p.category_id === catId).length;
+
+  async function deleteCategory(cat: Category) {
+    if (productCountFor(cat.id) > 0) {
+      alert(`"${cat.name}" tiene productos — reasignalos o borralos primero.`);
+      return;
+    }
+    if (!confirm(`¿Eliminar la categoría "${cat.name}"?`)) return;
+    try {
+      await apiFetch(`/api/catalog/categories/${cat.id}`, { method: "DELETE" });
+      setCategories((prev) => prev.filter((c) => c.id !== cat.id));
+    } catch (err: any) {
+      alert("Error al eliminar: " + err.message);
+    }
+  }
+
+  async function deleteEmptyCategories() {
+    const empties = categories.filter((c) => productCountFor(c.id) === 0);
+    if (empties.length === 0) {
+      alert("No hay categorías vacías para eliminar.");
+      return;
+    }
+    if (!confirm(`Se van a eliminar ${empties.length} categorías vacías. ¿Continuar?`)) return;
+    setDeletingCat(true);
+    const deletedIds: number[] = [];
+    let failed = 0;
+    for (const c of empties) {
+      try {
+        await apiFetch(`/api/catalog/categories/${c.id}`, { method: "DELETE" });
+        deletedIds.push(c.id);
+      } catch {
+        failed++;
+      }
+    }
+    setCategories((prev) => prev.filter((c) => !deletedIds.includes(c.id)));
+    setDeletingCat(false);
+    if (failed > 0) {
+      alert(`Eliminadas ${deletedIds.length}. ${failed} no se pudieron borrar (tienen productos).`);
     }
   }
 
@@ -385,6 +430,12 @@ function MasterCatalog() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
             </svg>
             {importing ? "Importando..." : "Importar CSV"}
+          </button>
+          <button
+            onClick={() => setShowCatManager(true)}
+            className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
+          >
+            Categorías
           </button>
           <button
             onClick={() => setEditingProduct({ id: 0, name: "", description: "", category_id: categories[0]?.id ?? 0, image_url: "", type: "simple", base_price: 0, stock: null, is_active: 1, is_featured: 0, is_private: 0, badges: [], gallery: [], variants: [] })}
@@ -614,6 +665,65 @@ function MasterCatalog() {
           onClose={() => setEditingProduct(null)}
           onCategoryCreated={(cat) => setCategories((prev) => [...prev, cat])}
         />
+      )}
+
+      {showCatManager && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-lg max-h-[85vh] flex flex-col">
+            <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
+              <div>
+                <h3 className="text-white font-bold text-lg">Categorías ({categories.length})</h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Solo se pueden eliminar categorías sin productos.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowCatManager(false)}
+                className="text-gray-400 hover:text-white text-xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="px-5 py-2 border-b border-gray-800">
+              <button
+                onClick={deleteEmptyCategories}
+                disabled={deletingCat}
+                className="text-xs text-red-400 hover:text-red-300 disabled:opacity-50"
+              >
+                {deletingCat
+                  ? "Eliminando…"
+                  : `🗑 Eliminar todas las vacías (${categories.filter((c) => productCountFor(c.id) === 0).length})`}
+              </button>
+            </div>
+
+            <div className="overflow-y-auto divide-y divide-gray-800">
+              {[...categories]
+                .sort((a, b) => productCountFor(a.id) - productCountFor(b.id))
+                .map((c) => {
+                  const count = productCountFor(c.id);
+                  return (
+                    <div key={c.id} className="px-5 py-2.5 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-white text-sm truncate">{c.name}</div>
+                        <div className="text-xs text-gray-500">
+                          {count === 0 ? "sin productos" : `${count} producto${count === 1 ? "" : "s"}`}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => deleteCategory(c)}
+                        disabled={count > 0 || deletingCat}
+                        title={count > 0 ? "Tiene productos — no se puede borrar" : "Eliminar"}
+                        className="text-xs px-2.5 py-1 rounded border border-gray-700 text-red-400 hover:text-red-300 hover:border-red-700 disabled:opacity-30 disabled:cursor-not-allowed whitespace-nowrap"
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
