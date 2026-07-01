@@ -67,6 +67,8 @@ interface ScanResult {
   ambiguous: AmbiguousItem[];
   notFound: NotFoundItem[];
   descriptionChanges: DescriptionChange[];
+  // Productos activos del catálogo que ninguna fila del Excel tocó (quedaron con precio viejo).
+  notUpdated: Candidate[];
 }
 
 interface CatalogCategory {
@@ -153,54 +155,118 @@ function splitCsvLine(line: string): string[] {
   return cells.map((c) => c.trim());
 }
 
-function parseCsv(text: string): { products: ParsedProduct[]; errors: string[] } {
+interface ParseCsvResult {
+  products: ParsedProduct[];
+  errors: string[];
+  skipped: string[]; // filas omitidas por no tener precio (ej. fuera del delivery)
+}
+
+// Mapea las columnas a partir de la fila de header por palabras clave. Ignora columnas
+// de ID y Categoría (la planilla de Jiro trae "ID producto | Categoria | Productos |
+// Precio delivery"). Devuelve null si no reconoce un header → se usa el fallback posicional.
+function detectColumns(
+  header: string[]
+): { nameCol: number; variantCol: number | null; priceCol: number } | null {
+  const norm = header.map((h) =>
+    h
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+  );
+  let nameCol = -1;
+  let variantCol: number | null = null;
+  let priceCol = -1;
+  norm.forEach((h, i) => {
+    if (/\bid\b/.test(h) || /categor/.test(h)) return; // ignorar ID y Categoría
+    if (priceCol === -1 && /(precio|price|importe)/.test(h)) {
+      priceCol = i;
+      return;
+    }
+    if (variantCol === null && /(variante|variant|presentacion|tama[nñ]o)/.test(h)) {
+      variantCol = i;
+      return;
+    }
+    if (nameCol === -1 && /(producto|nombre|item|articulo|descripcion)/.test(h)) {
+      nameCol = i;
+    }
+  });
+  if (nameCol === -1 || priceCol === -1) return null;
+  return { nameCol, variantCol, priceCol };
+}
+
+function parseCsv(text: string, splitVariant: boolean): ParseCsvResult {
   const errors: string[] = [];
+  const skipped: string[] = [];
   const lines = text
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter((l) => l && !l.startsWith("#"));
-  if (lines.length === 0) return { products: [], errors };
-
-  // Detección de header: si la última celda de la primera línea no parsea como precio,
-  // la tratamos como header y la saltamos.
-  const firstCells = splitCsvLine(lines[0]);
-  const lastIsNumeric = parsePriceCell(firstCells[firstCells.length - 1]) !== null;
-  const dataLines = lastIsNumeric ? lines : lines.slice(1);
+  if (lines.length === 0) return { products: [], errors, skipped };
 
   const byName = new Map<string, ParsedProduct>();
-  dataLines.forEach((line, i) => {
-    const cells = splitCsvLine(line);
-    let name: string;
-    let label: string | null;
-    let price: number | null;
+  const seen = new Set<string>(); // dedupe defensivo por (nombre|label|precio)
 
-    if (cells.length >= 3) {
-      name = cells[0];
-      label = cells[1] || null;
-      price = parsePriceCell(cells[2]);
-    } else if (cells.length === 2) {
-      name = cells[0];
-      label = null;
-      price = parsePriceCell(cells[1]);
-    } else {
-      errors.push(`línea ${i + 1}: se esperaban 2 o 3 columnas`);
-      return;
-    }
-
+  const pushRow = (rawName: string, rawLabel: string | null, rawPrice: string, lineNo: number) => {
+    let name = (rawName || "").trim();
+    let label = rawLabel != null ? rawLabel.trim() || null : null;
     if (!name) {
-      errors.push(`línea ${i + 1}: nombre vacío`);
+      errors.push(`fila ${lineNo}: nombre vacío`);
       return;
     }
+    // Separar el sufijo de cantidad "xN" del nombre → pasa a ser la variante.
+    // Ej: "Combinado de Salmón Premium x15" → nombre "Combinado de Salmón Premium", label "x15".
+    if (splitVariant && !label) {
+      const m = name.match(/^(.*\S)\s+x\s*(\d+)\s*$/i);
+      if (m && m[1].trim()) {
+        name = m[1].trim();
+        label = `x${m[2]}`;
+      }
+    }
+    const price = parsePriceCell(rawPrice);
     if (price == null) {
-      errors.push(`línea ${i + 1}: precio inválido "${cells[cells.length - 1]}"`);
+      // Sin precio → se omite (no es error). Típico de productos fuera del delivery.
+      skipped.push(label ? `${name} ${label}` : name);
       return;
     }
-
+    const key = `${name}||${label ?? ""}||${price}`;
+    if (seen.has(key)) return;
+    seen.add(key);
     if (!byName.has(name)) byName.set(name, { name, variants: [] });
     byName.get(name)!.variants.push({ label, price });
-  });
+  };
 
-  return { products: Array.from(byName.values()), errors };
+  const firstCells = splitCsvLine(lines[0]);
+  const cols = detectColumns(firstCells);
+
+  if (cols) {
+    // Header con nombres de columna reconocibles → mapeo fijo, ignora ID/Categoría.
+    lines.slice(1).forEach((line, i) => {
+      const cells = splitCsvLine(line);
+      const rawName = cells[cols.nameCol] ?? "";
+      const rawLabel = cols.variantCol != null ? cells[cols.variantCol] ?? "" : null;
+      const rawPrice = cells[cols.priceCol] ?? "";
+      pushRow(rawName, rawLabel, rawPrice, i + 2);
+    });
+  } else {
+    // Fallback posicional retrocompatible: nombre,precio o nombre,variante,precio.
+    // Detección de header: si la última celda de la primera línea no parsea como precio,
+    // la tratamos como header y la saltamos.
+    const lastIsNumeric = parsePriceCell(firstCells[firstCells.length - 1]) !== null;
+    const dataLines = lastIsNumeric ? lines : lines.slice(1);
+    dataLines.forEach((line, i) => {
+      const cells = splitCsvLine(line);
+      if (cells.length >= 3) {
+        pushRow(cells[0], cells[1] || null, cells[2], i + 1);
+      } else if (cells.length === 2) {
+        pushRow(cells[0], null, cells[1], i + 1);
+      } else {
+        errors.push(`línea ${i + 1}: se esperaban 2 o 3 columnas`);
+      }
+    });
+  }
+
+  return { products: Array.from(byName.values()), errors, skipped };
 }
 
 export default function PriceScanPage() {
@@ -210,6 +276,9 @@ export default function PriceScanPage() {
   const [csvText, setCsvText] = useState("");
   const [csvPreview, setCsvPreview] = useState<ParsedProduct[]>([]);
   const [csvErrors, setCsvErrors] = useState<string[]>([]);
+  const [csvSkipped, setCsvSkipped] = useState<string[]>([]);
+  // Separar el sufijo "xN" del nombre y tratarlo como variante (default ON).
+  const [splitVariant, setSplitVariant] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [applying, setApplying] = useState(false);
   const [result, setResult] = useState<ScanResult | null>(null);
@@ -234,16 +303,27 @@ export default function PriceScanPage() {
   const [newProduct, setNewProduct] = useState<NewProductDraft | null>(null);
   const [creatingProduct, setCreatingProduct] = useState(false);
 
-  const onCsvText = (text: string) => {
-    setCsvText(text);
+  const reparseCsv = (text: string, split: boolean) => {
     if (text.trim()) {
-      const { products, errors } = parseCsv(text);
+      const { products, errors, skipped } = parseCsv(text, split);
       setCsvPreview(products);
       setCsvErrors(errors);
+      setCsvSkipped(skipped);
     } else {
       setCsvPreview([]);
       setCsvErrors([]);
+      setCsvSkipped([]);
     }
+  };
+
+  const onCsvText = (text: string) => {
+    setCsvText(text);
+    reparseCsv(text, splitVariant);
+  };
+
+  const toggleSplitVariant = (value: boolean) => {
+    setSplitVariant(value);
+    reparseCsv(csvText, value);
   };
 
   const onCsvFile = async (file: File) => {
@@ -617,30 +697,87 @@ export default function PriceScanPage() {
             <div className="text-xs text-gray-500 mt-2 leading-relaxed">
               Formato: <code className="text-gray-300">nombre,variante,precio</code> (3 columnas)
               o <code className="text-gray-300">nombre,precio</code> (2 columnas para productos
-              simples). Dejá la variante vacía si el producto no tiene variantes. Se aceptan
-              precios con <code>$</code> y separadores de miles (ej.{" "}
-              <code className="text-gray-300">$27.210</code>). Header opcional.
+              simples). También acepta la planilla de Jiro con columnas{" "}
+              <code className="text-gray-300">ID, Categoría, Productos, Precio</code> — se ignoran
+              ID y Categoría. Se aceptan precios con <code>$</code> y separadores de miles (ej.{" "}
+              <code className="text-gray-300">$27.210</code>). Las filas sin precio se omiten.
             </div>
 
-            {csvPreview.length > 0 && (
-              <div className="mt-3 bg-gray-800/50 border border-gray-700 rounded-lg p-3">
-                <div className="text-xs text-gray-400 mb-2">
-                  <strong className="text-white">{csvPreview.length}</strong>{" "}
-                  {csvPreview.length === 1 ? "producto parseado" : "productos parseados"}
-                </div>
-                <div className="text-xs text-gray-500 max-h-32 overflow-y-auto space-y-0.5">
-                  {csvPreview.slice(0, 10).map((p, i) => (
-                    <div key={i}>
-                      · {p.name} —{" "}
-                      {p.variants
-                        .map((v) => (v.label ? `${v.label}:${v.price}` : `${v.price}`))
-                        .join(" / ")}
+            <label className="flex items-center gap-2 mt-3 text-xs text-gray-400 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={splitVariant}
+                onChange={(e) => toggleSplitVariant(e.target.checked)}
+                className="w-4 h-4 accent-emerald-600"
+              />
+              Separar la cantidad <code className="text-gray-300">xN</code> del nombre como variante
+              (ej. <span className="text-gray-300">"Combinado x15"</span> → producto{" "}
+              <span className="text-gray-300">"Combinado"</span> variante{" "}
+              <span className="text-gray-300">x15</span>)
+            </label>
+
+            {csvPreview.length > 0 &&
+              (() => {
+                const withVariants = csvPreview.filter(
+                  (p) => p.variants.length > 1 || p.variants.some((v) => v.label)
+                ).length;
+                const simples = csvPreview.length - withVariants;
+                return (
+                  <div className="mt-3 bg-gray-800/50 border border-gray-700 rounded-lg p-3">
+                    <div className="text-xs text-gray-300 mb-2">
+                      <strong className="text-white">{csvPreview.length}</strong> productos ·{" "}
+                      <span className="text-emerald-400">{withVariants}</span> con variantes ·{" "}
+                      <span className="text-gray-400">{simples}</span> simples
+                      {csvSkipped.length > 0 && (
+                        <>
+                          {" "}
+                          · <span className="text-gray-500">{csvSkipped.length} sin precio</span>
+                        </>
+                      )}
                     </div>
-                  ))}
-                  {csvPreview.length > 10 && (
-                    <div className="text-gray-600">... y {csvPreview.length - 10} más</div>
-                  )}
-                </div>
+                    <div className="text-xs max-h-40 overflow-y-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="text-gray-500 text-left">
+                            <th className="font-medium pb-1">Producto</th>
+                            <th className="font-medium pb-1">Variante</th>
+                            <th className="font-medium pb-1 text-right">Precio</th>
+                          </tr>
+                        </thead>
+                        <tbody className="text-gray-400">
+                          {csvPreview.slice(0, 15).flatMap((p) =>
+                            p.variants.map((v, vi) => (
+                              <tr key={`${p.name}-${vi}`} className="border-t border-gray-800/60">
+                                <td className="py-0.5 pr-2 text-gray-300">
+                                  {vi === 0 ? p.name : ""}
+                                </td>
+                                <td className="py-0.5 pr-2">{v.label || "—"}</td>
+                                <td className="py-0.5 text-right text-emerald-400">
+                                  {formatPrice(v.price)}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                      {csvPreview.length > 15 && (
+                        <div className="text-gray-600 pt-1">
+                          ... y {csvPreview.length - 15} productos más
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+            {csvSkipped.length > 0 && (
+              <div className="mt-3 bg-gray-800/40 border border-gray-700 rounded-lg p-3 text-gray-400 text-xs">
+                <strong className="text-gray-300">
+                  {csvSkipped.length} {csvSkipped.length === 1 ? "fila omitida" : "filas omitidas"} sin
+                  precio:
+                </strong>{" "}
+                {csvSkipped.slice(0, 8).join(", ")}
+                {csvSkipped.length > 8 && ` … y ${csvSkipped.length - 8} más`}
               </div>
             )}
 
@@ -704,7 +841,7 @@ export default function PriceScanPage() {
       {result && (
         <>
           {/* Resumen */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4">
             <SummaryBox label="Productos escrapeados" value={result.scraped_count} color="gray" />
             <SummaryBox
               label="Listos para aplicar"
@@ -718,6 +855,11 @@ export default function PriceScanPage() {
             />
             <SummaryBox label="Ambiguos" value={result.ambiguous.length} color="yellow" />
             <SummaryBox label="Productos nuevos" value={result.notFound.length} color="red" />
+            <SummaryBox
+              label="Sin actualizar"
+              value={(result.notUpdated || []).length}
+              color="gray"
+            />
           </div>
 
           {result.scrape_errors.length > 0 && (
@@ -1037,6 +1179,54 @@ export default function PriceScanPage() {
                           + Agregar
                         </button>
                       )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Sin actualizar — productos del catálogo que ninguna fila del Excel tocó */}
+          {(result.notUpdated || []).length > 0 && (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden mb-4">
+              <div className="px-5 py-4 border-b border-gray-800 flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-white font-bold">
+                    Ya cargados sin actualizar ({result.notUpdated.length})
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Estos productos están activos en el catálogo pero ninguna fila del Excel los
+                    tocó — quedaron con el precio anterior. Revisalos o cargalos a mano desde{" "}
+                    <Link to="/admin/catalogo" className="text-emerald-400 hover:underline">
+                      Catálogo
+                    </Link>
+                    .
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    const list = result.notUpdated.map((p) => p.name).join("\n");
+                    navigator.clipboard?.writeText(list).catch(() => {/* noop */});
+                  }}
+                  className="px-3 py-1.5 text-xs text-gray-400 hover:text-white border border-gray-700 rounded-lg whitespace-nowrap"
+                >
+                  Copiar lista
+                </button>
+              </div>
+              <div className="divide-y divide-gray-800">
+                {result.notUpdated.map((p) => {
+                  const priceText =
+                    p.type === "simple" || p.variants.length === 0
+                      ? formatPrice(p.base_price)
+                      : p.variants
+                          .map((v) => `${v.label || ""} ${formatPrice(v.price)}`.trim())
+                          .join(" · ");
+                  return (
+                    <div key={p.id} className="px-5 py-3 flex items-start justify-between gap-3">
+                      <div className="text-white text-sm font-medium">{p.name}</div>
+                      <div className="text-xs text-gray-500 text-right whitespace-nowrap">
+                        {priceText}
+                      </div>
                     </div>
                   );
                 })}

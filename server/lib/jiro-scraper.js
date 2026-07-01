@@ -259,6 +259,10 @@ function matchProducts(scraped, existing) {
   const ambiguous = [];
   const notFound = [];
   const descriptionChanges = [];
+  // IDs de productos existentes que alguna fila de la planilla "tocó" (por cualquier
+  // vía: match exacto/contains/fuzzy, ya-al-día, ambiguo, o candidato de un ambiguo).
+  // Sirve para reportar al final qué productos del catálogo NO quedaron cubiertos.
+  const matchedIds = new Set();
 
   const existingByNorm = new Map();
   for (const p of existing) existingByNorm.set(normalize(p.name), p);
@@ -275,6 +279,7 @@ function matchProducts(scraped, existing) {
         matched = existingByNorm.get(candidates[0]);
         matchType = "contains";
       } else if (candidates.length > 1) {
+        for (const c of candidates) matchedIds.add(existingByNorm.get(c).id);
         ambiguous.push({
           jiro,
           reason: "nombre ambiguo (varios productos existentes coinciden parcialmente)",
@@ -296,6 +301,7 @@ function matchProducts(scraped, existing) {
         }
       }
       if (best && bestDist <= 2) {
+        matchedIds.add(existingByNorm.get(best).id);
         ambiguous.push({
           jiro,
           reason: `match difuso (distancia=${bestDist})`,
@@ -306,6 +312,9 @@ function matchProducts(scraped, existing) {
       notFound.push({ jiro });
       continue;
     }
+
+    // Se resolvió a un producto existente → queda cubierto para el reporte inverso.
+    matchedIds.add(matched.id);
 
     // Descripción: si jiro trae texto y difiere del actual, lo proponemos como cambio.
     if (jiro.description && descriptionsDiffer(jiro.description, matched.description)) {
@@ -342,7 +351,13 @@ function matchProducts(scraped, existing) {
     }
   }
 
-  return { autoApply, ambiguous, notFound, descriptionChanges };
+  // Reporte inverso: productos activos del catálogo que ninguna fila de la planilla
+  // tocó → quedaron con el precio viejo. Se listan para revisarlos/cargarlos a mano.
+  const notUpdated = existing
+    .filter((p) => Number(p.is_active) !== 0 && !matchedIds.has(p.id))
+    .map((p) => candidateSummary(p));
+
+  return { autoApply, ambiguous, notFound, descriptionChanges, notUpdated };
 }
 
 module.exports = {
