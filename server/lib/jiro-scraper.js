@@ -279,6 +279,52 @@ function matchProducts(scraped, existing) {
         matched = existingByNorm.get(candidates[0]);
         matchType = "contains";
       } else if (candidates.length > 1) {
+        // Caso frecuente: el ítem se agrupó por "xN" pero en el catálogo cada tamaño es un
+        // producto simple aparte (ej. "Solo Rolls Premium x20" y "...x40"). Intentamos
+        // mapear cada variante a su propio producto "{base} {label}" y resolverlo solo.
+        const perVariant = [];
+        if (jiro.variants.length > 1 && jiro.variants.every((v) => v.label)) {
+          for (const v of jiro.variants) {
+            const target = existingByNorm.get(normalize(`${jiro.name} ${v.label}`));
+            if (!target) {
+              perVariant.length = 0;
+              break;
+            }
+            perVariant.push({ target, v });
+          }
+        }
+
+        if (perVariant.length === jiro.variants.length && perVariant.length > 0) {
+          for (const { target, v } of perVariant) {
+            matchedIds.add(target.id);
+            const diff = matchVariants({ variants: [{ label: null, price: v.price }] }, target);
+            if (diff.status === "ok") {
+              if (diff.changes.length === 0) continue; // ya al día
+              autoApply.push({
+                product_id: target.id,
+                product_name: target.name,
+                type: target.type,
+                match_type: "contains",
+                jiro_name: `${jiro.name} ${v.label}`,
+                changes: diff.changes,
+              });
+            } else {
+              // Caso raro (target no es simple / variantes no cuadran) → ambiguo individual.
+              ambiguous.push({
+                jiro: {
+                  name: `${jiro.name} ${v.label}`,
+                  description: jiro.description,
+                  variants: [{ label: null, price: v.price }],
+                },
+                product: { id: target.id, name: target.name },
+                reason: diff.reason,
+                candidates: [candidateSummary(target)],
+              });
+            }
+          }
+          continue;
+        }
+
         for (const c of candidates) matchedIds.add(existingByNorm.get(c).id);
         ambiguous.push({
           jiro,
