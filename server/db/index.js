@@ -144,6 +144,13 @@ function getDb() {
       db.exec("ALTER TABLE branches ADD COLUMN paused_until TEXT DEFAULT NULL");
     }
 
+    // Migration: add maps_enabled to branches (toggle del buscador Google Maps).
+    // Default 0 (apagado): mientras la facturación de Google esté caída no se
+    // carga Maps. Se prende desde Configuración cuando el billing esté OK.
+    if (!branchCols2.includes("maps_enabled")) {
+      db.exec("ALTER TABLE branches ADD COLUMN maps_enabled INTEGER NOT NULL DEFAULT 0");
+    }
+
     // Migration: normalizar products.type legacy ('variable' → 'options').
     // El commit 8ee8122 cambió el naming pero datos viejos pueden quedar con
     // type='variable' y bloquean cualquier UPDATE por el CHECK constraint.

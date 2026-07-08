@@ -47,6 +47,7 @@ interface BranchData {
   is_open: number;
   payment_config: PaymentFormData;
   schedule: ScheduleData;
+  maps_enabled?: number;
 }
 
 interface PaymentFormData {
@@ -97,6 +98,8 @@ export default function ConfigPage() {
   const [isOpen, setIsOpen] = useState(true);
   const [payment, setPayment] = useState<PaymentFormData>(DEFAULT_PAYMENT);
   const [schedule, setSchedule] = useState<ScheduleData>(DEFAULT_SCHEDULE);
+  const [mapsEnabled, setMapsEnabled] = useState(false);
+  const [savingMaps, setSavingMaps] = useState(false);
 
   useEffect(() => {
     if (!branchId) {
@@ -119,6 +122,7 @@ export default function ConfigPage() {
       setEmail(data.email || "");
       setDescription(data.description || "");
       setIsOpen(!!data.is_open);
+      setMapsEnabled(!!data.maps_enabled);
       const pc = typeof data.payment_config === "object" && data.payment_config ? data.payment_config : {};
       setPayment({ ...DEFAULT_PAYMENT, ...pc });
       const sc = typeof data.schedule === "object" && data.schedule ? (data.schedule as any) : DEFAULT_SCHEDULE;
@@ -135,6 +139,22 @@ export default function ConfigPage() {
       setError(err.message || "Error al cargar configuración");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function toggleMaps(next: boolean) {
+    setSavingMaps(true);
+    setError(null);
+    try {
+      const res = await apiFetch<{ enabled: boolean }>("/api/config/maps-enabled", {
+        method: "POST",
+        body: JSON.stringify({ enabled: next }),
+      });
+      setMapsEnabled(res.enabled);
+    } catch (err: any) {
+      setError(err.message || "Error al cambiar el buscador de direcciones");
+    } finally {
+      setSavingMaps(false);
     }
   }
 
@@ -251,6 +271,32 @@ export default function ConfigPage() {
           <input type="url" value={addressUrl} onChange={(e) => setAddressUrl(e.target.value)}
             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
             placeholder="https://maps.google.com/..." />
+        </div>
+
+        {/* Toggle del buscador de direcciones con Google Maps (checkout) */}
+        <div className="flex items-start justify-between gap-4 bg-gray-800/40 border border-gray-700 rounded-lg px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-gray-200">
+              Buscador de direcciones (Google Maps)
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Prendido: el cliente busca su dirección con autocompletado y mapa (requiere que
+              la facturación de Google Maps esté al día). Apagado: el cliente escribe la
+              dirección a mano — usalo si el mapa no carga o para no consumir la API.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => toggleMaps(!mapsEnabled)}
+            disabled={savingMaps}
+            className={`shrink-0 px-4 py-1.5 rounded-lg text-sm font-semibold disabled:opacity-50 ${
+              mapsEnabled
+                ? "bg-emerald-600 hover:bg-emerald-500 text-white"
+                : "bg-gray-700 hover:bg-gray-600 text-gray-200"
+            }`}
+          >
+            {savingMaps ? "..." : mapsEnabled ? "Activado" : "Desactivado"}
+          </button>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

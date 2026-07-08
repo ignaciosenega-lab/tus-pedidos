@@ -776,6 +776,7 @@ function readStateFromDb(branchSlug) {
     socialLinks: safeParseJson(branch.social_links, []),
     sliderImages: safeParseJson(branch.slider_images, []),
     timezone: branch.timezone || "America/Argentina/Buenos_Aires",
+    mapsEnabled: !!branch.maps_enabled,
   };
 
   const paymentConfig = safeParseJson(branch.payment_config, {});
@@ -1274,6 +1275,22 @@ app.post("/api/state", requireAuth, (req, res) => {
     console.error("Error saving state to DB:", e.message);
     res.status(500).json({ error: "Error guardando datos" });
   }
+});
+
+/* ══════════════════════════════════════════════════
+   Toggle global del buscador Google Maps (admin)
+   ══════════════════════════════════════════════════ */
+// Es global (la key de Maps es una sola para todo el negocio): se aplica a todas
+// las sucursales. Sirve para prender Maps cuando el billing esté OK sin redeploy.
+app.get("/api/config/maps-enabled", requireAuth, (_req, res) => {
+  const row = db.prepare("SELECT maps_enabled FROM branches ORDER BY id LIMIT 1").get();
+  res.json({ enabled: !!(row && row.maps_enabled) });
+});
+
+app.post("/api/config/maps-enabled", requireAuth, (req, res) => {
+  const enabled = req.body?.enabled ? 1 : 0;
+  db.prepare("UPDATE branches SET maps_enabled = ?").run(enabled);
+  res.json({ enabled: !!enabled });
 });
 
 /* ══════════════════════════════════════════════════

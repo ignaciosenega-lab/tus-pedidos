@@ -6,11 +6,14 @@
 
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY as string | undefined;
 
-// KILL-SWITCH manual. Poné en true para desactivar Google Maps en toda la app
-// (ej. mientras la facturación de Google esté cortada): no se carga el script,
-// no aparece el popup de error, y la tienda usa dirección escrita a mano.
-// Volvé a false y redeploy cuando el billing esté OK.
-const MAPS_KILL_SWITCH = true;
+// Estado del toggle de Configuración (viene de /api/state → businessConfig.mapsEnabled).
+// Default OFF: no cargamos Maps hasta que la config diga que está habilitado, así
+// nunca aparece el popup de error mientras esté apagado. Se prende desde el admin
+// (Configuración) sin redeploy cuando la facturación de Google esté OK.
+let enabledByConfig = false;
+export function setMapsEnabled(v: boolean): void {
+  enabledByConfig = !!v;
+}
 
 // Autodetección persistente: si la auth de Maps falló hace poco (billing/key),
 // evitamos volver a cargar Maps para no mostrar el popup una y otra vez. Se
@@ -43,11 +46,11 @@ if (typeof window !== "undefined") {
 }
 
 function mapsEnabled(): boolean {
-  return !!API_KEY && !MAPS_KILL_SWITCH && !authFailed;
+  return !!API_KEY && enabledByConfig && !authFailed;
 }
 
 export function isGoogleMapsAuthFailed(): boolean {
-  return authFailed || MAPS_KILL_SWITCH;
+  return authFailed || !enabledByConfig;
 }
 
 type Library = "places" | "visualization" | "geometry" | "drawing" | "marker";

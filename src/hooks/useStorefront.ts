@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import type { AdminProduct, Category, BusinessConfig, StyleConfig, ActivePromotion, DeliveryZone, SameProductPromo } from "../types";
+import { setMapsEnabled } from "../utils/loadGoogleMaps";
 
 interface StorefrontData {
   branchId: number | null;
@@ -80,6 +81,9 @@ export function useStorefront(): StorefrontData {
           setData((prev) => ({ ...prev, loading: false }));
           return;
         }
+
+        // Habilitar/deshabilitar Google Maps según el toggle de Configuración.
+        setMapsEnabled(!!state.businessConfig?.mapsEnabled);
 
         const sc = typeof state.styleConfig === "object" && state.styleConfig
           ? state.styleConfig
