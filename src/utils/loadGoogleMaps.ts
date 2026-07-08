@@ -6,21 +6,48 @@
 
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY as string | undefined;
 
-// Detección global y TEMPRANA de falla de auth (ej. BillingNotEnabledMapError,
-// InvalidKey). Google llama a window.gm_authFailure la primera vez que la key es
-// rechazada. Definirlo ACÁ (al importar el módulo, antes de que cualquier
-// componente inyecte el script) suprime el popup de error de Google en toda la
-// app y deja que los componentes degraden a "escribir dirección a mano".
-let authFailed = false;
+// KILL-SWITCH manual. Poné en true para desactivar Google Maps en toda la app
+// (ej. mientras la facturación de Google esté cortada): no se carga el script,
+// no aparece el popup de error, y la tienda usa dirección escrita a mano.
+// Volvé a false y redeploy cuando el billing esté OK.
+const MAPS_KILL_SWITCH = true;
+
+// Autodetección persistente: si la auth de Maps falló hace poco (billing/key),
+// evitamos volver a cargar Maps para no mostrar el popup una y otra vez. Se
+// reintenta solo después de la ventana (por si se arregla el billing).
+const FAIL_TTL_MS = 3 * 60 * 60 * 1000; // 3 horas
+function recentlyFailed(): boolean {
+  try {
+    const t = Number(localStorage.getItem("gmapsAuthFailedAt") || 0);
+    return t > 0 && Date.now() - t < FAIL_TTL_MS;
+  } catch {
+    return false;
+  }
+}
+
+let authFailed = recentlyFailed();
+
+// Google llama a window.gm_authFailure cuando la key es rechazada. Definirlo ACÁ
+// (al importar el módulo, antes de inyectar el script) suprime el popup por
+// defecto y persistimos la falla para no reintentar en cada carga.
 if (typeof window !== "undefined") {
   (window as any).gm_authFailure = () => {
     authFailed = true;
+    try {
+      localStorage.setItem("gmapsAuthFailedAt", String(Date.now()));
+    } catch {
+      /* ignore */
+    }
     window.dispatchEvent(new Event("gmaps-auth-failure"));
   };
 }
 
+function mapsEnabled(): boolean {
+  return !!API_KEY && !MAPS_KILL_SWITCH && !authFailed;
+}
+
 export function isGoogleMapsAuthFailed(): boolean {
-  return authFailed;
+  return authFailed || MAPS_KILL_SWITCH;
 }
 
 type Library = "places" | "visualization" | "geometry" | "drawing" | "marker";
@@ -42,12 +69,12 @@ function hasAllLibs(libs: Library[]): boolean {
 }
 
 export function isGoogleMapsConfigured(): boolean {
-  return !!API_KEY;
+  return mapsEnabled();
 }
 
 export function loadGoogleMaps(libraries: Library[] = []): Promise<void> {
-  if (!API_KEY) {
-    return Promise.reject(new Error("VITE_GOOGLE_MAPS_KEY no está configurado"));
+  if (!mapsEnabled()) {
+    return Promise.reject(new Error("Google Maps deshabilitado"));
   }
 
   // Ya tenemos todo lo pedido en memoria.
