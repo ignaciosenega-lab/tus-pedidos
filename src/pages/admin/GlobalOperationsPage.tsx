@@ -118,6 +118,14 @@ export default function GlobalOperationsPage() {
   const [revenue, setRevenue] = useState<RevenueData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mapsUsage, setMapsUsage] = useState<{
+    loads: number;
+    loadsPrevMonth: number;
+    estimatedUsd: number;
+    pricePer1000: number;
+    budgetUsd: number;
+    pct: number;
+  } | null>(null);
 
   // Sort for top products
   const [sortKey, setSortKey] = useState<SortKey>("revenue");
@@ -141,6 +149,19 @@ export default function GlobalOperationsPage() {
       .catch((err: any) => {
         if (!cancelled) setError(err.message || "Error cargando datos");
       });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiFetch]);
+
+  // Uso estimado de Google Maps del mes (independiente del filtro de fechas).
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<typeof mapsUsage>("/api/global/metrics/maps-usage")
+      .then((d) => {
+        if (!cancelled) setMapsUsage(d);
+      })
+      .catch(() => {/* silencioso */});
     return () => {
       cancelled = true;
     };
@@ -584,6 +605,62 @@ export default function GlobalOperationsPage() {
       {/* Tab: Ventas */}
       {tab === "revenue" && (
         <>
+          {/* Uso estimado de Google Maps (mes actual) */}
+          {mapsUsage && (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-6">
+              <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div>
+                  <p className="text-xs text-gray-400 uppercase tracking-wider">
+                    Uso de Google Maps (este mes)
+                  </p>
+                  <p
+                    className={`text-3xl font-bold mt-1 ${
+                      mapsUsage.pct >= 1
+                        ? "text-red-400"
+                        : mapsUsage.pct >= 0.7
+                        ? "text-amber-400"
+                        : "text-emerald-400"
+                    }`}
+                  >
+                    ~USD {mapsUsage.estimatedUsd.toFixed(2)}
+                    <span className="text-sm font-normal text-gray-500">
+                      {" "}/ {mapsUsage.budgetUsd} presupuesto
+                    </span>
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {mapsUsage.loads.toLocaleString("es-AR")} cargas · mes anterior:{" "}
+                    {mapsUsage.loadsPrevMonth.toLocaleString("es-AR")}
+                  </p>
+                </div>
+              </div>
+              <div className="w-full h-2 bg-gray-800 rounded-full overflow-hidden mt-3">
+                <div
+                  className={`h-full rounded-full ${
+                    mapsUsage.pct >= 1
+                      ? "bg-red-500"
+                      : mapsUsage.pct >= 0.7
+                      ? "bg-amber-500"
+                      : "bg-emerald-500"
+                  }`}
+                  style={{ width: `${Math.min(100, Math.round(mapsUsage.pct * 100))}%` }}
+                />
+              </div>
+              <p className="text-[11px] text-gray-500 mt-2">
+                Estimado propio (aproximado, {mapsUsage.pricePer1000} USD/1000 cargas). El número
+                real está en{" "}
+                <a
+                  href="https://console.cloud.google.com/billing"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-emerald-400 hover:underline"
+                >
+                  Google Cloud
+                </a>
+                . Conviene configurar ahí una alerta de presupuesto.
+              </p>
+            </div>
+          )}
+
           {/* Accesos rápidos de período */}
           <div className="flex flex-wrap gap-2 mb-4">
             <button onClick={() => { setDateFrom(todayISO()); setDateTo(todayISO()); }}

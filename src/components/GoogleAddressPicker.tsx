@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { loadGoogleMaps, isGoogleMapsConfigured } from "../utils/loadGoogleMaps";
+import { trackMapsLoad } from "../utils/trackMapsLoad";
 
 interface Props {
   onSelect: (result: {
@@ -8,15 +9,17 @@ interface Props {
     lng: number | null;
   }) => void;
   value: string;
+  branchId?: number | null;
 }
 
-export default function GoogleAddressPicker({ onSelect, value }: Props) {
+export default function GoogleAddressPicker({ onSelect, value, branchId }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const mapRef = useRef<HTMLDivElement>(null);
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
   const markerRef = useRef<google.maps.Marker | null>(null);
   const lastSelectedRef = useRef<string>("");
+  const trackedRef = useRef(false);
   const [loaded, setLoaded] = useState(false);
   // Maps no disponible (sin key, error de red, o auth/billing fallando). En ese
   // caso el cliente escribe la dirección a mano y el pedido sale igual.
@@ -35,9 +38,16 @@ export default function GoogleAddressPicker({ onSelect, value }: Props) {
     // Definirla suprime el popup de error de Google y nos deja degradar suave.
     (window as any).gm_authFailure = () => setFailed(true);
     loadGoogleMaps(["places"])
-      .then(() => setLoaded(true))
+      .then(() => {
+        setLoaded(true);
+        // Una sola carga contable por montaje (para el monitor de uso en el admin).
+        if (!trackedRef.current) {
+          trackedRef.current = true;
+          trackMapsLoad(branchId);
+        }
+      })
       .catch(() => setFailed(true));
-  }, []);
+  }, [branchId]);
 
   // Init autocomplete
   useEffect(() => {

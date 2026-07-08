@@ -322,6 +322,7 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
               <GoogleAddressPicker
                 value={form.address}
                 onSelect={handleAddressSelect}
+                branchId={branchId}
               />
               {errors.address && (
                 <p className="text-red-400 text-xs">{errors.address}</p>

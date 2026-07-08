@@ -1507,7 +1507,7 @@ app.post("/api/orders", (req, res) => {
 app.post("/api/analytics/event", (req, res) => {
   try {
     const { branchId, eventType, productId, sessionId } = req.body;
-    const validTypes = ["session", "product_view", "checkout_start", "order_placed"];
+    const validTypes = ["session", "product_view", "checkout_start", "order_placed", "maps_load"];
     if (!branchId || !validTypes.includes(eventType)) {
       return res.status(400).json({ error: "Invalid event" });
     }

@@ -335,4 +335,40 @@ function safeParseJson(str, fallback) {
   }
 }
 
+/* ══════════════════════════════════════════════════
+   Uso estimado de la API de Google Maps (mes actual)
+   ══════════════════════════════════════════════════ */
+// Constantes editables. Ajustá MAPS_PRICE_PER_1000 hasta que el estimado matchee
+// tu factura real de Google. MAPS_MONTHLY_BUDGET_USD es el tope contra el que se
+// compara la barra del admin (no es un límite que corte nada; solo referencia).
+const MAPS_PRICE_PER_1000 = 7; // USD por 1000 cargas (aprox. Maps JS dinámico)
+const MAPS_MONTHLY_BUDGET_USD = 50;
+
+router.get("/metrics/maps-usage", (req, res) => {
+  const db = req.app.locals.db;
+  const countInMonth = (offset) =>
+    db
+      .prepare(
+        `SELECT COUNT(*) n FROM analytics_events
+         WHERE event_type = 'maps_load'
+           AND created_at >= date('now','localtime','start of month', ?)
+           AND created_at <  date('now','localtime','start of month', ?)`
+      )
+      .get(`${offset} month`, `${offset + 1} month`).n;
+
+  const loads = countInMonth(0);
+  const loadsPrevMonth = countInMonth(-1);
+  const estimatedUsd = (loads / 1000) * MAPS_PRICE_PER_1000;
+
+  res.json({
+    month: new Date().toISOString().slice(0, 7),
+    loads,
+    loadsPrevMonth,
+    estimatedUsd,
+    pricePer1000: MAPS_PRICE_PER_1000,
+    budgetUsd: MAPS_MONTHLY_BUDGET_USD,
+    pct: MAPS_MONTHLY_BUDGET_USD > 0 ? estimatedUsd / MAPS_MONTHLY_BUDGET_USD : 0,
+  });
+});
+
 module.exports = router;

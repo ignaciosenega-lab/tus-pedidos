@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useStorefront } from "../hooks/useStorefront";
 import ThemeStyles from "./ThemeStyles";
 import BranchMapView, { type BranchForMap } from "./BranchMapView";
+import { trackMapsLoad } from "../utils/trackMapsLoad";
 import {
   loadGoogleMaps,
   isGoogleMapsConfigured,
@@ -48,6 +49,7 @@ export default function BranchSelectorPage() {
   const [searchLocation, setSearchLocation] = useState<SearchLocation | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+  const mapsTrackedRef = useRef(false);
 
   useEffect(() => {
     fetch("/api/branches/public")
@@ -68,6 +70,11 @@ export default function BranchSelectorPage() {
 
     loadGoogleMaps(["places"])
       .then(async () => {
+        // Contar una carga de Maps por visitante para el monitor de uso del admin.
+        if (!mapsTrackedRef.current && branches[0]) {
+          mapsTrackedRef.current = true;
+          trackMapsLoad(branches[0].id);
+        }
         const entries = await Promise.all(
           branches.map(async (b) => {
             if (!b.address) return null;
