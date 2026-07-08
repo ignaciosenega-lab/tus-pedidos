@@ -6,6 +6,23 @@
 
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY as string | undefined;
 
+// Detección global y TEMPRANA de falla de auth (ej. BillingNotEnabledMapError,
+// InvalidKey). Google llama a window.gm_authFailure la primera vez que la key es
+// rechazada. Definirlo ACÁ (al importar el módulo, antes de que cualquier
+// componente inyecte el script) suprime el popup de error de Google en toda la
+// app y deja que los componentes degraden a "escribir dirección a mano".
+let authFailed = false;
+if (typeof window !== "undefined") {
+  (window as any).gm_authFailure = () => {
+    authFailed = true;
+    window.dispatchEvent(new Event("gmaps-auth-failure"));
+  };
+}
+
+export function isGoogleMapsAuthFailed(): boolean {
+  return authFailed;
+}
+
 type Library = "places" | "visualization" | "geometry" | "drawing" | "marker";
 
 let inflight: Promise<void> | null = null;

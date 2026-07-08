@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { loadGoogleMaps, isGoogleMapsConfigured } from "../utils/loadGoogleMaps";
+import { loadGoogleMaps, isGoogleMapsConfigured, isGoogleMapsAuthFailed } from "../utils/loadGoogleMaps";
 import { trackMapsLoad } from "../utils/trackMapsLoad";
 
 interface Props {
@@ -23,7 +23,9 @@ export default function GoogleAddressPicker({ onSelect, value, branchId }: Props
   const [loaded, setLoaded] = useState(false);
   // Maps no disponible (sin key, error de red, o auth/billing fallando). En ese
   // caso el cliente escribe la dirección a mano y el pedido sale igual.
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState(
+    !isGoogleMapsConfigured() || isGoogleMapsAuthFailed()
+  );
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
     null
   );
@@ -34,11 +36,16 @@ export default function GoogleAddressPicker({ onSelect, value, branchId }: Props
       setFailed(true);
       return;
     }
-    // Google llama a esta global si la key es rechazada (ej. BillingNotEnabled).
-    // Definirla suprime el popup de error de Google y nos deja degradar suave.
-    (window as any).gm_authFailure = () => setFailed(true);
+    // El gm_authFailure global (en loadGoogleMaps) dispara este evento si la key
+    // es rechazada; degradamos a dirección a mano.
+    const onAuthFail = () => setFailed(true);
+    window.addEventListener("gmaps-auth-failure", onAuthFail);
     loadGoogleMaps(["places"])
       .then(() => {
+        if (isGoogleMapsAuthFailed()) {
+          setFailed(true);
+          return;
+        }
         setLoaded(true);
         // Una sola carga contable por montaje (para el monitor de uso en el admin).
         if (!trackedRef.current) {
@@ -47,11 +54,12 @@ export default function GoogleAddressPicker({ onSelect, value, branchId }: Props
         }
       })
       .catch(() => setFailed(true));
+    return () => window.removeEventListener("gmaps-auth-failure", onAuthFail);
   }, [branchId]);
 
   // Init autocomplete
   useEffect(() => {
-    if (!loaded || !inputRef.current || autocompleteRef.current) return;
+    if (failed || !loaded || !inputRef.current || autocompleteRef.current) return;
 
     const ac = new google.maps.places.Autocomplete(inputRef.current, {
       componentRestrictions: { country: "ar" },
@@ -71,7 +79,7 @@ export default function GoogleAddressPicker({ onSelect, value, branchId }: Props
     });
 
     autocompleteRef.current = ac;
-  }, [loaded, onSelect]);
+  }, [loaded, failed, onSelect]);
 
   // Init / update map
   useEffect(() => {
