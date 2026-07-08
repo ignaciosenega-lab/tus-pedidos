@@ -79,7 +79,7 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
   }
 
   const handleAddressSelect = useCallback(
-    (result: { address: string; lat: number; lng: number }) => {
+    (result: { address: string; lat: number | null; lng: number | null }) => {
       setForm((prev) => ({
         ...prev,
         address: result.address,
@@ -88,12 +88,13 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
       }));
       setErrors((prev) => {
         const next = { ...prev };
-        delete next.address;
+        if (result.address.trim()) delete next.address;
         return next;
       });
 
-      // Check if address is inside a delivery zone
-      if (deliveryZones.length > 0) {
+      // Chequeo de zona solo si tenemos coordenadas (dirección elegida desde el mapa).
+      // Si el cliente la escribió a mano (Maps caído), no podemos calcular zona → no bloquear.
+      if (result.lat != null && result.lng != null && deliveryZones.length > 0) {
         const zone = findDeliveryZone(deliveryZones, { lat: result.lat, lng: result.lng });
         setOutsideZone(!zone);
       } else {
