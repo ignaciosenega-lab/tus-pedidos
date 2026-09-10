@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import GuidedTour, { TourButton, type TourStep } from "../../components/admin/GuidedTour";
 import { useApi } from "../../hooks/useApi";
 import { useBranchId } from "../../hooks/useBranchId";
 
@@ -77,10 +78,32 @@ function dayOfWeekToDateString(dow: number): string {
   return `${y}-${m}-${d}`;
 }
 
+const TOUR_STEPS: TourStep[] = [
+  {
+    title: "Promociones automáticas",
+    body: "A diferencia de los cupones, estas no necesitan que el cliente tipee nada: se aplican solas cuando se cumple la condición.",
+  },
+  {
+    target: "nueva-promo",
+    title: "Los dos tipos",
+    body: "Porcentaje baja el precio del producto en el catálogo, con el precio viejo tachado. Cantidad (estilo 2x1) descuenta recién en el carrito, cuando el cliente lleva N unidades del mismo producto.",
+  },
+  {
+    target: "lista-promos",
+    title: "Vigencia y alcance",
+    body: "Cada promo puede limitarse a un rango de fechas, a una franja horaria, a un día de la semana, y a categorías o productos puntuales. Una promo vencida pero activa te la marca el panel de Alertas.",
+  },
+  {
+    title: "Ojo con acumular",
+    body: "Las promociones no se suman a los cupones: el sistema aplica el mejor de los dos, nunca los dos juntos. Y si un cliente ya tiene una promo activa, no se le ofrece la ruleta.",
+  },
+];
+
 export default function PromotionsPage() {
   const { apiFetch } = useApi();
   const { branchId, branches, setBranchId, isMaster, loading: branchLoading } = useBranchId();
 
+  const [tourOpen, setTourOpen] = useState(false);
   const [promos, setPromos] = useState<Promotion[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -361,6 +384,7 @@ export default function PromotionsPage() {
 
   return (
     <div className="max-w-6xl">
+      <GuidedTour screen="promociones" steps={TOUR_STEPS} open={tourOpen} onClose={() => setTourOpen(false)} />
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-2xl font-bold text-white mb-1">Promociones</h2>
@@ -376,19 +400,20 @@ export default function PromotionsPage() {
               ))}
             </select>
           )}
-          <button onClick={openCreateModal}
+          <button data-tour="nueva-promo" onClick={openCreateModal}
             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors">
             + Nueva Promoción
           </button>
+          <TourButton onClick={() => setTourOpen(true)} />
         </div>
       </div>
 
       {promos.length === 0 ? (
-        <div className="bg-gray-900 border border-gray-800 rounded-lg p-8 text-center">
+        <div data-tour="lista-promos" className="bg-gray-900 border border-gray-800 rounded-lg p-8 text-center">
           <p className="text-gray-500">No hay promociones configuradas</p>
         </div>
       ) : (
-        <div className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
+        <div data-tour="lista-promos" className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
           <table className="w-full">
             <thead className="bg-gray-800 border-b border-gray-700">
               <tr>

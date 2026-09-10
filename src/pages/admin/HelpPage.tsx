@@ -7,6 +7,13 @@ interface HelpSection {
   summary: string;
   category: "intro" | "branch" | "master" | "campaigns" | "glossary";
   masterOnly?: boolean;
+  /**
+   * Términos que el buscador indexa además del título y el resumen. Hace
+   * falta porque `body` es JSX y no se puede leer como texto: sin esto,
+   * buscar una palabra que solo aparece dentro de una sección no encuentra
+   * nada. Poné acá los sinónimos y las palabras que alguien tipearía.
+   */
+  keywords?: string;
   body: ReactNode;
 }
 
@@ -271,6 +278,107 @@ const SECTIONS: HelpSection[] = [
     ),
   },
   {
+    id: "ruleta",
+    title: "Ruleta de premios",
+    summary: "El cliente gira antes de mandar el pedido y gana un descuento.",
+    category: "branch",
+    keywords: "ruleta premio giro sorteo descuento juego gamificacion girar gajo",
+    body: (
+      <Section>
+        <P>
+          Justo antes de mandar el pedido, al cliente le aparece un botón
+          <strong> "Girar y ganar"</strong>. Gira una ruleta, le sale un descuento y
+          se le aplica a ese mismo pedido.
+        </P>
+
+        <H3>Cargar los premios</H3>
+        <Steps>
+          <li>
+            Entrá a <strong>Ruleta</strong> y tocá <strong>+ Nuevo gajo</strong>.
+          </li>
+          <li>
+            <strong>Texto del gajo</strong>: lo que el cliente lee en la rueda ("10% OFF").
+          </li>
+          <li>
+            <strong>Tipo y valor</strong>: porcentaje sobre el pedido, o un monto fijo en pesos.
+          </li>
+          <li>
+            <strong>Tope</strong>: el máximo en pesos que ese premio puede descontar.
+          </li>
+          <li>
+            <strong>Pedido mínimo</strong>: si el pedido no llega a ese monto, el premio no aplica.
+          </li>
+          <li>
+            <strong>Peso</strong>: cuántas chances tiene ese gajo frente a los demás.
+          </li>
+        </Steps>
+
+        <H3>Cómo funciona el peso</H3>
+        <P>
+          El peso <strong>no es un porcentaje</strong>: es cuántas "chances" tiene cada
+          gajo. Si cargás tres premios con peso 50, 30 y 20, salen 50%, 30% y 20% de las
+          veces. Si cargás 5, 3 y 2, sale exactamente lo mismo. La columna
+          <strong> Probabilidad</strong> te muestra la cuenta ya hecha, y se actualiza sola
+          cuando agregás, sacás o desactivás un gajo.
+        </P>
+
+        <Warn>
+          Ponéle <strong>tope en pesos</strong> a los premios porcentuales. Un 20% sin tope
+          sobre un pedido grande puede costarte mucho más de lo que tenías pensado.
+        </Warn>
+
+        <H3>Cuánto te va a costar</H3>
+        <P>
+          El panel <strong>"Cuánto te va a costar"</strong> calcula el descuento promedio
+          por giro según los pesos que cargaste. Cambiá el ticket promedio por el tuyo
+          real y mirá el porcentaje: si pasa el 15% te lo marca en rojo. Ese es el número
+          para decidir, no el premio más grande de la lista.
+        </P>
+
+        <H3>Nunca se apilan descuentos</H3>
+        <P>
+          La ruleta <strong>solo se le ofrece a los clientes que no tienen ya un descuento</strong>:
+          si aplicaron un cupón o si en el carrito hay una promoción activa, el botón de
+          girar no aparece. Es a propósito, para que un pedido no acumule dos rebajas.
+        </P>
+
+        <H3>No se puede volver a girar</H3>
+        <P>
+          El resultado se decide en el servidor y queda guardado contra el celular del
+          cliente. Si refresca la página, cierra el navegador, borra los datos o entra en
+          modo incógnito, <strong>le vuelve a salir el mismo premio</strong>. No hay forma de
+          tirar de nuevo hasta que salga el bueno.
+        </P>
+        <P>
+          Los dos tiempos que configurás arriba controlan esto:
+        </P>
+        <UL>
+          <li>
+            <strong>El premio vence a los (minutos)</strong>: si gira y no manda el pedido en
+            ese tiempo, el premio caduca.
+          </li>
+          <li>
+            <strong>No vuelve a girar por (horas)</strong>: dentro de esa ventana el mismo
+            celular siempre recibe el premio que ya le tocó, aunque el anterior haya
+            vencido.
+          </li>
+        </UL>
+
+        <H3>Prender la ruleta</H3>
+        <P>
+          Necesitás al menos <strong>dos gajos activos</strong> para poder activarla. El
+          botón de arriba a la derecha la prende y la apaga al instante, sin tocar nada más.
+        </P>
+
+        <Tip>
+          El descuento le llega a la sucursal en el mensaje de WhatsApp, con una línea que
+          dice <K>🎡 Ruleta — 10% OFF</K>. En <strong>Resultados</strong> ves cuántos giros
+          hubo, cuántos terminaron en pedido y cuánto te costó de verdad.
+        </Tip>
+      </Section>
+    ),
+  },
+  {
     id: "cupones",
     title: "Cupones",
     summary: "Códigos con descuento que el cliente tipea en el carrito.",
@@ -427,7 +535,9 @@ const SECTIONS: HelpSection[] = [
     id: "diseno",
     title: "Diseño (estilos)",
     summary: "Colores, fuentes, logo, banners.",
-    category: "branch",
+    category: "master",
+    masterOnly: true,
+    keywords: "colores fuente tipografia logo favicon banner slider marca estilo aspecto",
     body: (
       <Section>
         <P>
@@ -447,17 +557,38 @@ const SECTIONS: HelpSection[] = [
   {
     id: "metricas",
     title: "Métricas",
-    summary: "KPIs y gráficos para entender el negocio.",
+    summary: "Embudo de conversión, ranking de productos y patrones por día y hora.",
     category: "branch",
+    keywords: "estadisticas kpi embudo funnel conversion productos vendidos horarios ventas datos analitica",
     body: (
       <Section>
+        <P>La página tiene tres pestañas y un filtro por rango de fechas.</P>
+
+        <H3>Embudo</H3>
         <P>
-          La página <strong>Métricas</strong> muestra pedidos por día, ticket promedio,
-          productos más vendidos, distribución por hora y por categoría.
+          Sesiones → vistas de producto → checkouts iniciados → pedidos. Sirve para ver
+          <strong> dónde se te cae la gente</strong>. Si entran muchos y ven pocos productos,
+          el problema son las fotos o los precios; si abren el checkout y no terminan,
+          el problema está en el checkout (zona de envío, horarios, formas de pago).
         </P>
+
+        <H3>Productos</H3>
+        <P>
+          Vistas, unidades vendidas, compras y facturación por producto. Se puede ordenar
+          por cualquier columna. Un producto muy visto y poco comprado suele ser un
+          problema de precio o de foto.
+        </P>
+
+        <H3>Patrones</H3>
+        <P>
+          Cómo se reparten los pedidos por día de la semana y por hora. Es el dato para
+          decidir turnos de cocina y a qué hora conviene mandar una campaña.
+        </P>
+
         <Tip>
-          Filtrá por rango de fechas. Si seleccionás "ayer" te sirve para reuniones de
-          arranque del día.
+          Los números vienen del tráfico real de tu tienda, no de Google Analytics. Un
+          pedido cuenta cuando el cliente toca Enviar, aunque después no confirme por
+          WhatsApp.
         </Tip>
       </Section>
     ),
@@ -711,17 +842,38 @@ const SECTIONS: HelpSection[] = [
   },
   {
     id: "recursos",
-    title: "Recursos (imágenes)",
-    summary: "Subir y administrar imágenes que vas a usar en el catálogo.",
+    title: "Recursos del servidor",
+    summary: "Cuánta CPU, memoria y disco está usando el servidor.",
     category: "master",
     masterOnly: true,
+    keywords: "cpu memoria ram disco servidor performance lento monitor salud hardware",
     body: (
       <Section>
         <P>
-          Subí imágenes desde acá una vez y reusalas en productos, banners y galerías.
-          El servidor las guarda bajo <K>/api/uploads/...</K>.
+          Muestra el consumo del servidor donde corre la plataforma: <strong>CPU</strong>,
+          <strong> memoria</strong> y <strong>disco</strong>, en porcentaje.
         </P>
-        <Tip>Las imágenes pesadas afectan la velocidad del storefront. Si podés, comprimí antes de subir (TinyPNG / Squoosh).</Tip>
+        <H3>Para qué sirve</H3>
+        <P>
+          Es el primer lugar donde mirar si la tienda se siente lenta o si algo dejó de
+          responder. Un disco cerca del 100% es el caso más grave: cuando se llena, la
+          base de datos no puede escribir y <strong>se dejan de tomar pedidos</strong>.
+        </P>
+        <Warn>
+          Si el disco pasa el 85%, avisá al equipo técnico antes de que se llene. Lo que
+          más ocupa suelen ser las imágenes subidas y los puntos de restauración viejos.
+        </Warn>
+        <H3>Dónde se suben las imágenes</H3>
+        <P>
+          Acá no. La carga de imágenes está adentro de cada pantalla donde se usan:
+          en <strong>Catálogo</strong> al editar un producto, y en <strong>Diseño</strong> para
+          el logo, el favicon, los banners y el slider. El servidor las guarda
+          bajo <K>/api/uploads/...</K>.
+        </P>
+        <Tip>
+          Las imágenes pesadas hacen lenta la tienda y llenan el disco. Comprimilas antes
+          de subirlas (TinyPNG o Squoosh, gratis y online).
+        </Tip>
       </Section>
     ),
   },
@@ -743,12 +895,38 @@ const SECTIONS: HelpSection[] = [
           <a href="#versiones-snapshots" className="text-emerald-400 hover:underline">auto-snapshot</a>
           . Si el CSV introduce errores, podés restaurar.
         </Tip>
-        <H3>Formato esperado</H3>
+        <H3>Formato exacto</H3>
         <P>
-          Una fila por producto (con sus variantes en columnas separadas). Para el
-          template exacto, mirá el último CSV que importaste o pedile uno al equipo
-          técnico.
+          Una fila por producto y <strong>12 columnas en este orden</strong>. La primera
+          fila se ignora siempre (es el encabezado), así que los nombres de las columnas
+          no importan — <strong>lo que importa es la posición</strong>.
         </P>
+        <UL>
+          <li><strong>1. categoría</strong> — obligatoria</li>
+          <li><strong>2. producto</strong> — obligatorio</li>
+          <li><strong>3. descripción</strong></li>
+          <li><strong>4 y 5</strong> — unidad y precio de la 1ª variante</li>
+          <li><strong>6 y 7</strong> — unidad y precio de la 2ª variante</li>
+          <li><strong>8 y 9</strong> — unidad y precio de la 3ª variante</li>
+          <li><strong>10 y 11</strong> — unidad y precio de la 4ª variante</li>
+          <li><strong>12. URL de la foto</strong></li>
+        </UL>
+        <P>
+          Las filas sin categoría o sin producto se saltean. Los precios aceptan el
+          formato <K>$10.900</K>: el signo y los puntos de miles se limpian solos. Si un
+          producto tiene una sola variante, dejá vacías las columnas 6 a 11.
+        </P>
+        <Warn>
+          La <strong>columna 1 tiene que tener el nombre de la categoría, no un código</strong>.
+          El importador crea una categoría nueva por cada valor distinto que encuentra
+          ahí. Si el archivo trae los IDs internos de otro sistema (esos números largos
+          que exportan las apps de delivery), vas a terminar con cientos de categorías
+          numéricas basura en el catálogo.
+        </Warn>
+        <Tip>
+          La categoría se busca por nombre sin distinguir mayúsculas: si ya existe
+          "Rolls" y el CSV dice "rolls", usa la que ya tenías en vez de duplicarla.
+        </Tip>
       </Section>
     ),
   },
@@ -793,6 +971,160 @@ const SECTIONS: HelpSection[] = [
   },
 
   /* ────── GLOSSARY ────── */
+  {
+    id: "alertas",
+    title: "Alertas",
+    summary: "Panel que te avisa qué está mal configurado o trabado.",
+    category: "master",
+    masterOnly: true,
+    keywords: "alertas salud problemas errores revisar chequeo diagnostico pendientes",
+    body: (
+      <Section>
+        <P>
+          Revisa toda la plataforma y te lista lo que está mal, agrupado por tema y por
+          gravedad. Es la pantalla para abrir un lunes a la mañana antes de mirar nada más.
+        </P>
+        <H3>Qué detecta</H3>
+        <UL>
+          <li><strong>Configuración</strong>: sucursales sin WhatsApp cargado o sin zonas de envío.</li>
+          <li><strong>Catálogo</strong>: productos sin precio o sin imagen, categorías vacías.</li>
+          <li><strong>Promos y cupones</strong>: los que quedaron vencidos pero siguen activos.</li>
+          <li><strong>Pedidos trabados</strong>: los que llevan más de 2 horas en "pendiente".</li>
+        </UL>
+        <Tip>
+          Una sucursal sin WhatsApp cargado es la alerta más urgente: los pedidos de esa
+          tienda no le llegan a nadie.
+        </Tip>
+      </Section>
+    ),
+  },
+  {
+    id: "maps",
+    title: "Google Maps: prenderlo, apagarlo y cuánto cuesta",
+    summary: "El buscador de direcciones se paga por uso. Cómo controlarlo.",
+    category: "branch",
+    keywords: "google maps mapa direccion buscador costo factura billing apagar prender geocoding",
+    body: (
+      <Section>
+        <P>
+          El buscador de direcciones del checkout, el mapa de sucursales y el de clientes
+          usan Google Maps, que <strong>se paga por uso</strong>. Google da una cuota
+          gratis por mes y a partir de ahí cobra.
+        </P>
+
+        <H3>El interruptor</H3>
+        <P>
+          En <strong>Configuración</strong> está el toggle del buscador de direcciones.
+          Apagado, la tienda sigue funcionando perfecto: el cliente escribe la dirección
+          a mano y el pedido se manda igual. Lo único que se pierde es el autocompletado
+          y el chequeo de zona de envío.
+        </P>
+        <Warn>
+          El interruptor es <strong>global</strong>, no por sucursal: apagarlo lo apaga
+          para todas. Es a propósito, porque la cuenta de Google es una sola para todo
+          el negocio.
+        </Warn>
+
+        <H3>Cuánto se está gastando</H3>
+        <P>
+          En <strong>Operación global</strong> hay un monitor con el uso estimado del mes
+          y el del mes anterior. Sirve para ver la tendencia; el número exacto está en la
+          consola de facturación de Google.
+        </P>
+
+        <Tip>
+          Si te llega una factura alta, el sospechoso no suele ser el mapa sino las
+          búsquedas de dirección. Apagá el toggle, verificá en Google de dónde vino el
+          consumo, y volvé a prenderlo.
+        </Tip>
+      </Section>
+    ),
+  },
+  {
+    id: "revertir-precios",
+    title: "Deshacer un cambio de precios",
+    summary: "Volver atrás un lote completo de precios que se aplicó mal.",
+    category: "master",
+    masterOnly: true,
+    keywords: "revertir deshacer precios lote error volver atras historial cambio masivo",
+    body: (
+      <Section>
+        <P>
+          En <strong>Historial precios</strong> los cambios aparecen agrupados
+          <strong> por lote</strong>: cada vez que aplicaste una actualización masiva quedó
+          un bloque con fecha, quién lo hizo y todos los productos que tocó.
+        </P>
+        <Steps>
+          <li>Abrí <strong>Historial precios</strong>.</li>
+          <li>Desplegá el lote para ver producto por producto qué precio tenía y cuál quedó.</li>
+          <li>Si está mal, tocá <strong>Revertir lote</strong>.</li>
+        </Steps>
+        <P>
+          Revertir devuelve <strong>todos</strong> los productos de ese lote al precio que
+          tenían antes. No se puede revertir un producto suelto: o el lote entero, o lo
+          corregís a mano desde el catálogo.
+        </P>
+        <Tip>
+          Esto es más preciso que restaurar un punto de restauración: revertir un lote
+          toca solo esos precios, mientras que restaurar una versión vuelve atrás el
+          catálogo completo.
+        </Tip>
+      </Section>
+    ),
+  },
+  {
+    id: "recuperar-categoria",
+    title: "Recuperar una categoría borrada",
+    summary: "Traer de vuelta una categoría sin restaurar todo el catálogo.",
+    category: "master",
+    masterOnly: true,
+    keywords: "recuperar categoria borrada perdida restaurar productos snapshot rescatar",
+    body: (
+      <Section>
+        <P>
+          Si borraste una categoría con sus productos, no hace falta restaurar un punto de
+          restauración completo y perder todo lo que hiciste después.
+        </P>
+        <Steps>
+          <li>Entrá a <strong>Versiones</strong>.</li>
+          <li>Usá <strong>Recuperar categoría</strong>.</li>
+          <li>
+            Elegí la categoría: el sistema busca en qué puntos de restauración aparece y
+            te dice cuántos productos tenía en cada uno.
+          </li>
+          <li>Elegí de qué versión traerla y confirmá.</li>
+        </Steps>
+        <P>
+          Trae solo esa categoría y sus productos. Todo lo demás queda como está.
+        </P>
+      </Section>
+    ),
+  },
+  {
+    id: "carta-publica",
+    title: "Modo Carta (menú de solo lectura)",
+    summary: "Mostrar el menú sin opción de comprar.",
+    category: "branch",
+    keywords: "carta menu qr solo lectura salon mesa sin comprar catalogo publico",
+    body: (
+      <Section>
+        <P>
+          Además de la tienda, la plataforma sirve el mismo catálogo en
+          <strong> modo carta</strong>: se ve el menú con precios pero sin carrito ni
+          botón de comprar. Es lo que conviene poner en el QR de las mesas del salón.
+        </P>
+        <P>
+          Se llega por <K>/carta</K> o <K>/menu</K>, y también se puede configurar un
+          subdominio propio que muestre siempre la carta de una sucursal fija. Eso último
+          lo configura el equipo técnico.
+        </P>
+        <Tip>
+          Como es el mismo catálogo, cuando cambiás un precio en el admin la carta del
+          salón queda actualizada al instante. No hay que reimprimir nada.
+        </Tip>
+      </Section>
+    ),
+  },
   {
     id: "glosario",
     title: "Glosario",
@@ -933,7 +1265,8 @@ export default function HelpPage() {
     const q = search.toLowerCase();
     return (
       s.title.toLowerCase().includes(q) ||
-      s.summary.toLowerCase().includes(q)
+      s.summary.toLowerCase().includes(q) ||
+      (s.keywords || "").toLowerCase().includes(q)
     );
   };
 

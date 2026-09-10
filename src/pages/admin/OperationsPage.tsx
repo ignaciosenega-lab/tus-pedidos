@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import GuidedTour, { TourButton, type TourStep } from "../../components/admin/GuidedTour";
 import { useApi } from "../../hooks/useApi";
 import { useBranchId } from "../../hooks/useBranchId";
 
@@ -61,6 +62,28 @@ function getNextStatus(current: string): string | null {
   return STATUS_FLOW[idx + 1];
 }
 
+const TOUR_STEPS: TourStep[] = [
+  {
+    title: "Esta es tu pantalla del día",
+    body: "Acá caen los pedidos de tu sucursal en tiempo real. Es la única pantalla que vas a tener abierta durante el servicio.",
+  },
+  {
+    target: "demora",
+    title: "Demora estimada",
+    body: "Cuánto está tardando la cocina ahora mismo. No es decorativo: los horarios que el cliente puede elegir en el checkout se recortan según este número. Subilo cuando se llena.",
+  },
+  {
+    target: "pausa",
+    title: "Pausar pedidos",
+    body: "Si te desbordaste, pausá. La tienda sigue visible pero no toma pedidos nuevos, y al cliente se le avisa hasta qué hora. Es preferible a que entre un pedido que no vas a poder cumplir.",
+  },
+  {
+    target: "pedidos",
+    title: "La cola de pedidos",
+    body: "Cada pedido avanza por estados: pendiente, confirmado, en preparación, listo, en camino y entregado. Mové el estado a medida que trabajás — de ahí salen después las métricas.",
+  },
+];
+
 export default function OperationsPage() {
   const { apiFetch } = useApi();
   const { branchId, branches, setBranchId, isMaster, loading: branchLoading } = useBranchId();
@@ -71,6 +94,7 @@ export default function OperationsPage() {
   const [filter, setFilter] = useState<FilterTab>("active");
   const [dateFilter, setDateFilter] = useState(""); // "" = todas; o "YYYY-MM-DD"
   const [delayMinutes, setDelayMinutes] = useState(30);
+  const [tourOpen, setTourOpen] = useState(false);
   const [savingDelay, setSavingDelay] = useState(false);
   const [pausedUntil, setPausedUntil] = useState<string | null>(null);
   const [pauseDuration, setPauseDuration] = useState("30");
@@ -249,6 +273,7 @@ export default function OperationsPage() {
 
   return (
     <div className="max-w-6xl">
+      <GuidedTour screen="operacion" steps={TOUR_STEPS} open={tourOpen} onClose={() => setTourOpen(false)} />
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-2xl font-bold text-white mb-1">Operación</h2>
@@ -268,11 +293,12 @@ export default function OperationsPage() {
             className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-medium transition-colors">
             Actualizar
           </button>
+          <TourButton onClick={() => setTourOpen(true)} />
         </div>
       </div>
 
       {/* Demora estimada */}
-      <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-6 flex items-center gap-4 flex-wrap">
+      <div data-tour="demora" className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-6 flex items-center gap-4 flex-wrap">
         <div className="flex items-center gap-2">
           <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
             <circle cx="12" cy="12" r="10" />
@@ -297,7 +323,7 @@ export default function OperationsPage() {
       </div>
 
       {/* Pausar pedidos */}
-      <div className={`border rounded-lg p-4 mb-6 ${isPaused ? "bg-red-900/20 border-red-900/50" : "bg-gray-900 border-gray-800"}`}>
+      <div data-tour="pausa" className={`border rounded-lg p-4 mb-6 ${isPaused ? "bg-red-900/20 border-red-900/50" : "bg-gray-900 border-gray-800"}`}>
         {isPaused ? (
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-2">
@@ -399,7 +425,7 @@ export default function OperationsPage() {
           <p className="text-gray-500">No hay pedidos en esta categoría</p>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div data-tour="pedidos" className="space-y-4">
           {filtered.map((order) => {
             const nextStatus = getNextStatus(order.status);
             return (

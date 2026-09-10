@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import GuidedTour, { TourButton, type TourStep } from "../../components/admin/GuidedTour";
 import { useApi } from "../../hooks/useApi";
 import { useAuth } from "../../store/authContext";
 import { useBranchId } from "../../hooks/useBranchId";
@@ -1158,7 +1159,25 @@ function ProductEditModal({
 /* ══════════════════════════════════════════════════
    BRANCH CATALOG — view only + toggle availability
    ══════════════════════════════════════════════════ */
+const BRANCH_TOUR_STEPS: TourStep[] = [
+  {
+    title: "El catálogo de tu sucursal",
+    body: "Los productos y los precios se cargan una sola vez a nivel global. Vos decidís cuáles de esos productos se ven en TU tienda.",
+  },
+  {
+    target: "propios",
+    title: "Productos propios",
+    body: "Si tenés algo que solo vendés vos, cargalo acá. Estos productos son exclusivos de tu sucursal: las demás no los ven ni los pueden editar.",
+  },
+  {
+    target: "lista-productos",
+    title: "Prender y apagar",
+    body: "Con el interruptor de cada producto lo sacás de tu tienda sin borrarlo de ningún lado. Es lo que hay que usar cuando se te acaba algo: apagalo y prendelo mañana.",
+  },
+];
+
 function BranchCatalog() {
+  const [tourOpen, setTourOpen] = useState(false);
   const { apiFetch } = useApi();
   const { branchId, loading: branchLoading } = useBranchId();
   const [products, setProducts] = useState<Product[]>([]);
@@ -1315,6 +1334,7 @@ function BranchCatalog() {
 
   return (
     <div>
+      <GuidedTour screen="catalogo-sucursal" steps={BRANCH_TOUR_STEPS} open={tourOpen} onClose={() => setTourOpen(false)} />
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
           <h2 className="text-2xl font-bold text-white">Catálogo</h2>
@@ -1322,10 +1342,11 @@ function BranchCatalog() {
             Podés activar o desactivar productos para tu sucursal. Los precios e imágenes se editan desde el catálogo global.
           </p>
         </div>
+        <TourButton onClick={() => setTourOpen(true)} />
       </div>
 
       {/* Productos propios de la sucursal */}
-      <div className="mb-8 bg-gray-900 border border-violet-900/40 rounded-xl p-5">
+      <div data-tour="propios" className="mb-8 bg-gray-900 border border-violet-900/40 rounded-xl p-5">
         <div className="flex items-center justify-between gap-3 mb-3">
           <div>
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
@@ -1420,7 +1441,7 @@ function BranchCatalog() {
         </select>
       </div>
 
-      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+      <div data-tour="lista-productos" className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
             <thead className="bg-gray-800/60 text-gray-400 text-xs uppercase tracking-wider">
