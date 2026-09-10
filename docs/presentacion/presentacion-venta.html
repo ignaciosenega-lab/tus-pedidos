@@ -1,0 +1,422 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Tus Pedidos — Presentación</title>
+<style>
+  @page { size: 297mm 210mm; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --ink: #0d1520;
+    --muted: #5b6b7a;
+    --line: #dde5ea;
+    --green: #0f9d6e;
+    --green-soft: #e6f6f0;
+    --paper: #ffffff;
+    --dark: #0d1520;
+  }
+  body {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .page {
+    width: 297mm; height: 210mm;
+    padding: 18mm 20mm;
+    page-break-after: always;
+    position: relative;
+    background: var(--paper);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .page:last-child { page-break-after: auto; }
+  .page.dark { background: var(--dark); color: #fff; }
+  .page.dark .muted { color: #8ea0b0; }
+
+  .eyebrow {
+    font-size: 9pt; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--green); font-weight: 700; margin-bottom: 5mm;
+  }
+  h1 { font-size: 34pt; line-height: 1.08; letter-spacing: -.02em; font-weight: 800; }
+  h2 { font-size: 24pt; line-height: 1.15; letter-spacing: -.015em; font-weight: 800; margin-bottom: 4mm; }
+  h3 { font-size: 12pt; font-weight: 800; margin-bottom: 1.5mm; }
+  p  { font-size: 11pt; line-height: 1.55; color: var(--muted); }
+  .lead { font-size: 13.5pt; line-height: 1.5; color: var(--muted); max-width: 165mm; }
+  .muted { color: var(--muted); }
+  strong { color: var(--ink); font-weight: 700; }
+  .dark strong { color: #fff; }
+
+  .num { position: absolute; bottom: 12mm; right: 20mm; font-size: 9pt; color: #9fb0bd; }
+  .brand-foot { position: absolute; bottom: 12mm; left: 20mm; font-size: 9pt; color: #9fb0bd; }
+
+  .grid { display: grid; gap: 7mm; margin-top: 8mm; }
+  .g2 { grid-template-columns: 1fr 1fr; }
+  .g3 { grid-template-columns: 1fr 1fr 1fr; }
+  .g4 { grid-template-columns: repeat(4, 1fr); }
+
+  .card {
+    border: 1px solid var(--line); border-radius: 4mm; padding: 6mm;
+    background: #fbfdfc;
+  }
+  .card p { font-size: 10pt; }
+  .card .ico { font-size: 15pt; margin-bottom: 3mm; display: block; }
+
+  .stat { font-size: 30pt; font-weight: 800; letter-spacing: -.02em; color: var(--green); line-height: 1; }
+  .stat-lbl { font-size: 9.5pt; color: var(--muted); margin-top: 2mm; }
+
+  .flow { display: flex; align-items: stretch; gap: 0; margin-top: 9mm; }
+  .flow .stepc { flex: 1; padding: 5mm 5mm 5mm 0; position: relative; }
+  .flow .stepc:not(:last-child)::after {
+    content: ""; position: absolute; right: 2mm; top: 8mm; bottom: 8mm; width: 1px; background: var(--line);
+  }
+  .flow .n {
+    width: 8mm; height: 8mm; border-radius: 50%; background: var(--green-soft); color: var(--green);
+    font-weight: 800; font-size: 10pt; display: flex; align-items: center; justify-content: center;
+    margin-bottom: 3mm;
+  }
+  .flow h3 { font-size: 11pt; }
+  .flow p { font-size: 9.5pt; }
+
+  ul.checks { list-style: none; margin-top: 5mm; }
+  ul.checks li {
+    font-size: 11pt; line-height: 1.5; color: var(--muted);
+    padding-left: 7mm; position: relative; margin-bottom: 3.5mm;
+  }
+  ul.checks li::before {
+    content: "→"; position: absolute; left: 0; color: var(--green); font-weight: 700;
+  }
+
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 12mm; align-items: start; margin-top: 8mm; }
+  .panel { border-radius: 4mm; padding: 7mm; }
+  .panel.bad { background: #fdf1f0; border: 1px solid #f6d9d6; }
+  .panel.good { background: var(--green-soft); border: 1px solid #c9ebdd; }
+  .panel h3 { font-size: 12pt; margin-bottom: 4mm; }
+  .panel ul { list-style: none; }
+  .panel li { font-size: 10.5pt; line-height: 1.5; margin-bottom: 3mm; color: #46586a; padding-left: 6mm; position: relative; }
+  .panel.bad li::before { content: "×"; position: absolute; left: 0; color: #c0392b; font-weight: 800; }
+  .panel.good li::before { content: "✓"; position: absolute; left: 0; color: var(--green); font-weight: 800; }
+
+  .kbox { border-left: 3px solid var(--green); padding-left: 6mm; margin-top: 7mm; }
+  .kbox.anchor { margin-top: auto; margin-bottom: 4mm; }
+  .kbox p { font-size: 11.5pt; color: var(--ink); }
+
+  .calc { margin-top: 7mm; border: 1px solid var(--line); border-radius: 4mm; overflow: hidden; }
+  .calc .row { display: grid; grid-template-columns: 1fr auto; padding: 4mm 6mm; font-size: 11pt; border-bottom: 1px solid var(--line); }
+  .calc .row:last-child { border-bottom: 0; background: var(--green-soft); font-weight: 800; }
+  .calc .row span:last-child { font-variant-numeric: tabular-nums; }
+  .fill { color: #9fb0bd; font-style: italic; }
+
+  .foot-note { margin-top: auto; font-size: 8.5pt; color: #9fb0bd; line-height: 1.45; max-width: 200mm; }
+</style>
+
+<!-- 1 · Portada -->
+<section class="page dark" style="justify-content:center">
+  <div class="eyebrow">Plataforma de pedidos online</div>
+  <h1>Tu propia tienda<br>de pedidos.</h1>
+  <p class="lead" style="margin-top:8mm; color:#9fb3c2">
+    Tus clientes piden directo. Sin intermediarios, sin comisión por pedido,
+    con tu marca y tus datos.
+  </p>
+  <div style="margin-top:14mm; display:flex; gap:14mm">
+    <div><div class="stat">0%</div><div class="stat-lbl" style="color:#8ea0b0">de comisión por pedido</div></div>
+    <div><div class="stat">100%</div><div class="stat-lbl" style="color:#8ea0b0">de los datos de tus clientes</div></div>
+    <div><div class="stat">24/7</div><div class="stat-lbl" style="color:#8ea0b0">tomando pedidos</div></div>
+  </div>
+  <div class="brand-foot" style="color:#5b6b7a">Tus Pedidos</div>
+</section>
+
+<!-- 2 · El problema -->
+<section class="page">
+  <div class="eyebrow">El problema</div>
+  <h2>Cada pedido por una app<br>te cuesta dos veces.</h2>
+  <p class="lead">Una vez en comisión. Y otra, más cara, en algo que no se ve en la liquidación.</p>
+
+  <div class="split">
+    <div class="panel bad">
+      <h3>Pidiendo por una app de delivery</h3>
+      <ul>
+        <li>Se llevan un porcentaje de <strong>cada</strong> pedido</li>
+        <li>El cliente es de ellos, no tuyo: no tenés su teléfono</li>
+        <li>Competís en una grilla contra todos los demás</li>
+        <li>Ellos deciden el ranking, las promos y cuándo te muestran</li>
+        <li>No sabés quién te compra, ni cada cuánto, ni qué</li>
+      </ul>
+    </div>
+    <div class="panel good">
+      <h3>Con tu propia tienda</h3>
+      <ul>
+        <li>El pedido entra completo, sin comisión</li>
+        <li>Te queda el teléfono y el historial de cada cliente</li>
+        <li>Es tu tienda: no hay competencia adentro</li>
+        <li>Vos decidís precios, promociones y qué se destaca</li>
+        <li>Ves qué se vende, a qué hora y a quién</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="kbox anchor">
+    <p><strong>La comisión se paga una sola vez por pedido. Perder al cliente se paga todos los meses.</strong></p>
+  </div>
+  <div class="num">2</div>
+</section>
+
+<!-- 3 · La cuenta -->
+<section class="page">
+  <div class="eyebrow">La cuenta</div>
+  <h2>Poné tus números.</h2>
+  <p class="lead">No hace falta que nos creas: completá con lo tuyo y mirá el resultado.</p>
+
+  <div class="calc">
+    <div class="row"><span>Pedidos por mes que hoy entran por apps</span><span class="fill">_____</span></div>
+    <div class="row"><span>Ticket promedio</span><span class="fill">$ _____</span></div>
+    <div class="row"><span>Comisión que te cobran</span><span class="fill">_____ %</span></div>
+    <div class="row"><span>Lo que se van en comisiones por mes</span><span class="fill">$ _____</span></div>
+    <div class="row"><span>Si solo la mitad de esos pedidos pasa a tu tienda, recuperás</span><span class="fill">$ _____</span></div>
+  </div>
+
+  <div class="grid g3">
+    <div class="card">
+      <span class="ico">📱</span>
+      <h3>No hay que convencer a nadie</h3>
+      <p>El cliente ya sabe pedir por WhatsApp. La tienda le arma el mensaje solo.</p>
+    </div>
+    <div class="card">
+      <span class="ico">🔁</span>
+      <h3>El segundo pedido es gratis</h3>
+      <p>Una vez que te compró, tenés su teléfono. El próximo no pasa por ninguna app.</p>
+    </div>
+    <div class="card">
+      <span class="ico">⚖️</span>
+      <h3>No es o uno o el otro</h3>
+      <p>Podés seguir en las apps. Lo que entra por tu tienda simplemente te rinde más.</p>
+    </div>
+  </div>
+  <div class="num">3</div>
+</section>
+
+<!-- 4 · Recorrido del cliente -->
+<section class="page">
+  <div class="eyebrow">Cómo lo vive tu cliente</div>
+  <h2>De la foto al pedido,<br>en cuatro pasos.</h2>
+
+  <div class="flow">
+    <div class="stepc">
+      <div class="n">1</div>
+      <h3>Entra a tu tienda</h3>
+      <p>Tu logo, tus colores, tu dirección web. Abre desde el link de Instagram o del QR de la mesa.</p>
+    </div>
+    <div class="stepc">
+      <div class="n">2</div>
+      <h3>Arma el pedido</h3>
+      <p>Busca, filtra por categoría, elige variantes y agregados. Ve las promos del día en el carrusel de arriba.</p>
+    </div>
+    <div class="stepc">
+      <div class="n">3</div>
+      <h3>Completa sus datos</h3>
+      <p>Dirección con autocompletado, retiro o envío, horario o "lo antes posible", forma de pago.</p>
+    </div>
+    <div class="stepc">
+      <div class="n">4</div>
+      <h3>Manda por WhatsApp</h3>
+      <p>El mensaje llega armado y ordenado a tu número, con el detalle, los descuentos y el total.</p>
+    </div>
+  </div>
+
+  <div class="grid g3" style="margin-top:10mm">
+    <div class="card"><h3>Si está cerrado, lo dice</h3><p>Con el horario en que vuelve a abrir, en vez de dejar entrar un pedido que no vas a poder cumplir.</p></div>
+    <div class="card"><h3>Si te desbordaste, se pausa</h3><p>Un botón corta los pedidos nuevos y avisa hasta qué hora. La tienda sigue visible.</p></div>
+    <div class="card"><h3>Si está fuera de zona, avisa</h3><p>Antes de que el cliente termine de cargar todo, no después.</p></div>
+  </div>
+  <div class="num">4</div>
+</section>
+
+<!-- 5 · Operación -->
+<section class="page">
+  <div class="eyebrow">Tu día a día</div>
+  <h2>Una sola pantalla<br>durante el servicio.</h2>
+  <p class="lead">Los pedidos entran solos y avanzan por estados. No hay que anotar nada aparte.</p>
+
+  <div class="grid g2" style="margin-top:9mm">
+    <div>
+      <ul class="checks">
+        <li><strong>La cola de pedidos</strong> en vivo, con el detalle completo de cada uno</li>
+        <li><strong>Estados</strong>: pendiente, confirmado, en preparación, listo, en camino, entregado</li>
+        <li><strong>Demora de cocina</strong>: subís el número y los horarios que el cliente puede elegir se recortan solos</li>
+        <li><strong>Pausar pedidos</strong> cuando se llenó, con aviso automático al cliente</li>
+        <li><strong>Resumen del día</strong> sin abrir una planilla</li>
+      </ul>
+    </div>
+    <div class="panel good">
+      <h3>Lo que esto reemplaza</h3>
+      <ul>
+        <li>El cuaderno donde se anotan los pedidos</li>
+        <li>Los mensajes sueltos de WhatsApp que se pierden</li>
+        <li>La planilla de fin de mes armada de memoria</li>
+        <li>Llamar al cliente para preguntar qué había pedido</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="kbox anchor">
+    <p><strong>Cada pedido queda guardado. El cierre del mes ya está hecho cuando llegás al cierre del mes.</strong></p>
+  </div>
+  <div class="num">5</div>
+</section>
+
+<!-- 6 · Vender más -->
+<section class="page">
+  <div class="eyebrow">Herramientas para vender más</div>
+  <h2>Tres formas de mover<br>el ticket, sin regalar el margen.</h2>
+
+  <div class="grid g3" style="margin-top:9mm">
+    <div class="card">
+      <span class="ico">🎁</span>
+      <h3>Promociones</h3>
+      <p>Se aplican solas, sin que el cliente tipee nada. Un porcentaje sobre lo que elijas, o estilo 2x1 por cantidad. Con día, horario y vigencia.</p>
+    </div>
+    <div class="card">
+      <span class="ico">🎟️</span>
+      <h3>Cupones</h3>
+      <p>Códigos para campañas puntuales. Con pedido mínimo, tope de usos, vigencia y la opción de que sea solo para la primera compra.</p>
+    </div>
+    <div class="card">
+      <span class="ico">🎡</span>
+      <h3>Ruleta de premios</h3>
+      <p>El cliente gira antes de mandar el pedido y gana un descuento. Vos definís los premios y qué tan seguido sale cada uno.</p>
+    </div>
+  </div>
+
+  <div class="grid g2" style="margin-top:9mm">
+    <div class="panel good">
+      <h3>El margen está protegido por diseño</h3>
+      <ul>
+        <li>Los descuentos <strong>nunca se apilan</strong>: se aplica el mejor, no la suma</li>
+        <li>Los premios de la ruleta llevan <strong>tope en pesos</strong> y pedido mínimo</li>
+        <li>El panel te calcula <strong>cuánto te cuesta cada giro</strong> antes de prenderla</li>
+        <li>Nadie puede volver a girar hasta que le salga el premio grande</li>
+      </ul>
+    </div>
+    <div>
+      <ul class="checks">
+        <li><strong>Campañas de WhatsApp</strong> a tu base de clientes, con plantillas aprobadas</li>
+        <li><strong>Carrusel de promos</strong> arriba de todo en la tienda</li>
+        <li><strong>Productos destacados</strong> y etiquetas (nuevo, sin TACC)</li>
+      </ul>
+    </div>
+  </div>
+  <div class="num">6</div>
+</section>
+
+<!-- 7 · Datos -->
+<section class="page">
+  <div class="eyebrow">Lo que ninguna app te da</div>
+  <h2>Los clientes son tuyos.<br>Los datos también.</h2>
+
+  <div class="grid g4" style="margin-top:9mm">
+    <div class="card"><h3>Tu base de clientes</h3><p>Nombre, teléfono, barrio, cuántos pedidos hizo y cuánto gastó. Y un mapa con dónde están.</p></div>
+    <div class="card"><h3>Embudo</h3><p>Cuántos entran, cuántos miran productos, cuántos abren el checkout y cuántos terminan comprando.</p></div>
+    <div class="card"><h3>Ranking de productos</h3><p>Qué se vende, qué se mira mucho y se compra poco, y cuánto factura cada uno.</p></div>
+    <div class="card"><h3>Días y horarios</h3><p>Cuándo se pide de verdad. Para armar turnos y elegir a qué hora mandar la campaña.</p></div>
+  </div>
+
+  <div class="kbox">
+    <p><strong>Un producto muy visto y poco comprado no es un problema de cocina: es un problema de precio o de foto. Ese dato solo lo tenés si la tienda es tuya.</strong></p>
+  </div>
+
+  <div class="grid g2" style="margin-top:9mm">
+    <div class="card"><h3>Se puede exportar</h3><p>Los contactos se sincronizan con las campañas de WhatsApp en un clic.</p></div>
+    <div class="card"><h3>No se comparte</h3><p>Tu base es tuya. No alimenta el algoritmo de nadie más.</p></div>
+  </div>
+  <div class="num">7</div>
+</section>
+
+<!-- 8 · Marca -->
+<section class="page">
+  <div class="eyebrow">Tu marca</div>
+  <h2>Parece tuya porque<br>es tuya.</h2>
+
+  <div class="grid g2" style="margin-top:9mm">
+    <div>
+      <ul class="checks">
+        <li><strong>Tu dirección web propia</strong>, con el nombre de tu sucursal</li>
+        <li><strong>Logo, favicon, banners y slider</strong> configurables</li>
+        <li><strong>Colores y tipografía</strong> ajustables hasta el detalle</li>
+        <li><strong>Tus redes</strong> enlazadas desde el pie</li>
+        <li><strong>Modo carta</strong>: el mismo menú sin carrito, para el QR de las mesas</li>
+      </ul>
+    </div>
+    <div class="panel good">
+      <h3>Multi-sucursal, sin duplicar trabajo</h3>
+      <ul>
+        <li>El catálogo y los precios se cargan <strong>una sola vez</strong></li>
+        <li>Cada sucursal decide qué productos muestra</li>
+        <li>Cada una tiene sus horarios, zonas y promociones</li>
+        <li>Se pueden manejar <strong>listas de precios distintas</strong> por zona</li>
+        <li>Cada franquiciado ve solo lo suyo</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="kbox anchor">
+    <p><strong>El cliente que entra a tu tienda ve tu marca, no la de un intermediario. Y la carta del salón queda actualizada sola cuando cambiás un precio.</strong></p>
+  </div>
+  <div class="num">8</div>
+</section>
+
+<!-- 9 · Tranquilidad -->
+<section class="page">
+  <div class="eyebrow">Para dormir tranquilo</div>
+  <h2>Nada se pierde.<br>Todo se puede deshacer.</h2>
+
+  <div class="grid g3" style="margin-top:9mm">
+    <div class="card">
+      <span class="ico">🕐</span>
+      <h3>Puntos de restauración</h3>
+      <p>El sistema guarda copias automáticas antes de cada cambio grande. Si algo salió mal, se vuelve atrás.</p>
+    </div>
+    <div class="card">
+      <span class="ico">↩️</span>
+      <h3>Deshacer precios</h3>
+      <p>Cada actualización masiva queda como un lote. Se revierte completo con un botón, sin tocar nada más.</p>
+    </div>
+    <div class="card">
+      <span class="ico">🔔</span>
+      <h3>Alertas</h3>
+      <p>Te avisa lo que está mal antes de que te cueste una venta: sucursal sin WhatsApp, productos sin precio, pedidos trabados.</p>
+    </div>
+  </div>
+
+  <div class="grid g2" style="margin-top:9mm">
+    <div class="card"><h3>Si algo falla, se pide igual</h3><p>Si el buscador de direcciones no está disponible, el cliente escribe la dirección a mano y el pedido se manda lo mismo. La tienda nunca queda bloqueada por un servicio de terceros.</p></div>
+    <div class="card"><h3>Cada uno ve lo suyo</h3><p>Tres niveles de acceso: administración general, encargado de sucursal y personal. Nadie toca lo que no le corresponde.</p></div>
+  </div>
+  <div class="num">9</div>
+</section>
+
+<!-- 10 · Cierre -->
+<section class="page dark" style="justify-content:center">
+  <div class="eyebrow">Cómo seguimos</div>
+  <h1 style="font-size:30pt">Se prende en una tarde.</h1>
+  <div class="grid g3" style="margin-top:11mm">
+    <div>
+      <div class="stat">1</div>
+      <h3 style="margin-top:3mm">Cargamos tu sucursal</h3>
+      <p style="color:#8ea0b0">Dirección, WhatsApp, horarios y zonas de envío.</p>
+    </div>
+    <div>
+      <div class="stat">2</div>
+      <h3 style="margin-top:3mm">Ajustamos tu marca</h3>
+      <p style="color:#8ea0b0">Logo, colores y tu dirección web propia.</p>
+    </div>
+    <div>
+      <div class="stat">3</div>
+      <h3 style="margin-top:3mm">Empezás a recibir</h3>
+      <p style="color:#8ea0b0">El link va a Instagram, al QR de las mesas y al estado de WhatsApp.</p>
+    </div>
+  </div>
+
+  <p class="lead" style="margin-top:12mm; color:#9fb3c2">
+    El catálogo ya está cargado. Sumar una sucursal más no arranca de cero.
+  </p>
+  <div class="brand-foot" style="color:#5b6b7a">Tus Pedidos</div>
+  <div class="num" style="color:#5b6b7a">10</div>
+</section>
