@@ -60,6 +60,11 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
   const [wheelPrize, setWheelPrize] = useState<WonPrize | null>(null);
   const [wheelOpen, setWheelOpen] = useState(false);
   const [wheelFailed, setWheelFailed] = useState(false);
+  // El premio se le pide al server mientras el cliente mira la rueda quieta,
+  // así el giro arranca sin espera. Pero hasta que no gire de verdad no se
+  // muestra ni se aplica: si no, el resultado se spoilea en el chip de atrás
+  // antes de que toque GIRAR.
+  const [wheelRevealed, setWheelRevealed] = useState(false);
 
   // Descuento ya "horneado" en el precio por una promo de tipo percentage.
   // No aparece en autoPromo (que es solo el 2x1), así que hay que mirarlo
@@ -86,12 +91,15 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
   // Sin esto el chip quedaría en pantalla prometiendo algo que el server ya
   // no va a aplicar.
   useEffect(() => {
-    if (wheelPrize && hasOtherDiscount) setWheelPrize(null);
+    if (wheelPrize && hasOtherDiscount) {
+      setWheelPrize(null);
+      setWheelRevealed(false);
+    }
   }, [wheelPrize, hasOtherDiscount]);
 
-  const wheelDiscount = useMemo(() => {
-    // Un regalo no toca el total: el producto se suma a la bolsa y viaja en
-    // el mensaje de WhatsApp para que la sucursal lo prepare.
+  // Monto del premio sin la condición de "ya revelado": lo necesita la ruleta
+  // para poder decir "ahorrás $X" en el mismo momento del reveal.
+  const wheelDiscountRaw = useMemo(() => {
     if (!wheelPrize || wheelPrize.type === "product") return 0;
     const sub = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
     if (sub <= 0) return 0;
@@ -103,6 +111,21 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
     if (wheelPrize.maxDiscount > 0) d = Math.min(d, wheelPrize.maxDiscount);
     return Math.max(0, Math.min(d, sub));
   }, [wheelPrize, items]);
+
+  const wheelDiscount = useMemo(() => {
+    // Un regalo no toca el total: el producto se suma a la bolsa y viaja en
+    // el mensaje de WhatsApp para que la sucursal lo prepare.
+    if (!wheelPrize || !wheelRevealed || wheelPrize.type === "product") return 0;
+    const sub = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+    if (sub <= 0) return 0;
+    if (wheelPrize.minOrder > 0 && sub < wheelPrize.minOrder) return 0;
+    let d =
+      wheelPrize.type === "percentage"
+        ? Math.round((sub * wheelPrize.value) / 100)
+        : wheelPrize.value;
+    if (wheelPrize.maxDiscount > 0) d = Math.min(d, wheelPrize.maxDiscount);
+    return Math.max(0, Math.min(d, sub));
+  }, [wheelPrize, wheelRevealed, items]);
 
   // Girar es un click PROPIO y anterior al de enviar. Es a propósito: el
   // handleSend abre WhatsApp con window.open de forma síncrona con el click,
@@ -228,7 +251,7 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
       businessConfig.address,
       appliedCoupon || undefined,
       autoPromo,
-      wheelPrize
+      wheelPrize && wheelRevealed
         ? { label: wheelPrize.label, discount: wheelDiscount, isGift: wheelPrize.type === "product" }
         : undefined
     );
@@ -272,7 +295,7 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
       couponCode,
       // Token opaco: el server resuelve el premio y recalcula el descuento por
       // su cuenta. Nunca le mandamos el monto.
-      wheelToken: wheelPrize?.token ?? null,
+      wheelToken: wheelRevealed ? (wheelPrize?.token ?? null) : null,
       deviceId: getDeviceId(),
     };
 
@@ -311,6 +334,7 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
 
     dispatch({ type: "CLEAR" });
     setWheelPrize(null);
+    setWheelRevealed(false);
     onClose();
 
     // Save order to database (fire-and-forget, validation already happened in cart)
@@ -555,7 +579,7 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
         <div className="border-t border-white/10 p-5 flex flex-wrap gap-3">
           {/* Premio ya ganado: se muestra arriba de los botones para que el
               cliente vea el descuento antes de confirmar. */}
-          {wheelPrize && (wheelDiscount > 0 || wheelPrize.type === "product") && (
+          {wheelPrize && wheelRevealed && (wheelDiscount > 0 || wheelPrize.type === "product") && (
             <div
               className="w-full rounded-lg px-4 py-2.5 text-sm font-semibold flex items-center justify-between gap-2"
               style={{
@@ -579,7 +603,7 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
             Cancelar
           </button>
 
-          {wheelEligible && !wheelPrize ? (
+          {wheelEligible && !wheelRevealed ? (
             <button
               onClick={handleSpin}
               data-testid="spin-wheel"
@@ -601,7 +625,7 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
 
           {/* La ruleta nunca puede ser un peaje: siempre se puede mandar el
               pedido sin jugar. */}
-          {wheelEligible && !wheelPrize && (
+          {wheelEligible && !wheelRevealed && (
             <button
               onClick={handleSend}
               data-testid="submit-order"
@@ -635,7 +659,9 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
         <PrizeWheel
           slices={wheel.slices}
           prize={wheelPrize}
+          discount={wheelDiscountRaw}
           failed={wheelFailed}
+          onRevealed={() => setWheelRevealed(true)}
           onClose={() => setWheelOpen(false)}
         />
       )}

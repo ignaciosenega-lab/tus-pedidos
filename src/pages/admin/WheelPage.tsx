@@ -62,7 +62,9 @@ const EMPTY_FORM = {
   // Arranca en "A veces" para que uno de los botones de frecuencia quede
   // marcado y se entienda que son opciones, no decoración.
   weight: 15,
-  color: "#10b981",
+  // La rueda dibuja todos los gajos en negro; la columna sigue en la base
+  // pero ya no se elige desde la UI.
+  color: "#0f0f12",
   sort_order: 0,
 };
 
@@ -465,13 +467,7 @@ export default function WheelPage() {
                 {prizes.map((p) => (
                   <tr key={p.id} className={p.is_active ? "" : "opacity-40"}>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="w-4 h-4 rounded-full border border-white/20 shrink-0"
-                          style={{ backgroundColor: p.color }}
-                        />
-                        <span className="text-white text-sm">{p.label}</span>
-                      </div>
+                      <span className="text-white text-sm">{p.label}</span>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-300">
                       {p.type === "percentage"
@@ -787,25 +783,18 @@ export default function WheelPage() {
                 </details>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">Color</label>
-                  <input
-                    type="color"
-                    value={form.color}
-                    onChange={(e) => setForm({ ...form, color: e.target.value })}
-                    className="w-full h-10 bg-gray-800 border border-gray-700 rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">Orden</label>
-                  <input
-                    type="number"
-                    value={form.sort_order}
-                    onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) })}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
-                  />
-                </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Orden en la ruleta</label>
+                <input
+                  type="number"
+                  value={form.sort_order}
+                  onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) })}
+                  className="w-32 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+                />
+                <p className="text-[11px] text-gray-500 mt-1">
+                  En qué posición aparece el gajo. Todos los gajos se dibujan en negro,
+                  separados por una línea roja.
+                </p>
               </div>
             </div>
             <div className="px-5 py-4 border-t border-gray-800 flex gap-3">

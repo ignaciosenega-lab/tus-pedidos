@@ -5,6 +5,8 @@ interface Props {
   slices: WheelSlice[];
   /** Premio ya resuelto por el server. `null` mientras el request está en vuelo. */
   prize: WonPrize | null;
+  /** Descuento en pesos que el premio representa para ESTE carrito. 0 en un regalo. */
+  discount?: number;
   /** True si el request falló: cerramos sin drama. */
   failed?: boolean;
   onClose: () => void;
@@ -13,22 +15,31 @@ interface Props {
 }
 
 /**
- * Ruleta de premios. Dos fases de animación:
+ * Ruleta de premios. Cuatro fases:
  *
- *  1. `spinning` — giro libre mientras esperamos la respuesta del server.
- *  2. `landing`  — llegó el premio, así que sabemos el ángulo exacto y hacemos
- *     una sola transición determinística hasta el gajo ganador.
+ *  1. `idle`     — la rueda quieta y un botón GIRAR. El cliente la tiene que
+ *                  jugar: si girara sola sería un cartel, no un juego.
+ *  2. `spinning` — giro libre, por si el premio del server todavía no llegó.
+ *  3. `landing`  — ya sabemos qué salió, así que una sola transición
+ *                  determinística hasta el gajo ganador.
+ *  4. `revealed` — el premio, dicho con todas las letras.
  *
- * El orden importa: primero el fetch, después la animación. Al revés, con una
- * conexión lenta la rueda se frenaría antes de que sepamos qué salió.
+ * Mientras el cliente mira la rueda quieta, el premio ya se está pidiendo al
+ * server en paralelo. Así, cuando toca GIRAR, casi siempre ya llegó y la
+ * animación arranca y frena de una sola pasada.
  *
  * El resultado NO se decide acá: viene del server, que ya lo escribió en la
  * base. Este componente solo lo muestra.
  */
-export default function PrizeWheel({ slices, prize, failed, onClose, onRevealed }: Props) {
-  const [phase, setPhase] = useState<"spinning" | "landing" | "revealed">("spinning");
+export default function PrizeWheel({ slices, prize, discount = 0, failed, onClose, onRevealed }: Props) {
+  const [phase, setPhase] = useState<"idle" | "spinning" | "landing" | "revealed">("idle");
   const [angle, setAngle] = useState(0);
-  const startedAt = useRef(Date.now());
+  const startedAt = useRef(0);
+
+  function handleSpin() {
+    startedAt.current = Date.now();
+    setPhase("spinning");
+  }
 
   const reducedMotion = useMemo(
     () =>
@@ -39,14 +50,12 @@ export default function PrizeWheel({ slices, prize, failed, onClose, onRevealed 
 
   const step = slices.length > 0 ? 360 / slices.length : 360;
 
-  // Gajos dibujados con conic-gradient: un solo div, sin SVG ni canvas.
-  const background = useMemo(() => {
-    if (slices.length === 0) return "var(--panel-bg, #1f2937)";
-    const stops = slices
-      .map((s, i) => `${s.color} ${i * step}deg ${(i + 1) * step}deg`)
-      .join(", ");
-    return `conic-gradient(${stops})`;
-  }, [slices, step]);
+// Todos los gajos van en negro y se separan con una línea roja. Un color por
+// gajo competía con el color de la marca de cada sucursal y en pantalla chica
+// terminaba siendo ruido; el contraste negro/rojo se lee siempre igual, no
+// importa el tema del local.
+const SLICE_BG = "#0f0f12";
+const DIVIDER = "#e11d2f";
 
   useEffect(() => {
     if (!prize || phase !== "spinning") return;
@@ -129,14 +138,22 @@ export default function PrizeWheel({ slices, prize, failed, onClose, onRevealed 
           className="text-lg font-bold mb-1"
           style={{ color: "var(--panel-text, #fff)" }}
         >
-          {phase === "revealed" ? "🎉 ¡Ganaste!" : "Girando…"}
+          {phase === "revealed" && prize
+            ? `🎉 ¡Ganaste ${prize.label}!`
+            : phase === "idle"
+              ? "Tenés un giro"
+              : "Girando…"}
         </h3>
         <p className="text-xs opacity-70 mb-5" style={{ color: "var(--panel-text, #fff)" }}>
-          {phase === "revealed"
-            ? prize?.type === "product"
-              ? "Va de regalo con tu pedido."
-              : "El descuento ya está aplicado en tu pedido."
-            : "Estamos sorteando tu premio."}
+          {phase === "revealed" && prize
+            ? prize.type === "product"
+              ? "Te lo agregamos al pedido."
+              : discount > 0
+                ? "Ya está aplicado a tu pedido."
+                : "Se aplica a tu pedido."
+            : phase === "idle"
+              ? "Girá la ruleta y ganate un descuento."
+              : "Estamos sorteando tu premio."}
         </p>
 
         <div className="relative mx-auto mb-5" style={{ width: 240, height: 240 }}>
@@ -156,12 +173,12 @@ export default function PrizeWheel({ slices, prize, failed, onClose, onRevealed 
           {/* Rueda */}
           <div
             onTransitionEnd={handleTransitionEnd}
-            className={`w-full h-full rounded-full ${
+            className={`w-full h-full rounded-full overflow-hidden ${
               phase === "spinning" && !reducedMotion ? "tp-wheel-idle" : ""
             }`}
             style={{
-              background,
-              border: "6px solid var(--btn-bg, #fff)",
+              backgroundColor: SLICE_BG,
+              border: `5px solid ${DIVIDER}`,
               boxShadow: "0 8px 30px rgba(0,0,0,.45)",
               transform: `rotate(${angle}deg)`,
               transition:
@@ -170,6 +187,26 @@ export default function PrizeWheel({ slices, prize, failed, onClose, onRevealed 
                   : undefined,
             }}
           >
+            {/* Separadores: una línea roja en cada borde entre gajos. Van desde
+                el centro hacia afuera, rotadas al ángulo de cada división. */}
+            {slices.length > 1 &&
+              slices.map((s, i) => (
+                <div
+                  key={`div-${s.id}`}
+                  className="absolute pointer-events-none"
+                  style={{
+                    top: 0,
+                    left: "50%",
+                    width: 2,
+                    height: "50%",
+                    marginLeft: -1,
+                    backgroundColor: DIVIDER,
+                    transformOrigin: "bottom center",
+                    transform: `rotate(${i * step}deg)`,
+                  }}
+                />
+              ))}
+
             {slices.map((s, i) => (
               <div
                 key={s.id}
@@ -177,8 +214,8 @@ export default function PrizeWheel({ slices, prize, failed, onClose, onRevealed 
                 style={{ transform: `rotate(${i * step + step / 2}deg)` }}
               >
                 <span
-                  className="text-[11px] font-bold text-white mt-3 px-1"
-                  style={{ textShadow: "0 1px 2px rgba(0,0,0,.6)", maxWidth: 90 }}
+                  className="text-[11px] font-bold text-white mt-4 px-1"
+                  style={{ textShadow: "0 1px 3px rgba(0,0,0,.9)", maxWidth: 90 }}
                 >
                   {s.label}
                 </span>
@@ -187,7 +224,25 @@ export default function PrizeWheel({ slices, prize, failed, onClose, onRevealed 
           </div>
         </div>
 
-        {phase === "revealed" && prize ? (
+        {phase === "idle" ? (
+          <>
+            <button
+              onClick={handleSpin}
+              data-testid="spin-now"
+              className="w-full py-3.5 rounded-lg font-extrabold text-base tracking-wide"
+              style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
+            >
+              GIRAR
+            </button>
+            <button
+              onClick={onClose}
+              className="text-xs underline opacity-60 mt-3"
+              style={{ color: "var(--panel-text, #fff)" }}
+            >
+              Ahora no
+            </button>
+          </>
+        ) : phase === "revealed" && prize ? (
           <>
             {prize.type === "product" && prize.image ? (
               <img
@@ -198,21 +253,29 @@ export default function PrizeWheel({ slices, prize, failed, onClose, onRevealed 
                 onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
               />
             ) : null}
+
+            {/* El premio, otra vez y en grande. Que no dependa de que el
+                cliente haya leído el encabezado. */}
             <div
-              className="text-2xl font-extrabold mb-1"
+              className="text-2xl font-extrabold leading-tight"
               style={{ color: "var(--btn-bg, #10b981)" }}
             >
               {prize.label}
             </div>
-            {prize.type === "product" && (
-              <p className="text-xs opacity-70 mb-3" style={{ color: "var(--panel-text, #fff)" }}>
-                Te lo agregamos al pedido.
+
+            {prize.type === "product" ? (
+              <p className="text-sm opacity-80 mt-1" style={{ color: "var(--panel-text, #fff)" }}>
+                de regalo con tu pedido
               </p>
-            )}
-            <div className="mb-4" />
+            ) : discount > 0 ? (
+              <p className="text-sm opacity-80 mt-1" style={{ color: "var(--panel-text, #fff)" }}>
+                Ahorrás ${discount.toLocaleString("es-AR")} en este pedido
+              </p>
+            ) : null}
+
             <button
               onClick={onClose}
-              className="w-full py-3 rounded-lg font-bold"
+              className="w-full py-3 rounded-lg font-bold mt-5"
               style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
             >
               Seguir con mi pedido
