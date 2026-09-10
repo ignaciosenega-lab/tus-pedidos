@@ -60,6 +60,10 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
   const [wheelPrize, setWheelPrize] = useState<WonPrize | null>(null);
   const [wheelOpen, setWheelOpen] = useState(false);
   const [wheelFailed, setWheelFailed] = useState(false);
+  const [wheelBusy, setWheelBusy] = useState(false);
+  // Motivo por el que no hay giro, en criollo. Sin esto la ruleta se abría y
+  // se cerraba sola y el botón cambiaba a "Enviar" sin decir por qué.
+  const [wheelNotice, setWheelNotice] = useState("");
   // El premio se le pide al server mientras el cliente mira la rueda quieta,
   // así el giro arranca sin espera. Pero hasta que no gire de verdad no se
   // muestra ni se aplica: si no, el resultado se spoilea en el chip de atrás
@@ -131,9 +135,21 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
   // handleSend abre WhatsApp con window.open de forma síncrona con el click,
   // y si metiéramos este await ahí en el medio, el navegador lo bloquearía
   // como popup y el pedido no se mandaría.
+  // Motivos que el server puede devolver, traducidos. Los que no están acá
+  // (sin premios cargados, ruleta apagada, error de red) no se le explican al
+  // cliente: no es asunto suyo y no puede hacer nada al respecto.
+  const WHEEL_NOTICES: Record<string, string> = {
+    cooldown: "Ya usaste tu giro. Seguí con tu pedido normalmente.",
+    not_eligible: "Ya tenés un descuento aplicado, así que esta vez no va la ruleta.",
+    invalid_phone: "Revisá el celular para poder girar.",
+  };
+
   async function handleSpin() {
     if (!validate()) return;
-    setWheelOpen(true);
+    // Se pide el premio ANTES de abrir la ruleta. Al revés, un giro rechazado
+    // hacía aparecer y desaparecer el modal de golpe.
+    setWheelBusy(true);
+    setWheelNotice("");
     try {
       const res = await fetch("/api/wheel/spin", {
         method: "POST",
@@ -153,14 +169,15 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
       }).then((r) => r.json());
 
       if (!res.ok) {
-        // Sin premio disponible o no elegible: se sigue sin ruleta, en
-        // silencio. Nunca bloqueamos el pedido por esto.
-        setWheelFailed(true);
-        setWheelOpen(false);
+        setWheelNotice(WHEEL_NOTICES[res.reason] || "");
+        // Un teléfono mal escrito se puede corregir y volver a intentar, así
+        // que ese caso no quema el giro. El resto sí: se sigue sin ruleta.
+        if (res.reason !== "invalid_phone") setWheelFailed(true);
         return;
       }
 
       setWheelPrize({ token: res.token, expiresAt: res.expiresAt, ...res.prize });
+      setWheelOpen(true);
       if (branchId) {
         const sid = sessionStorage.getItem("_tp_sid") || "";
         fetch("/api/analytics/event", {
@@ -170,8 +187,10 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
         }).catch(() => {});
       }
     } catch {
+      // Sin red no se explica nada: el pedido tiene que poder mandarse igual.
       setWheelFailed(true);
-      setWheelOpen(false);
+    } finally {
+      setWheelBusy(false);
     }
   }
 
@@ -579,6 +598,18 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
         <div className="border-t border-white/10 p-5 flex flex-wrap gap-3">
           {/* Premio ya ganado: se muestra arriba de los botones para que el
               cliente vea el descuento antes de confirmar. */}
+          {wheelNotice && !wheelPrize && (
+            <div
+              className="w-full rounded-lg px-4 py-2.5 text-xs"
+              style={{
+                backgroundColor: "rgba(255,255,255,.06)",
+                color: "var(--general-text)",
+              }}
+            >
+              {wheelNotice}
+            </div>
+          )}
+
           {wheelPrize && wheelRevealed && (wheelDiscount > 0 || wheelPrize.type === "product") && (
             <div
               className="w-full rounded-lg px-4 py-2.5 text-sm font-semibold flex items-center justify-between gap-2"
@@ -606,11 +637,12 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
           {wheelEligible && !wheelRevealed ? (
             <button
               onClick={handleSpin}
+              disabled={wheelBusy}
               data-testid="spin-wheel"
-              className="flex-1 py-3 rounded-lg font-semibold text-sm transition-opacity hover:opacity-90"
+              className="flex-1 py-3 rounded-lg font-semibold text-sm transition-opacity hover:opacity-90 disabled:opacity-60"
               style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
             >
-              🎡 Girar y ganar
+              {wheelBusy ? "Preparando…" : "🎡 Girar y ganar"}
             </button>
           ) : (
             <button
