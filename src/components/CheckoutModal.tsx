@@ -138,11 +138,29 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
   // Motivos que el server puede devolver, traducidos. Los que no están acá
   // (sin premios cargados, ruleta apagada, error de red) no se le explican al
   // cliente: no es asunto suyo y no puede hacer nada al respecto.
-  const WHEEL_NOTICES: Record<string, string> = {
-    cooldown: "Ya usaste tu giro. Seguí con tu pedido normalmente.",
-    not_eligible: "Ya tenés un descuento aplicado, así que esta vez no va la ruleta.",
-    invalid_phone: "Revisá el celular para poder girar.",
-  };
+  //
+  // Para el cooldown se dice CUÁNDO puede volver, no solo que no puede ahora:
+  // "ya giraste hoy" invita a volver mañana, "no podés girar" suena a error.
+  function wheelNoticeFor(reason: string, hoursLeft?: number): string {
+    if (reason === "cooldown") {
+      if (hoursLeft === undefined) return "Ya giraste. Seguí con tu pedido normalmente.";
+      if (hoursLeft <= 1) return "Ya giraste recién. Vas a poder girar de nuevo en un rato.";
+      if (hoursLeft <= 24) {
+        return `Ya giraste hoy. Vas a poder girar de nuevo en ${hoursLeft} ${
+          hoursLeft === 1 ? "hora" : "horas"
+        }.`;
+      }
+      const days = Math.ceil(hoursLeft / 24);
+      return `Ya usaste tu giro. Vas a poder girar de nuevo en ${days} ${
+        days === 1 ? "día" : "días"
+      }.`;
+    }
+    if (reason === "not_eligible") {
+      return "Ya tenés un descuento aplicado, así que esta vez no va la ruleta.";
+    }
+    if (reason === "invalid_phone") return "Revisá el celular para poder girar.";
+    return "";
+  }
 
   async function handleSpin() {
     if (!validate()) return;
@@ -169,7 +187,7 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
       }).then((r) => r.json());
 
       if (!res.ok) {
-        setWheelNotice(WHEEL_NOTICES[res.reason] || "");
+        setWheelNotice(wheelNoticeFor(res.reason, res.hoursLeft));
         // Un teléfono mal escrito se puede corregir y volver a intentar, así
         // que ese caso no quema el giro. El resto sí: se sigue sin ruleta.
         if (res.reason !== "invalid_phone") setWheelFailed(true);

@@ -672,7 +672,22 @@ function resolveWheelSpin(db, branch, cleanPhone, deviceId) {
       // 4) Ya lo usó en un pedido y sigue dentro del cooldown → no gira de nuevo.
       if (last.status === "consumed" && last.consumed_at) {
         const fresh = withinCooldown.get(last.consumed_at, cutoffArg).fresh;
-        if (fresh) return { eligible: false, reason: "cooldown" };
+        if (fresh) {
+          // Cuántas horas faltan para que se le libere el giro. Se calcula en
+          // SQL para no mezclar el formato de fecha local del schema con Date.
+          const left = db
+            .prepare(
+              `SELECT CAST(
+                 (julianday(datetime(?, '+' || ? || ' hours')) - julianday(datetime('now','localtime')))
+                 * 24 AS REAL) AS h`
+            )
+            .get(last.consumed_at, cooldownHours).h;
+          return {
+            eligible: false,
+            reason: "cooldown",
+            hoursLeft: Math.max(0, Math.ceil(Number(left) || 0)),
+          };
+        }
       }
 
       // 5) STICKY ROLL: venció sin usarlo pero sigue dentro del cooldown.
@@ -1749,7 +1764,11 @@ app.post("/api/wheel/spin", (req, res) => {
 
     const result = resolveWheelSpin(db, branch, cleanPhone, String(deviceId || ""));
     if (result.eligible === false) {
-      return res.json({ ok: false, reason: result.reason });
+      return res.json({
+        ok: false,
+        reason: result.reason,
+        ...(result.hoursLeft !== undefined ? { hoursLeft: result.hoursLeft } : {}),
+      });
     }
 
     const { spin, alreadySpun } = result;
