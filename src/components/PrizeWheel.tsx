@@ -31,15 +31,62 @@ interface Props {
  * El resultado NO se decide acá: viene del server, que ya lo escribió en la
  * base. Este componente solo lo muestra.
  */
+// Todos los gajos van en negro y se separan con una línea roja. Un color por
+// gajo competía con el color de la marca de cada sucursal y en pantalla chica
+// terminaba siendo ruido; el contraste negro/rojo se lee siempre igual, no
+// importa el tema del local.
+const SLICE_BG = "#0f0f12";
+const DIVIDER = "#e11d2f";
+
+/** Cuánto dura el frenado. */
+const SPIN_MS = 5000;
+/** Vueltas enteras antes de empezar a frenar: define qué tan rápido arranca. */
+const SPIN_TURNS = 9;
+/**
+ * Desaceleración pareja, sin rebote. El tramo inicial casi recto es lo que
+ * hace que arranque rápido; la cola larga es la que deja la sensación de que
+ * la rueda se va quedando sin envión y el premio sale de ahí, en vez de
+ * aparecer cortado.
+ */
+const SPIN_EASING = "cubic-bezier(0.12, 0.72, 0.12, 1)";
+
 export default function PrizeWheel({ slices, prize, discount = 0, failed, onClose, onRevealed }: Props) {
   const [phase, setPhase] = useState<"idle" | "spinning" | "landing" | "revealed">("idle");
   const [angle, setAngle] = useState(0);
-  const startedAt = useRef(0);
+  // Ángulo actual, siempre al día. Es lo que permite empalmar el giro libre
+  // con el frenado sin que la rueda pegue un salto: el frenado arranca desde
+  // donde la rueda está, no desde cero.
+  const angleRef = useRef(0);
+  const rafRef = useRef<number | null>(null);
+
+  function stopFreeSpin() {
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+  }
+
+  /** Giro libre a velocidad constante, mientras esperamos el premio. */
+  function startFreeSpin() {
+    let last = performance.now();
+    const tick = (now: number) => {
+      const dt = now - last;
+      last = now;
+      angleRef.current += dt * 0.72; // ~260°/s
+      setAngle(angleRef.current);
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+  }
 
   function handleSpin() {
-    startedAt.current = Date.now();
     setPhase("spinning");
+    // Si el premio todavía no llegó, la rueda gira libre hasta que llegue.
+    // Si ya está, el efecto de abajo dispara el frenado en el acto.
+    if (!prize) startFreeSpin();
   }
+
+  useEffect(() => () => stopFreeSpin(), []);
 
   const reducedMotion = useMemo(
     () =>
@@ -50,47 +97,46 @@ export default function PrizeWheel({ slices, prize, discount = 0, failed, onClos
 
   const step = slices.length > 0 ? 360 / slices.length : 360;
 
-// Todos los gajos van en negro y se separan con una línea roja. Un color por
-// gajo competía con el color de la marca de cada sucursal y en pantalla chica
-// terminaba siendo ruido; el contraste negro/rojo se lee siempre igual, no
-// importa el tema del local.
-const SLICE_BG = "#0f0f12";
-const DIVIDER = "#e11d2f";
 
   useEffect(() => {
     if (!prize || phase !== "spinning") return;
 
     const index = slices.findIndex((s) => s.id === prize.id);
-    if (index < 0) {
+    if (index < 0 || reducedMotion) {
       // El premio no está entre los gajos dibujados (la sucursal editó la
-      // ruleta mientras el cliente jugaba). Mostramos el resultado igual.
+      // ruleta mientras el cliente jugaba), o el sistema pide menos animación.
+      stopFreeSpin();
       setPhase("revealed");
       onRevealed?.();
       return;
     }
 
-    if (reducedMotion) {
-      setPhase("revealed");
-      onRevealed?.();
-      return;
-    }
+    stopFreeSpin();
 
-    // El puntero está arriba (12 en punto), así que hay que rotar el centro
-    // del gajo ganador hasta esa posición. Las 6 vueltas enteras son para que
-    // se vea como una tirada y no como un salto.
+    // El puntero está arriba, a las 12. Para que el gajo ganador quede debajo
+    // del puntero, su centro tiene que terminar en 0°, o sea que el ángulo
+    // final de la rueda tiene que ser ≡ -centro (mod 360).
     const center = index * step + step / 2;
-    const jitter = Math.random() * step * 0.5 - step * 0.25;
-    const target = 360 * 6 - center + jitter;
+    // El premio no cae siempre en el mismo punto exacto del gajo, pero nunca
+    // tan al borde como para dejar duda de cuál salió.
+    const jitter = (Math.random() - 0.5) * step * 0.55;
+    const wanted = (((-center + jitter) % 360) + 360) % 360;
 
-    // Dejamos que el giro libre se vea al menos 600ms aunque el server
-    // conteste al instante: si no, la ruleta "parpadea" y no se entiende.
-    const elapsed = Date.now() - startedAt.current;
-    const wait = Math.max(0, 600 - elapsed);
-    const t = setTimeout(() => {
+    // Se busca el primer ángulo que cumpla esa condición pasadas N vueltas
+    // desde donde la rueda está AHORA. Así el frenado continúa el movimiento
+    // en vez de reiniciarlo.
+    const from = angleRef.current;
+    const minTarget = from + SPIN_TURNS * 360;
+    const target = minTarget + (((wanted - minTarget) % 360) + 360) % 360;
+
+    angleRef.current = target;
+    // Dos frames: uno para fijar el ángulo actual sin transición y otro para
+    // aplicar el destino. Sin esto el navegador colapsa los dos cambios y la
+    // rueda salta en vez de frenar.
+    requestAnimationFrame(() => {
       setAngle(target);
       setPhase("landing");
-    }, wait);
-    return () => clearTimeout(t);
+    });
   }, [prize, phase, slices, step, reducedMotion, onRevealed]);
 
   // Red de seguridad: si `transitionend` no llega —pestaña en segundo plano,
@@ -102,7 +148,7 @@ const DIVIDER = "#e11d2f";
     const t = setTimeout(() => {
       setPhase("revealed");
       onRevealed?.();
-    }, 4600);
+    }, SPIN_MS + 400);
     return () => clearTimeout(t);
   }, [phase, onRevealed]);
 
@@ -173,17 +219,18 @@ const DIVIDER = "#e11d2f";
           {/* Rueda */}
           <div
             onTransitionEnd={handleTransitionEnd}
-            className={`w-full h-full rounded-full overflow-hidden ${
-              phase === "spinning" && !reducedMotion ? "tp-wheel-idle" : ""
-            }`}
+            className="w-full h-full rounded-full overflow-hidden"
             style={{
               backgroundColor: SLICE_BG,
               border: `5px solid ${DIVIDER}`,
               boxShadow: "0 8px 30px rgba(0,0,0,.45)",
               transform: `rotate(${angle}deg)`,
+              // Solo el frenado lleva transición. El giro libre se dibuja
+              // cuadro a cuadro, así que si tuviera transición iría a los
+              // tirones.
               transition:
                 phase === "landing"
-                  ? "transform 4.2s cubic-bezier(.16,.68,.28,1)"
+                  ? `transform ${SPIN_MS}ms ${SPIN_EASING}`
                   : undefined,
             }}
           >
