@@ -180,6 +180,55 @@ function getDb() {
       db.exec("ALTER TABLE orders ADD COLUMN wheel_spin_id INTEGER");
     }
 
+    // Migration: permitir premios de tipo 'product' (regalo) en la ruleta.
+    // SQLite no deja modificar un CHECK con ALTER TABLE, así que hay que
+    // reconstruir la tabla. Se detecta mirando si el CHECK ya admite 'product'.
+    try {
+      const wpSql = db
+        .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='wheel_prizes'")
+        .get();
+      if (wpSql && !wpSql.sql.includes("'product'")) {
+        const rebuild = db.transaction(() => {
+          db.exec(`
+            CREATE TABLE wheel_prizes_new (
+              id           INTEGER PRIMARY KEY AUTOINCREMENT,
+              branch_id    INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+              label        TEXT    NOT NULL,
+              type         TEXT    NOT NULL DEFAULT 'percentage' CHECK (type IN ('percentage', 'fixed', 'product')),
+              product_id   INTEGER REFERENCES products(id) ON DELETE SET NULL,
+              value        REAL    NOT NULL DEFAULT 0,
+              max_discount REAL    NOT NULL DEFAULT 0,
+              min_order    REAL    NOT NULL DEFAULT 0,
+              weight       INTEGER NOT NULL DEFAULT 1,
+              color        TEXT    NOT NULL DEFAULT '#10b981',
+              sort_order   INTEGER NOT NULL DEFAULT 0,
+              is_active    INTEGER NOT NULL DEFAULT 1,
+              created_at   TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+            );
+          `);
+          db.exec(`
+            INSERT INTO wheel_prizes_new
+              (id, branch_id, label, type, value, max_discount, min_order, weight, color, sort_order, is_active, created_at)
+            SELECT id, branch_id, label, type, value, max_discount, min_order, weight, color, sort_order, is_active, created_at
+              FROM wheel_prizes;
+          `);
+          db.exec("DROP TABLE wheel_prizes;");
+          db.exec("ALTER TABLE wheel_prizes_new RENAME TO wheel_prizes;");
+          db.exec("CREATE INDEX IF NOT EXISTS idx_wheel_prizes_branch ON wheel_prizes(branch_id, is_active);");
+        });
+        rebuild();
+        console.log("Migration: wheel_prizes ahora admite premios de tipo 'product'");
+      }
+    } catch (e) {
+      console.warn("Migration wheel_prizes (regalo) omitida:", e.message);
+    }
+
+    // Migration: foto del producto regalado, snapshoteada en el giro.
+    const spinCols = db.prepare("PRAGMA table_info(wheel_spins)").all().map((c) => c.name);
+    if (spinCols.length > 0 && !spinCols.includes("prize_image")) {
+      db.exec("ALTER TABLE wheel_spins ADD COLUMN prize_image TEXT NOT NULL DEFAULT ''");
+    }
+
     // Migration: normalizar products.type legacy ('variable' → 'options').
     // El commit 8ee8122 cambió el naming pero datos viejos pueden quedar con
     // type='variable' y bloquean cualquier UPDATE por el CHECK constraint.

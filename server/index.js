@@ -540,7 +540,11 @@ function getActiveWheelPrizes(db, branchId) {
   return db
     .prepare(
       `SELECT * FROM wheel_prizes
-        WHERE branch_id = ? AND is_active = 1 AND weight > 0 AND value > 0
+        WHERE branch_id = ? AND is_active = 1 AND weight > 0
+          AND (
+            (type IN ('percentage', 'fixed') AND value > 0)
+            OR (type = 'product' AND product_id IS NOT NULL)
+          )
         ORDER BY sort_order, id`
     )
     .all(branchId);
@@ -570,6 +574,9 @@ function drawWheelPrize(pool) {
 // orders diferirían en un peso y eso aparece como descuadre de caja.
 function computeWheelDiscount(spin, subtotal) {
   if (!spin || subtotal <= 0) return 0;
+  // Un regalo no baja el total: se suma a la bolsa. Su costo se registra
+  // aparte, en applied_discount, para que las métricas digan la verdad.
+  if (spin.prize_type === "product") return 0;
   if (spin.prize_min_order > 0 && subtotal < spin.prize_min_order) return 0;
 
   let discount =
@@ -579,6 +586,14 @@ function computeWheelDiscount(spin, subtotal) {
 
   if (spin.prize_max_discount > 0) discount = Math.min(discount, spin.prize_max_discount);
   return Math.max(0, Math.min(discount, subtotal));
+}
+
+// Lo que el premio le costó REALMENTE al negocio. Para un descuento es la
+// plata que dejó de cobrar; para un regalo, el costo estimado del producto
+// (que no se le descontó al cliente pero igual sale de la caja).
+function computeWheelCost(spin, wheelDiscount) {
+  if (spin && spin.prize_type === "product") return Number(spin.prize_value) || 0;
+  return wheelDiscount;
 }
 
 // Descuento ya "horneado" en el precio por una promo de tipo percentage.
@@ -687,14 +702,35 @@ function resolveWheelSpin(db, branch, cleanPhone, deviceId) {
     const { winner, roll, totalWeight } = draw;
     const token = crypto.randomBytes(16).toString("hex");
 
+    // Un regalo se snapshotea con el precio y la foto que el producto tiene
+    // HOY: si mañana cambia de precio o lo borran, el giro viejo sigue siendo
+    // legible y su costo sigue siendo el que fue.
+    let prizeValue = winner.value;
+    let prizeImage = "";
+    if (winner.type === "product" && winner.product_id) {
+      const prod = db
+        .prepare("SELECT name, image_url, base_price FROM products WHERE id = ?")
+        .get(winner.product_id);
+      if (prod) {
+        prizeImage = prod.image_url || "";
+        // Si el admin no cargó un costo a mano, usamos el precio de lista.
+        if (!prizeValue) {
+          const variant = db
+            .prepare("SELECT price FROM product_variants WHERE product_id = ? ORDER BY sort_order, id LIMIT 1")
+            .get(winner.product_id);
+          prizeValue = Number(prod.base_price) || Number(variant?.price) || 0;
+        }
+      }
+    }
+
     const result = db
       .prepare(
         `INSERT INTO wheel_spins
            (branch_id, phone, device_id, prize_id, prize_label, prize_type, prize_value,
-            prize_max_discount, prize_min_order, roll, total_weight, pool_snapshot,
+            prize_max_discount, prize_min_order, prize_image, roll, total_weight, pool_snapshot,
             token, status, expires_at)
          VALUES (@branch_id, @phone, @device_id, @prize_id, @prize_label, @prize_type, @prize_value,
-                 @prize_max_discount, @prize_min_order, @roll, @total_weight, @pool_snapshot,
+                 @prize_max_discount, @prize_min_order, @prize_image, @roll, @total_weight, @pool_snapshot,
                  @token, 'pending', datetime('now', 'localtime', @expires))`
       )
       .run({
@@ -704,9 +740,10 @@ function resolveWheelSpin(db, branch, cleanPhone, deviceId) {
         prize_id: winner.id,
         prize_label: winner.label,
         prize_type: winner.type,
-        prize_value: winner.value,
+        prize_value: prizeValue,
         prize_max_discount: winner.max_discount,
         prize_min_order: winner.min_order,
+        prize_image: prizeImage,
         roll,
         total_weight: totalWeight,
         pool_snapshot: JSON.stringify(
@@ -1728,6 +1765,7 @@ app.post("/api/wheel/spin", (req, res) => {
         value: spin.prize_value,
         maxDiscount: spin.prize_max_discount,
         minOrder: spin.prize_min_order,
+        image: spin.prize_image || "",
       },
     });
   } catch (e) {
@@ -1908,7 +1946,7 @@ app.post("/api/orders", (req, res) => {
               SET status = 'consumed', order_id = ?, applied_discount = ?,
                   consumed_at = datetime('now', 'localtime')
             WHERE id = ? AND status = 'pending'`
-        ).run(orderId, wheelDiscount, wheelSpin.id);
+        ).run(orderId, computeWheelCost(wheelSpin, wheelDiscount), wheelSpin.id);
       }
 
       // Update total_spent and last_order_date on customer

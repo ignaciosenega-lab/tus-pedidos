@@ -26,7 +26,7 @@ export function buildWhatsAppMessage(
   storeAddress: string,
   coupon?: CouponInfo,
   autoPromo?: AutoPromoInfo,
-  wheelPrize?: { label: string; discount: number }
+  wheelPrize?: { label: string; discount: number; isGift?: boolean }
 ): string {
   // Current order timestamp
   const now = new Date();
@@ -56,6 +56,9 @@ export function buildWhatsAppMessage(
   const autoPromoTotal = autoPromo?.total || 0;
   const couponDiscount = (coupon && coupon.discount > 0) ? coupon.discount : 0;
   const wheelDiscount = (wheelPrize && wheelPrize.discount > 0) ? wheelPrize.discount : 0;
+  // El regalo no entra en la cuenta del total, pero sí tiene que verse: es lo
+  // que la sucursal lee para agregarlo a la bolsa.
+  const wheelGift = wheelPrize && wheelPrize.isGift ? wheelPrize.label : "";
   const hasAnyDiscount = autoPromoTotal > 0 || couponDiscount > 0 || wheelDiscount > 0;
 
   if (hasAnyDiscount) {
@@ -75,6 +78,11 @@ export function buildWhatsAppMessage(
     msg += `Total a pagar: $${plainTotal(Math.max(0, total - autoPromoTotal - couponDiscount - wheelDiscount))}\n`;
   } else {
     msg += `\nTotal a pagar: $${plainTotal(total)}\n`;
+  }
+  // El regalo va DESPUÉS del total y fuera del bloque de descuentos: no cambia
+  // lo que el cliente paga, pero la sucursal tiene que verlo sí o sí.
+  if (wheelGift) {
+    msg += `\n🎡 Ruleta — REGALO: ${wheelGift}\n`;
   }
   msg += `\n`;
   msg += `Forma de pago: ${checkout.paymentMethod}\n`;

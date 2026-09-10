@@ -2,11 +2,20 @@ import { useState, useEffect } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useBranchId } from "../../hooks/useBranchId";
 
+interface CatalogProduct {
+  id: number;
+  name: string;
+  image_url: string;
+  base_price: number | null;
+  variants?: { price: number }[];
+}
+
 interface Prize {
   id: number;
   branch_id: number;
   label: string;
-  type: "percentage" | "fixed";
+  type: "percentage" | "fixed" | "product";
+  product_id: number | null;
   value: number;
   max_discount: number;
   min_order: number;
@@ -41,9 +50,12 @@ interface WheelStats {
   control: { orders: number; revenue: number; aov: number };
 }
 
+type PrizeType = "percentage" | "fixed" | "product";
+
 const EMPTY_FORM = {
   label: "",
-  type: "percentage" as "percentage" | "fixed",
+  type: "percentage" as PrizeType,
+  product_id: null as number | null,
   value: 10,
   max_discount: 0,
   min_order: 0,
@@ -51,6 +63,12 @@ const EMPTY_FORM = {
   color: "#10b981",
   sort_order: 0,
 };
+
+/** Precio de lista de un producto: el base, o el de su primera variante. */
+function productPrice(p?: CatalogProduct): number {
+  if (!p) return 0;
+  return Number(p.base_price) || Number(p.variants?.[0]?.price) || 0;
+}
 
 const money = (n: number) =>
   "$" + Math.round(n || 0).toLocaleString("es-AR");
@@ -73,6 +91,8 @@ export default function WheelPage() {
   const [editing, setEditing] = useState<Prize | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [avgTicket, setAvgTicket] = useState(12000);
+  const [products, setProducts] = useState<CatalogProduct[]>([]);
+  const [productSearch, setProductSearch] = useState("");
 
   useEffect(() => {
     if (!branchId) { setLoading(false); return; }
@@ -83,12 +103,16 @@ export default function WheelPage() {
     try {
       setLoading(true);
       setError(null);
-      const [p, b, s] = await Promise.all([
+      const [p, b, s, cat] = await Promise.all([
         apiFetch<Prize[]>(`/api/branches/${branchId}/wheel-prizes`),
         apiFetch<BranchWheelConfig>(`/api/branches/${branchId}`),
         apiFetch<WheelStats>(`/api/branches/${branchId}/wheel-stats`).catch(() => null),
+        // Para el selector de regalos. Si falla, el resto de la página sigue
+        // andando y solo no se pueden cargar premios de tipo producto.
+        apiFetch<{ products: CatalogProduct[] }>(`/api/branches/${branchId}/catalog`).catch(() => null),
       ]);
       setPrizes(p);
+      if (cat) setProducts(cat.products || []);
       setConfig({
         wheel_enabled: b.wheel_enabled ?? 0,
         wheel_expires_minutes: b.wheel_expires_minutes ?? 60,
@@ -104,19 +128,28 @@ export default function WheelPage() {
 
   // Un gajo solo entra en el sorteo si está activo, tiene peso y tiene valor.
   // Es el mismo filtro que aplica el server.
-  const playable = prizes.filter((p) => p.is_active && p.weight > 0 && p.value > 0);
+  const playable = prizes.filter(
+    (p) =>
+      p.is_active && p.weight > 0 && (p.type === "product" ? !!p.product_id : p.value > 0)
+  );
 
   // Cuánto cuesta, en promedio, cada giro. Es el número que evita cargar un
   // 50% con peso alto sin darse cuenta de lo que implica.
   const expectedCost = playable.reduce((sum, p) => {
-    const discount =
-      p.type === "percentage"
-        ? Math.min(
-            (avgTicket * p.value) / 100,
-            p.max_discount > 0 ? p.max_discount : Infinity
-          )
-        : p.value;
-    return sum + p.probability * discount;
+    let cost: number;
+    if (p.type === "percentage") {
+      cost = Math.min(
+        (avgTicket * p.value) / 100,
+        p.max_discount > 0 ? p.max_discount : Infinity
+      );
+    } else if (p.type === "product") {
+      // Un regalo no descuenta, pero sale de la caja igual: cuesta lo que
+      // vale el producto.
+      cost = p.value || productPrice(products.find((x) => x.id === p.product_id));
+    } else {
+      cost = p.value;
+    }
+    return sum + p.probability * cost;
   }, 0);
 
   async function saveConfig(next: Partial<BranchWheelConfig>) {
@@ -139,7 +172,12 @@ export default function WheelPage() {
 
   async function savePrize() {
     if (!form.label.trim()) return alert("Poné el texto del gajo");
-    if (form.value <= 0) return alert("El valor del premio tiene que ser mayor a 0");
+    if (form.type === "product" && !form.product_id) {
+      return alert("Elegí qué producto se regala");
+    }
+    if (form.type !== "product" && form.value <= 0) {
+      return alert("El valor del premio tiene que ser mayor a 0");
+    }
     try {
       setSaving(true);
       const url = editing
@@ -200,6 +238,7 @@ export default function WheelPage() {
     setForm({
       label: p.label,
       type: p.type,
+      product_id: p.product_id,
       value: p.value,
       max_discount: p.max_discount,
       min_order: p.min_order,
@@ -402,7 +441,11 @@ export default function WheelPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-300">
-                      {p.type === "percentage" ? `${p.value}%` : money(p.value)}
+                      {p.type === "percentage"
+                        ? `${p.value}%`
+                        : p.type === "product"
+                          ? "🎁 regalo"
+                          : money(p.value)}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-400">
                       {p.max_discount > 0 ? money(p.max_discount) : "—"}
@@ -534,26 +577,98 @@ export default function WheelPage() {
                   <label className="block text-xs text-gray-400 mb-1">Tipo</label>
                   <select
                     value={form.type}
-                    onChange={(e) => setForm({ ...form, type: e.target.value as "percentage" | "fixed" })}
+                    onChange={(e) => {
+                      const type = e.target.value as PrizeType;
+                      setForm({ ...form, type, value: type === "product" ? 0 : form.value || 10 });
+                    }}
                     className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
                   >
                     <option value="percentage">Porcentaje</option>
                     <option value="fixed">Monto fijo</option>
+                    <option value="product">Producto de regalo</option>
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">
-                    {form.type === "percentage" ? "Porcentaje" : "Monto en $"}
+                    {form.type === "percentage"
+                      ? "Porcentaje"
+                      : form.type === "product"
+                        ? "Costo estimado en $"
+                        : "Monto en $"}
                   </label>
                   <input
                     type="number"
                     min={0}
                     value={form.value}
                     onChange={(e) => setForm({ ...form, value: Number(e.target.value) })}
+                    placeholder={form.type === "product" ? "0 = usar precio de lista" : ""}
                     className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
                   />
                 </div>
               </div>
+
+              {form.type === "product" && (
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Qué se regala</label>
+                  {products.length === 0 ? (
+                    <div className="bg-amber-900/20 border border-amber-800/50 rounded-lg p-3 text-amber-300 text-xs">
+                      No se pudo cargar el catálogo, así que no hay productos para elegir.
+                      Recargá la página e intentá de nuevo.
+                    </div>
+                  ) : (
+                    <>
+                      <input
+                        value={productSearch}
+                        onChange={(e) => setProductSearch(e.target.value)}
+                        placeholder="Buscar producto…"
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm mb-2"
+                      />
+                      <div className="max-h-44 overflow-y-auto border border-gray-800 rounded-lg divide-y divide-gray-800">
+                        {products
+                          .filter((pr) =>
+                            pr.name.toLowerCase().includes(productSearch.toLowerCase())
+                          )
+                          .slice(0, 40)
+                          .map((pr) => {
+                            const selected = form.product_id === pr.id;
+                            return (
+                              <button
+                                key={pr.id}
+                                type="button"
+                                onClick={() =>
+                                  setForm({
+                                    ...form,
+                                    product_id: pr.id,
+                                    // El texto del gajo arranca con el nombre del
+                                    // producto, pero se puede editar arriba.
+                                    label: form.label.trim() ? form.label : pr.name,
+                                  })
+                                }
+                                className={`w-full text-left px-3 py-2 flex items-center gap-3 transition-colors ${
+                                  selected ? "bg-emerald-600/20" : "hover:bg-gray-800"
+                                }`}
+                              >
+                                {pr.image_url ? (
+                                  <img src={pr.image_url} alt="" className="w-8 h-8 rounded object-cover shrink-0" />
+                                ) : (
+                                  <span className="w-8 h-8 rounded bg-gray-800 shrink-0" />
+                                )}
+                                <span className="text-sm text-white flex-1 truncate">{pr.name}</span>
+                                <span className="text-xs text-gray-500">{money(productPrice(pr))}</span>
+                                {selected && <span className="text-emerald-400 text-xs">✓</span>}
+                              </button>
+                            );
+                          })}
+                      </div>
+                      <p className="text-[11px] text-gray-500 mt-1">
+                        El regalo <strong>no baja el total</strong>: se suma a la bolsa y le llega
+                        a la sucursal en el mensaje de WhatsApp. El costo estimado es solo para
+                        que las métricas te digan cuánto te salió la ruleta.
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
 
               {form.type === "percentage" && (
                 <div>

@@ -510,7 +510,10 @@ CREATE TABLE IF NOT EXISTS wheel_prizes (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   branch_id    INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
   label        TEXT    NOT NULL,
-  type         TEXT    NOT NULL DEFAULT 'percentage' CHECK (type IN ('percentage', 'fixed')),
+  -- 'product' es un REGALO: no descuenta plata, agrega algo a la bolsa. En ese
+  -- caso `value` guarda el costo estimado del producto, solo para métricas.
+  type         TEXT    NOT NULL DEFAULT 'percentage' CHECK (type IN ('percentage', 'fixed', 'product')),
+  product_id   INTEGER REFERENCES products(id) ON DELETE SET NULL,
   value        REAL    NOT NULL DEFAULT 0,
   max_discount REAL    NOT NULL DEFAULT 0,   -- tope en $ para 'percentage' (0 = sin tope)
   min_order    REAL    NOT NULL DEFAULT 0,   -- subtotal mínimo para que el premio aplique
@@ -548,6 +551,7 @@ CREATE TABLE IF NOT EXISTS wheel_spins (
   prize_value        REAL    NOT NULL,
   prize_max_discount REAL    NOT NULL DEFAULT 0,
   prize_min_order    REAL    NOT NULL DEFAULT 0,
+  prize_image        TEXT    NOT NULL DEFAULT '',  -- foto del producto regalado
   roll               INTEGER NOT NULL,
   total_weight       INTEGER NOT NULL,
   pool_snapshot      TEXT    NOT NULL DEFAULT '[]',

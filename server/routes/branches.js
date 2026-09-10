@@ -1752,17 +1752,16 @@ router.get("/:id/wheel-prizes", requireAuth, requireBranchAccess("id"), (req, re
 
   // La probabilidad se reparte SOLO entre los gajos que pueden salir sorteados
   // (mismo filtro que usa el sorteo del server).
-  const totalWeight = prizes
-    .filter((p) => p.is_active && p.weight > 0 && p.value > 0)
-    .reduce((sum, p) => sum + p.weight, 0);
+  const playable = (p) =>
+    p.is_active && p.weight > 0 &&
+    (p.type === "product" ? !!p.product_id : p.value > 0);
+
+  const totalWeight = prizes.filter(playable).reduce((sum, p) => sum + p.weight, 0);
 
   res.json(
     prizes.map((p) => ({
       ...p,
-      probability:
-        totalWeight > 0 && p.is_active && p.weight > 0 && p.value > 0
-          ? p.weight / totalWeight
-          : 0,
+      probability: totalWeight > 0 && playable(p) ? p.weight / totalWeight : 0,
     }))
   );
 });
@@ -1772,11 +1771,20 @@ function parseWheelPrizeBody(body) {
   const label = String(body.label || "").trim();
   if (!label) return { error: "El texto del gajo es requerido" };
 
-  const type = body.type === "fixed" ? "fixed" : "percentage";
+  const type = ["fixed", "product"].includes(body.type) ? body.type : "percentage";
   const value = Number(body.value) || 0;
-  if (value <= 0) return { error: "El valor del premio tiene que ser mayor a 0" };
-  if (type === "percentage" && value > 100) {
-    return { error: "Un descuento porcentual no puede superar el 100%" };
+  const productId = body.product_id ? Number(body.product_id) : null;
+
+  if (type === "product") {
+    // El regalo no lleva descuento: lo que define el premio es el producto.
+    // `value` acá es el costo estimado y es opcional — si queda en 0, al
+    // sortear se completa solo con el precio de lista del producto.
+    if (!productId) return { error: "Elegí qué producto se regala" };
+  } else {
+    if (value <= 0) return { error: "El valor del premio tiene que ser mayor a 0" };
+    if (type === "percentage" && value > 100) {
+      return { error: "Un descuento porcentual no puede superar el 100%" };
+    }
   }
 
   const weight = Math.trunc(Number(body.weight));
@@ -1788,8 +1796,9 @@ function parseWheelPrizeBody(body) {
     data: {
       label,
       type,
-      value,
-      max_discount: Math.max(0, Number(body.max_discount) || 0),
+      product_id: type === "product" ? productId : null,
+      value: Math.max(0, value),
+      max_discount: type === "product" ? 0 : Math.max(0, Number(body.max_discount) || 0),
       min_order: Math.max(0, Number(body.min_order) || 0),
       weight,
       color: String(body.color || "#10b981").slice(0, 32),
@@ -1809,8 +1818,8 @@ router.post("/:id/wheel-prizes", requireAuth, requireBranchAccess("id"), (req, r
 
   const result = db
     .prepare(
-      `INSERT INTO wheel_prizes (branch_id, label, type, value, max_discount, min_order, weight, color, sort_order, is_active)
-       VALUES (@branch_id, @label, @type, @value, @max_discount, @min_order, @weight, @color, @sort_order, @is_active)`
+      `INSERT INTO wheel_prizes (branch_id, label, type, product_id, value, max_discount, min_order, weight, color, sort_order, is_active)
+       VALUES (@branch_id, @label, @type, @product_id, @value, @max_discount, @min_order, @weight, @color, @sort_order, @is_active)`
     )
     .run({ branch_id: branchId, ...parsed.data });
 
@@ -1843,9 +1852,9 @@ router.put("/:id/wheel-prizes/:prizeId", requireAuth, requireBranchAccess("id"),
   if (parsed.error) return res.status(400).json({ error: parsed.error });
 
   db.prepare(
-    `UPDATE wheel_prizes SET label = @label, type = @type, value = @value,
-            max_discount = @max_discount, min_order = @min_order, weight = @weight,
-            color = @color, sort_order = @sort_order, is_active = @is_active
+    `UPDATE wheel_prizes SET label = @label, type = @type, product_id = @product_id,
+            value = @value, max_discount = @max_discount, min_order = @min_order,
+            weight = @weight, color = @color, sort_order = @sort_order, is_active = @is_active
       WHERE id = @id`
   ).run({ id: prizeId, ...parsed.data });
 
@@ -1897,8 +1906,8 @@ router.post(
     }
 
     const ins = db.prepare(
-      `INSERT INTO wheel_prizes (branch_id, label, type, value, max_discount, min_order, weight, color, sort_order, is_active)
-       VALUES (@branch_id, @label, @type, @value, @max_discount, @min_order, @weight, @color, @sort_order, @is_active)`
+      `INSERT INTO wheel_prizes (branch_id, label, type, product_id, value, max_discount, min_order, weight, color, sort_order, is_active)
+       VALUES (@branch_id, @label, @type, @product_id, @value, @max_discount, @min_order, @weight, @color, @sort_order, @is_active)`
     );
     // Reemplaza el set entero en una transacción: o queda el nuevo completo, o
     // queda el viejo. Nunca una mezcla de los dos.
@@ -1909,6 +1918,7 @@ router.post(
           branch_id: branchId,
           label: p.label,
           type: p.type,
+          product_id: p.product_id,
           value: p.value,
           max_discount: p.max_discount,
           min_order: p.min_order,
@@ -1991,7 +2001,7 @@ router.get("/:id/wheel-stats", requireAuth, requireBranchAccess("id"), (req, res
     .prepare(
       `SELECT COUNT(*) AS orders, SUM(total) AS revenue,
               SUM(wheel_discount) AS cost, AVG(subtotal) AS aov
-         FROM orders WHERE ${ow} AND wheel_discount > 0`
+         FROM orders WHERE ${ow} AND wheel_spin_id IS NOT NULL`
     )
     .get(...orderParams);
 
@@ -1999,7 +2009,7 @@ router.get("/:id/wheel-stats", requireAuth, requireBranchAccess("id"), (req, res
     .prepare(
       `SELECT COUNT(*) AS orders, SUM(total) AS revenue, AVG(subtotal) AS aov
          FROM orders WHERE ${ow}
-          AND wheel_discount = 0 AND discount = 0 AND promotion_discount = 0`
+          AND wheel_spin_id IS NULL AND discount = 0 AND promotion_discount = 0`
     )
     .get(...orderParams);
 

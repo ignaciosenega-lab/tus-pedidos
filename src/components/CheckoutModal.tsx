@@ -90,7 +90,9 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
   }, [wheelPrize, hasOtherDiscount]);
 
   const wheelDiscount = useMemo(() => {
-    if (!wheelPrize) return 0;
+    // Un regalo no toca el total: el producto se suma a la bolsa y viaja en
+    // el mensaje de WhatsApp para que la sucursal lo prepare.
+    if (!wheelPrize || wheelPrize.type === "product") return 0;
     const sub = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
     if (sub <= 0) return 0;
     if (wheelPrize.minOrder > 0 && sub < wheelPrize.minOrder) return 0;
@@ -226,7 +228,9 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
       businessConfig.address,
       appliedCoupon || undefined,
       autoPromo,
-      wheelPrize ? { label: wheelPrize.label, discount: wheelDiscount } : undefined
+      wheelPrize
+        ? { label: wheelPrize.label, discount: wheelDiscount, isGift: wheelPrize.type === "product" }
+        : undefined
     );
     const url = buildWhatsAppUrl(businessConfig.whatsapp || businessConfig.phone, message);
 
@@ -551,7 +555,7 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
         <div className="border-t border-white/10 p-5 flex flex-wrap gap-3">
           {/* Premio ya ganado: se muestra arriba de los botones para que el
               cliente vea el descuento antes de confirmar. */}
-          {wheelPrize && wheelDiscount > 0 && (
+          {wheelPrize && (wheelDiscount > 0 || wheelPrize.type === "product") && (
             <div
               className="w-full rounded-lg px-4 py-2.5 text-sm font-semibold flex items-center justify-between gap-2"
               style={{
@@ -559,8 +563,11 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
                 color: "var(--general-text)",
               }}
             >
-              <span>🎉 Ganaste {wheelPrize.label}</span>
-              <span>-${plainTotal(wheelDiscount)}</span>
+              <span>
+                {wheelPrize.type === "product" ? "🎁 " : "🎉 Ganaste "}
+                {wheelPrize.label}
+              </span>
+              <span>{wheelPrize.type === "product" ? "de regalo" : `-$${plainTotal(wheelDiscount)}`}</span>
             </div>
           )}
 

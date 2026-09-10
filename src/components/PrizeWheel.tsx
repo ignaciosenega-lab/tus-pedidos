@@ -133,8 +133,10 @@ export default function PrizeWheel({ slices, prize, failed, onClose, onRevealed 
         </h3>
         <p className="text-xs opacity-70 mb-5" style={{ color: "var(--panel-text, #fff)" }}>
           {phase === "revealed"
-            ? "El descuento ya está aplicado en tu pedido."
-            : "Estamos sorteando tu descuento."}
+            ? prize?.type === "product"
+              ? "Va de regalo con tu pedido."
+              : "El descuento ya está aplicado en tu pedido."
+            : "Estamos sorteando tu premio."}
         </p>
 
         <div className="relative mx-auto mb-5" style={{ width: 240, height: 240 }}>
@@ -187,12 +189,27 @@ export default function PrizeWheel({ slices, prize, failed, onClose, onRevealed 
 
         {phase === "revealed" && prize ? (
           <>
+            {prize.type === "product" && prize.image ? (
+              <img
+                src={prize.image}
+                alt={prize.label}
+                className="w-24 h-24 object-cover rounded-xl mx-auto mb-3"
+                style={{ border: "2px solid var(--btn-bg, #10b981)" }}
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+              />
+            ) : null}
             <div
-              className="text-2xl font-extrabold mb-4"
+              className="text-2xl font-extrabold mb-1"
               style={{ color: "var(--btn-bg, #10b981)" }}
             >
               {prize.label}
             </div>
+            {prize.type === "product" && (
+              <p className="text-xs opacity-70 mb-3" style={{ color: "var(--panel-text, #fff)" }}>
+                Te lo agregamos al pedido.
+              </p>
+            )}
+            <div className="mb-4" />
             <button
               onClick={onClose}
               className="w-full py-3 rounded-lg font-bold"

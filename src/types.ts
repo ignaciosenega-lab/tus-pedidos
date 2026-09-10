@@ -144,10 +144,13 @@ export interface WonPrize {
   token: string;
   id: number;
   label: string;
-  type: "percentage" | "fixed";
+  /** 'product' es un regalo: no descuenta plata, se suma a la bolsa. */
+  type: "percentage" | "fixed" | "product";
   value: number;
   maxDiscount: number;
   minOrder: number;
+  /** Foto del producto regalado. Vacío para los premios de descuento. */
+  image?: string;
   expiresAt: string;
 }
 

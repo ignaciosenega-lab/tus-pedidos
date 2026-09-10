@@ -282,7 +282,7 @@ const SECTIONS: HelpSection[] = [
     title: "Ruleta de premios",
     summary: "El cliente gira antes de mandar el pedido y gana un descuento.",
     category: "branch",
-    keywords: "ruleta premio giro sorteo descuento juego gamificacion girar gajo",
+    keywords: "ruleta premio giro sorteo descuento juego gamificacion girar gajo regalo producto gratis obsequio",
     body: (
       <Section>
         <P>
@@ -300,7 +300,8 @@ const SECTIONS: HelpSection[] = [
             <strong>Texto del gajo</strong>: lo que el cliente lee en la rueda ("10% OFF").
           </li>
           <li>
-            <strong>Tipo y valor</strong>: porcentaje sobre el pedido, o un monto fijo en pesos.
+            <strong>Tipo y valor</strong>: porcentaje sobre el pedido, un monto fijo en pesos,
+            o un <strong>producto de regalo</strong>.
           </li>
           <li>
             <strong>Tope</strong>: el máximo en pesos que ese premio puede descontar.
@@ -312,6 +313,27 @@ const SECTIONS: HelpSection[] = [
             <strong>Peso</strong>: cuántas chances tiene ese gajo frente a los demás.
           </li>
         </Steps>
+
+        <H3>El producto de regalo</H3>
+        <P>
+          Elegís un producto de tu catálogo con el buscador y ese es el premio.
+          A diferencia de los otros dos, <strong>el regalo no baja el total del pedido</strong>:
+          el cliente paga lo mismo y vos le sumás el producto a la bolsa.
+        </P>
+        <P>
+          A la sucursal le llega en el mensaje de WhatsApp, debajo del total, con una
+          línea que dice <K>🎡 Ruleta — REGALO: (el producto)</K>.
+        </P>
+        <Tip>
+          El <strong>costo estimado</strong> es opcional y no lo ve el cliente: si lo dejás
+          en 0, se usa el precio de lista del producto. Sirve para que el panel de
+          "Cuánto te va a costar" y las estadísticas cuenten el regalo como lo que
+          realmente te sale, aunque no haya sido un descuento.
+        </Tip>
+        <Tip>
+          Combinalo con <strong>pedido mínimo</strong>: "postre de regalo en pedidos de más
+          de $20.000" sube el ticket en vez de solo regalar.
+        </Tip>
 
         <H3>Cómo funciona el peso</H3>
         <P>
