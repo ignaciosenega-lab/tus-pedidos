@@ -59,15 +59,39 @@ const EMPTY_FORM = {
   value: 10,
   max_discount: 0,
   min_order: 0,
-  weight: 10,
+  // Arranca en "A veces" para que uno de los botones de frecuencia quede
+  // marcado y se entienda que son opciones, no decoración.
+  weight: 15,
   color: "#10b981",
   sort_order: 0,
 };
+
 
 /** Precio de lista de un producto: el base, o el de su primera variante. */
 function productPrice(p?: CatalogProduct): number {
   if (!p) return 0;
   return Number(p.base_price) || Number(p.variants?.[0]?.price) || 0;
+}
+
+/**
+ * "Peso" es un término que no le dice nada a quien carga los premios, así que
+ * la UI muestra frecuencias con nombre y guarda el número por detrás. El campo
+ * numérico sigue disponible para el que quiera afinarlo.
+ */
+const FREQUENCIES = [
+  { label: "Muy seguido", weight: 50 },
+  { label: "Seguido", weight: 30 },
+  { label: "A veces", weight: 15 },
+  { label: "Poco", weight: 5 },
+  { label: "Casi nunca", weight: 1 },
+];
+
+/** "1 de cada 4" se entiende mucho mejor que "25%". */
+function oneInEvery(probability: number): string {
+  if (probability <= 0) return "nunca sale";
+  const n = Math.round(1 / probability);
+  if (n <= 1) return "sale siempre";
+  return `1 de cada ${n}`;
 }
 
 const money = (n: number) =>
@@ -251,6 +275,15 @@ export default function WheelPage() {
 
   const canEnable = playable.length >= 2;
 
+  // Probabilidad del gajo que se está editando, en vivo. Se suma el peso del
+  // formulario al de los DEMÁS gajos jugables (excluyendo el propio si es una
+  // edición, para no contarlo dos veces).
+  const otherWeight = playable
+    .filter((p) => !editing || p.id !== editing.id)
+    .reduce((sum, p) => sum + p.weight, 0);
+  const formProbability =
+    form.weight > 0 ? form.weight / (otherWeight + form.weight) : 0;
+
   if (loading) {
     return <div className="p-6 text-gray-400">Cargando…</div>;
   }
@@ -371,7 +404,7 @@ export default function WheelPage() {
         <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
           <h3 className="text-white font-bold mb-1">Cuánto te va a costar</h3>
           <p className="text-xs text-gray-400 mb-4">
-            Promedio de descuento por cada giro, según los pesos que cargaste.
+            Cuánto te sale, en promedio, cada giro — según la frecuencia de cada premio.
           </p>
           <div className="flex items-end gap-6 flex-wrap">
             <div>
@@ -400,8 +433,8 @@ export default function WheelPage() {
           </div>
           {expectedCost / avgTicket > 0.15 && (
             <div className="mt-4 bg-red-900/20 border border-red-800/50 rounded-lg p-3 text-red-300 text-xs">
-              Estás regalando más del 15% del ticket en promedio. Bajá el peso de los
-              premios grandes o ponéles un tope en pesos.
+              Estás regalando más del 15% del ticket en promedio. Poné los premios
+              grandes en "Poco" o "Casi nunca", o ponéles un tope en pesos.
             </div>
           )}
         </div>
@@ -421,7 +454,7 @@ export default function WheelPage() {
             <table className="w-full">
               <thead className="bg-gray-800/50">
                 <tr>
-                  {["Gajo", "Premio", "Tope", "Mínimo", "Peso", "Probabilidad", "Estado", ""].map((h) => (
+                  {["Gajo", "Premio", "Tope", "Mínimo", "Cada cuánto sale", "Estado", ""].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
                       {h}
                     </th>
@@ -453,9 +486,11 @@ export default function WheelPage() {
                     <td className="px-4 py-3 text-sm text-gray-400">
                       {p.min_order > 0 ? money(p.min_order) : "—"}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-300">{p.weight}</td>
-                    <td className="px-4 py-3 text-sm font-semibold text-white">
-                      {(p.probability * 100).toFixed(1)}%
+                    <td className="px-4 py-3 text-sm">
+                      <div className="font-semibold text-white">{oneInEvery(p.probability)}</div>
+                      <div className="text-xs text-gray-500">
+                        {(p.probability * 100).toFixed(0)}% · peso {p.weight}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <button
@@ -697,21 +732,60 @@ export default function WheelPage() {
                     className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs text-gray-400 mb-1">Peso</label>
-                  <input
-                    type="number"
-                    min={0}
-                    value={form.weight}
-                    onChange={(e) => setForm({ ...form, weight: Number(e.target.value) })}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
-                  />
-                </div>
               </div>
-              <p className="text-[11px] text-gray-500 -mt-2">
-                El peso no es un porcentaje: es cuántas "chances" tiene este gajo frente a
-                los demás. Si cargás 50, 30 y 20, salen 50%, 30% y 20% de las veces.
-              </p>
+
+              <div>
+                <label className="block text-xs text-gray-400 mb-2">
+                  ¿Cada cuánto querés que salga este premio?
+                </label>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {FREQUENCIES.map((f) => (
+                    <button
+                      key={f.weight}
+                      type="button"
+                      onClick={() => setForm({ ...form, weight: f.weight })}
+                      className={`px-1 py-2 rounded-lg text-[11px] font-medium transition-colors ${
+                        form.weight === f.weight
+                          ? "bg-emerald-600 text-white"
+                          : "bg-gray-800 text-gray-400 hover:bg-gray-700"
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* La cuenta ya resuelta, contra los gajos que ya existen. */}
+                <div className="mt-3 bg-gray-800/60 rounded-lg px-3 py-2.5">
+                  <div className="text-sm text-white">
+                    Va a salir <strong>{oneInEvery(formProbability)}</strong> veces
+                    <span className="text-gray-400"> ({(formProbability * 100).toFixed(0)}%)</span>
+                  </div>
+                  <p className="text-[11px] text-gray-500 mt-0.5">
+                    Calculado contra los demás gajos activos. Si agregás o sacás premios,
+                    este número se reacomoda solo.
+                  </p>
+                </div>
+
+                <details className="mt-2">
+                  <summary className="text-[11px] text-gray-500 cursor-pointer hover:text-gray-400">
+                    Ajustar a mano
+                  </summary>
+                  <div className="mt-2 flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      value={form.weight}
+                      onChange={(e) => setForm({ ...form, weight: Number(e.target.value) })}
+                      className="w-24 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+                    />
+                    <span className="text-[11px] text-gray-500">
+                      Cuántas "bolillas" pone este premio en la bolsa. Más bolillas, más
+                      seguido sale. No hace falta que sumen 100.
+                    </span>
+                  </div>
+                </details>
+              </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>

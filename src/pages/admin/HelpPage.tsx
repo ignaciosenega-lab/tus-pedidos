@@ -310,7 +310,7 @@ const SECTIONS: HelpSection[] = [
             <strong>Pedido mínimo</strong>: si el pedido no llega a ese monto, el premio no aplica.
           </li>
           <li>
-            <strong>Peso</strong>: cuántas chances tiene ese gajo frente a los demás.
+            <strong>Cada cuánto sale</strong>: elegís entre "Muy seguido" y "Casi nunca".
           </li>
         </Steps>
 
@@ -335,14 +335,25 @@ const SECTIONS: HelpSection[] = [
           de $20.000" sube el ticket en vez de solo regalar.
         </Tip>
 
-        <H3>Cómo funciona el peso</H3>
+        <H3>Cada cuánto sale cada premio</H3>
         <P>
-          El peso <strong>no es un porcentaje</strong>: es cuántas "chances" tiene cada
-          gajo. Si cargás tres premios con peso 50, 30 y 20, salen 50%, 30% y 20% de las
-          veces. Si cargás 5, 3 y 2, sale exactamente lo mismo. La columna
-          <strong> Probabilidad</strong> te muestra la cuenta ya hecha, y se actualiza sola
-          cuando agregás, sacás o desactivás un gajo.
+          Al cargar un gajo elegís su frecuencia entre cinco opciones, de
+          <strong> "Muy seguido"</strong> a <strong>"Casi nunca"</strong>. Justo abajo el
+          sistema te dice el resultado en criollo: <em>"va a salir 1 de cada 7 veces"</em>.
+          No hay que calcular nada.
         </P>
+        <P>
+          Por detrás eso es un número que el sistema llama <strong>peso</strong>, y lo podés
+          tocar a mano desplegando <strong>"Ajustar a mano"</strong>. Pensalo como bolillas
+          en una bolsa: el peso es cuántas bolillas pone ese premio. Más bolillas, más
+          seguido sale. <strong>No tienen que sumar 100</strong> — lo que importa es la
+          proporción entre ellos, así que agregar un premio nuevo no te obliga a
+          rebalancear los demás.
+        </P>
+        <Tip>
+          La regla para no perder plata: <strong>el premio más caro va con la frecuencia
+          más baja</strong>. Un 20% en "Muy seguido" te come el margen.
+        </Tip>
 
         <Warn>
           Ponéle <strong>tope en pesos</strong> a los premios porcentuales. Un 20% sin tope
