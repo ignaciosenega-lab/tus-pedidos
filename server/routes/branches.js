@@ -1741,29 +1741,42 @@ router.delete("/:id/own-products/:prodId", requireAuth, requireBranchAccess("id"
    ══════════════════════════════════════════════════ */
 
 // GET /api/branches/:id/wheel-prizes
+// Un gajo entra al sorteo solo si está activo, tiene peso y tiene con qué
+// premiar. Mismo criterio que el SQL de getActiveWheelPrizes en index.js.
+function wheelPrizeIsPlayable(p) {
+  return (
+    p.is_active &&
+    p.weight > 0 &&
+    (p.type === "product" ? !!p.product_id : p.value > 0)
+  );
+}
+
+// Agrega a cada gajo su probabilidad, repartida solo entre los que pueden
+// salir sorteados. No es una columna de la base: se calcula al leer.
+function withWheelProbability(prizes) {
+  const totalWeight = prizes
+    .filter(wheelPrizeIsPlayable)
+    .reduce((sum, p) => sum + p.weight, 0);
+
+  return prizes.map((p) => ({
+    ...p,
+    probability:
+      totalWeight > 0 && wheelPrizeIsPlayable(p) ? p.weight / totalWeight : 0,
+  }));
+}
+
+function listWheelPrizes(db, branchId) {
+  return db
+    .prepare("SELECT * FROM wheel_prizes WHERE branch_id = ? ORDER BY sort_order, id")
+    .all(branchId);
+}
+
 // Devuelve los gajos con su probabilidad ya calculada, para que el admin no
 // tenga que hacer la cuenta de weight/SUM(weight) a mano.
 router.get("/:id/wheel-prizes", requireAuth, requireBranchAccess("id"), (req, res) => {
   const db = req.app.locals.db;
   const branchId = Number(req.params.id);
-  const prizes = db
-    .prepare("SELECT * FROM wheel_prizes WHERE branch_id = ? ORDER BY sort_order, id")
-    .all(branchId);
-
-  // La probabilidad se reparte SOLO entre los gajos que pueden salir sorteados
-  // (mismo filtro que usa el sorteo del server).
-  const playable = (p) =>
-    p.is_active && p.weight > 0 &&
-    (p.type === "product" ? !!p.product_id : p.value > 0);
-
-  const totalWeight = prizes.filter(playable).reduce((sum, p) => sum + p.weight, 0);
-
-  res.json(
-    prizes.map((p) => ({
-      ...p,
-      probability: totalWeight > 0 && playable(p) ? p.weight / totalWeight : 0,
-    }))
-  );
+  res.json(withWheelProbability(listWheelPrizes(db, branchId)));
 });
 
 // Valida y normaliza el body de un premio. Devuelve { error } o { data }.
@@ -1787,7 +1800,10 @@ function parseWheelPrizeBody(body) {
     }
   }
 
-  const weight = Math.trunc(Number(body.weight));
+  // Si no viene, se asume 1: el peso ya no se carga desde el formulario del
+  // premio, se reparte aparte. Sin este default, Number(undefined) da NaN y
+  // el alta devolvía 400.
+  const weight = body.weight === undefined ? 1 : Math.trunc(Number(body.weight));
   if (!Number.isFinite(weight) || weight < 0) {
     return { error: "El peso tiene que ser un número entero de 0 o más" };
   }
@@ -1825,6 +1841,74 @@ router.post("/:id/wheel-prizes", requireAuth, requireBranchAccess("id"), (req, r
 
   const created = db.prepare("SELECT * FROM wheel_prizes WHERE id = ?").get(result.lastInsertRowid);
   res.status(201).json(created);
+});
+
+// PUT /api/branches/:id/wheel-prizes/weights
+//
+// Guarda el reparto completo de una sola vez.
+//
+// ⚠ Tiene que quedar DEFINIDA ANTES que /wheel-prizes/:prizeId. Express matchea
+// por orden: si fuera después, "weights" entraría como :prizeId, Number() daría
+// NaN y devolvería un 404 "Premio no encontrado" sin ninguna pista del motivo.
+//
+// Por qué un endpoint propio en vez de N PUT sueltos:
+//  1) Atomicidad. Si el 3 de 6 falla, la ruleta queda repartiendo con una
+//     configuración que nadie eligió, y hay clientes girando contra eso.
+//  2) El PUT individual revalida el premio ENTERO. Si a un premio de tipo
+//     producto le borraron el producto (product_id es ON DELETE SET NULL),
+//     un PUT con solo {weight} rebota con "Elegí qué producto se regala" —
+//     o sea que guardar el reparto fallaría por un gajo que ni siquiera está
+//     en el reparto. Acá se toca una sola columna y eso no puede pasar.
+router.put("/:id/wheel-prizes/weights", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+  const list = req.body && req.body.weights;
+
+  if (!Array.isArray(list) || list.length === 0 || list.length > 200) {
+    return res.status(400).json({ error: "Reparto inválido" });
+  }
+
+  const seen = new Set();
+  const clean = [];
+  for (const item of list) {
+    const id = Number(item && item.id);
+    const weight = Math.trunc(Number(item && item.weight));
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: "Reparto inválido" });
+    }
+    // El tope evita que un peso enorme desborde el randomInt del sorteo.
+    if (!Number.isFinite(weight) || weight < 0 || weight > 1000) {
+      return res.status(400).json({ error: "Los valores del reparto están fuera de rango" });
+    }
+    if (seen.has(id)) {
+      return res.status(400).json({ error: "El reparto trae un premio repetido" });
+    }
+    seen.add(id);
+    clean.push({ id, weight });
+  }
+
+  // Pertenencia en una sola query, no una por premio.
+  const owned = new Set(
+    db.prepare("SELECT id FROM wheel_prizes WHERE branch_id = ?").all(branchId).map((r) => r.id)
+  );
+  if (clean.some((w) => !owned.has(w.id))) {
+    return res.status(400).json({ error: "Alguno de los premios no es de esta sucursal" });
+  }
+
+  const upd = db.prepare("UPDATE wheel_prizes SET weight = ? WHERE id = ? AND branch_id = ?");
+  const apply = db.transaction(() => {
+    for (const w of clean) upd.run(w.weight, w.id, branchId);
+  });
+
+  try {
+    apply();
+  } catch (e) {
+    console.error("Error guardando el reparto de la ruleta:", e.message);
+    return res.status(500).json({ error: "No se pudo guardar el reparto" });
+  }
+
+  // Se devuelve el set completo para que el admin no tenga que recargar todo.
+  res.json(withWheelProbability(listWheelPrizes(db, branchId)));
 });
 
 // PUT /api/branches/:id/wheel-prizes/:prizeId

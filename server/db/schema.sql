@@ -503,9 +503,12 @@ CREATE INDEX IF NOT EXISTS idx_cm_status ON campaign_messages(campaign_id, statu
 -- ================================================================
 -- WHEEL_PRIZES (ruleta de premios: gajos configurables por sucursal)
 -- ================================================================
--- `weight` es un peso RELATIVO, no un porcentaje: la probabilidad de un gajo
--- es weight / SUM(weight) sobre los activos. Así agregar o desactivar un
--- premio redistribuye solo, sin obligar a rebalancear todo a mano.
+-- `weight` es un peso RELATIVO: la probabilidad de un gajo es
+-- weight / SUM(weight) sobre los que entran al sorteo. El modelo no exige que
+-- sumen 100 —y el server no lo valida— pero el admin los normaliza a 100 al
+-- guardar el reparto, así que en la práctica van a sumar 100 casi siempre.
+-- La excepción son los gajos apagados o incompletos: no entran al reparto y
+-- conservan su peso viejo, así que reactivar uno descuadra esa suma.
 CREATE TABLE IF NOT EXISTS wheel_prizes (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   branch_id    INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useBranchId } from "../../hooks/useBranchId";
 
@@ -76,25 +76,114 @@ function productPrice(p?: CatalogProduct): number {
 }
 
 /**
- * "Peso" es un término que no le dice nada a quien carga los premios, así que
- * la UI muestra frecuencias con nombre y guarda el número por detrás. El campo
- * numérico sigue disponible para el que quiera afinarlo.
+ * Frecuencia como un par "X de cada N". Devuelve el par y NO la frase: la
+ * arma el llamador. Cuando devolvía frases enteras, el texto "Va a salir ___
+ * veces" terminaba diciendo "Va a salir sale siempre veces".
+ *
+ * Arriba del 35% un numerador fijo en 1 no tiene resolución —40% y 60% caían
+ * los dos en "1 de cada 2"— así que se cambia la base en vez de redondear más.
  */
-const FREQUENCIES = [
-  { label: "Muy seguido", weight: 50 },
-  { label: "Seguido", weight: 30 },
-  { label: "A veces", weight: 15 },
-  { label: "Poco", weight: 5 },
-  { label: "Casi nunca", weight: 1 },
-];
+/**
+ * La frecuencia dicha como cociente: "1 de cada 4" se agarra más rápido que
+ * "25%". Devuelve el par y NO la frase —la arma el llamador— porque cuando
+ * devolvía frases enteras el texto terminaba diciendo "Va a salir sale
+ * siempre veces".
+ *
+ * Arriba del 35% el numerador 1 no tiene resolución (40% y 60% caerían los dos
+ * en "1 de cada 2"), así que ahí se cambia la base.
+ *
+ * Es una APROXIMACIÓN a propósito: dos premios cercanos pueden caer en el
+ * mismo cociente, y está bien, porque el porcentaje exacto se muestra al lado.
+ * Buscar exactitud llevaba a "23 de cada 100", que no le gana en nada a "23%".
+ */
+function oneInEvery(probability: number): { x: number; n: number; exact: boolean } | null {
+  if (!(probability > 0)) return null;
 
-/** "1 de cada 4" se entiende mucho mejor que "25%". */
-function oneInEvery(probability: number): string {
-  if (probability <= 0) return "nunca sale";
-  const n = Math.round(1 / probability);
-  if (n <= 1) return "sale siempre";
-  return `1 de cada ${n}`;
+  const pick = (x: number, n: number) => ({
+    x,
+    n,
+    exact: Math.abs(x / n - probability) < 0.005,
+  });
+
+  // Los cocientes redondos (1/2, 1/3, 1/4, 1/5…) se prefieren cuando dan justo.
+  const simple = Math.max(2, Math.round(1 / probability));
+  if (Math.abs(1 / simple - probability) < 0.005) return pick(1, simple);
+
+  if (probability >= 0.35) {
+    return pick(Math.min(9, Math.max(1, Math.round(probability * 10))), 10);
+  }
+  return pick(1, simple);
 }
+
+function frequencyText(probability: number): string {
+  const f = oneInEvery(probability);
+  if (!f) return "no sale";
+  return `${f.exact ? "" : "≈"}${f.x} de cada ${f.n}`;
+}
+
+/**
+ * Reparte 100 puntos entre los pesos, por restos mayores y con piso 1.
+ *
+ * La usan TANTO lo que se muestra como lo que se guarda, a propósito: si la
+ * barra mostrara w/Σw con decimales y el guardado redondeara aparte, los
+ * porcentajes cambiarían solos al apretar Guardar.
+ */
+function normalize(weights: number[]): number[] {
+  const n = weights.length;
+  if (n === 0) return [];
+  // Con más de 100 gajos no se puede dar 1 a cada uno: se devuelve crudo.
+  if (n > 100) return weights.map((w) => Math.max(0, Math.round(w)));
+
+  const total = weights.reduce((sum, w) => sum + Math.max(0, w), 0);
+  if (total <= 0) return weights.map(() => Math.floor(100 / n));
+
+  const exact = weights.map((w) => (Math.max(0, w) / total) * 100);
+  const floors = exact.map((e) => Math.max(1, Math.floor(e)));
+  let left = 100 - floors.reduce((sum, f) => sum + f, 0);
+
+  // Los puntos que sobran van a los que tenían el resto más grande.
+  const order = exact
+    .map((e, i) => ({ i, frac: e - Math.floor(e) }))
+    .sort((a, b) => b.frac - a.frac);
+
+  const out = [...floors];
+  let k = 0;
+  while (left > 0 && order.length > 0) {
+    out[order[k % order.length].i] += 1;
+    left -= 1;
+    k += 1;
+  }
+  // Si los pisos se pasaron de 100, se recorta de los más gordos.
+  while (left < 0) {
+    const biggest = out.reduce((best, v, i) => (v > out[best] ? i : best), 0);
+    if (out[biggest] <= 1) break;
+    out[biggest] -= 1;
+    left += 1;
+  }
+  return out;
+}
+
+/**
+ * Por qué un gajo no entra en el sorteo, en texto. Antes esto era un booleano
+ * mudo y el dueño no tenía forma de saber qué le faltaba al premio.
+ */
+function notPlayableReason(p: { is_active: number; type: string; product_id: number | null; value: number; weight: number }): string | null {
+  if (!p.is_active) return "está apagado";
+  if (p.type === "product" && !p.product_id) return "no tiene producto elegido";
+  if (p.type !== "product" && p.value <= 0) return "no tiene valor cargado";
+  if (p.weight <= 0) return "está en cero";
+  return null;
+}
+
+/**
+ * Colores de la barra de reparto. No salen de la base: los gajos de la ruleta
+ * se dibujan todos en negro, así que estos son solo para poder distinguir los
+ * tramos acá. Se indexan por posición, sin persistir nada.
+ */
+const PALETTE = [
+  "#10b981", "#3b82f6", "#f59e0b", "#ef4444",
+  "#a855f7", "#14b8a6", "#ec4899", "#84cc16",
+];
 
 const money = (n: number) =>
   "$" + Math.round(n || 0).toLocaleString("es-AR");
@@ -120,6 +209,19 @@ export default function WheelPage() {
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [productSearch, setProductSearch] = useState("");
 
+  // ── Reparto de frecuencias ──
+  // `weightDraft` es lo que el usuario está moviendo; `baseRef` guarda lo
+  // último que confirmó el server. La diferencia entre los dos es lo que
+  // define si hay cambios sin guardar.
+  const [weightDraft, setWeightDraft] = useState<Record<number, number>>({});
+  const baseRef = useRef<Record<number, number>>({});
+  const [savingWeights, setSavingWeights] = useState(false);
+  const [creatingQuickStart, setCreatingQuickStart] = useState(false);
+
+  const dirty = Object.keys(weightDraft).some(
+    (id) => weightDraft[Number(id)] !== baseRef.current[Number(id)]
+  );
+
   useEffect(() => {
     if (!branchId) { setLoading(false); return; }
     loadAll();
@@ -139,6 +241,21 @@ export default function WheelPage() {
       ]);
       setPrizes(p);
       if (cat) setProducts(cat.products || []);
+
+      // Merge, no pisada. Toda mutación (prender un gajo, borrarlo, guardar el
+      // modal) pasa por acá, y si el borrador se sobreescribiera con lo del
+      // server, editarle el nombre a un premio te borraría el reparto a medio
+      // armar sin ningún aviso.
+      const prevBase = baseRef.current;
+      setWeightDraft((prev) => {
+        const next: Record<number, number> = {};
+        for (const prize of p) {
+          const touched = prize.id in prev && prev[prize.id] !== prevBase[prize.id];
+          next[prize.id] = touched ? prev[prize.id] : prize.weight;
+        }
+        return next;
+      });
+      baseRef.current = Object.fromEntries(p.map((x) => [x.id, x.weight]));
       setConfig({
         wheel_enabled: b.wheel_enabled ?? 0,
         wheel_expires_minutes: b.wheel_expires_minutes ?? 60,
@@ -153,30 +270,105 @@ export default function WheelPage() {
   }
 
   // Un gajo solo entra en el sorteo si está activo, tiene peso y tiene valor.
-  // Es el mismo filtro que aplica el server.
-  const playable = prizes.filter(
-    (p) =>
-      p.is_active && p.weight > 0 && (p.type === "product" ? !!p.product_id : p.value > 0)
+  // Ojo: esto usa el peso DEL SERVER, no el del borrador, porque es el que
+  // manda mientras el reparto no se guarde.
+  const playable = prizes.filter((p) => !notPlayableReason(p));
+
+  // Búsqueda por id en vez de find lineal: sin esto cada movimiento del
+  // deslizador dispara N recorridos del catálogo.
+  const productPriceById = useMemo(
+    () => new Map(products.map((x) => [x.id, productPrice(x)])),
+    [products]
   );
 
-  // Cuánto cuesta, en promedio, cada giro. Es el número que evita cargar un
-  // 50% con peso alto sin darse cuenta de lo que implica.
-  const expectedCost = playable.reduce((sum, p) => {
-    let cost: number;
+  /** Lo que le cuesta a la sucursal que salga este premio. */
+  function prizeCost(p: Prize): number {
     if (p.type === "percentage") {
-      cost = Math.min(
+      return Math.min(
         (avgTicket * p.value) / 100,
         p.max_discount > 0 ? p.max_discount : Infinity
       );
-    } else if (p.type === "product") {
+    }
+    if (p.type === "product") {
       // Un regalo no descuenta, pero sale de la caja igual: cuesta lo que
       // vale el producto.
-      cost = p.value || productPrice(products.find((x) => x.id === p.product_id));
-    } else {
-      cost = p.value;
+      return p.value || productPriceById.get(p.product_id ?? -1) || 0;
     }
-    return sum + p.probability * cost;
-  }, 0);
+    return p.value;
+  }
+
+  // Los gajos que entran al reparto según el BORRADOR, y su porcentaje.
+  // Todo lo que se ve en pantalla (barra, porcentajes, "X de cada N" y costo)
+  // sale de acá, para que no haya dos números distintos para lo mismo.
+  const { inDraw, sharePct } = useMemo(() => {
+    const rows = prizes.filter(
+      (p) => !notPlayableReason({ ...p, weight: weightDraft[p.id] ?? p.weight })
+    );
+    const pts = normalize(rows.map((r) => weightDraft[r.id] ?? r.weight));
+    return {
+      inDraw: rows,
+      sharePct: new Map(rows.map((r, i) => [r.id, pts[i]])),
+    };
+  }, [prizes, weightDraft]);
+
+  const outOfDraw = prizes.filter((p) => !sharePct.has(p.id));
+
+  // Cuánto cuesta, en promedio, cada giro. Es el número que evita cargar un
+  // 50% muy seguido sin darse cuenta de lo que implica. Se recalcula mientras
+  // se mueven los deslizadores, antes de guardar.
+  const expectedCost = inDraw.reduce(
+    (sum, p) => sum + ((sharePct.get(p.id) || 0) / 100) * prizeCost(p),
+    0
+  );
+
+  // Aviso del navegador al recargar o cerrar con cambios sin guardar.
+  useEffect(() => {
+    if (!dirty) return;
+    const onLeave = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onLeave);
+    return () => window.removeEventListener("beforeunload", onLeave);
+  }, [dirty]);
+
+  /** Guarda todo el reparto de una vez. */
+  async function saveWeights() {
+    const payload = inDraw.map((p) => ({ id: p.id, weight: sharePct.get(p.id) || 1 }));
+    if (payload.length === 0) return;
+    try {
+      setSavingWeights(true);
+      // Se guardan los porcentajes normalizados, los mismos que se están
+      // viendo en pantalla. Así lo guardado y lo mostrado no pueden diferir.
+      const updated = await apiFetch<Prize[]>(
+        `/api/branches/${branchId}/wheel-prizes/weights`,
+        { method: "PUT", body: JSON.stringify({ weights: payload }) }
+      );
+      setPrizes(updated);
+      const fresh = Object.fromEntries(updated.map((x) => [x.id, x.weight]));
+      baseRef.current = fresh;
+      setWeightDraft(fresh);
+    } catch (err: any) {
+      alert(err.message || "No se pudo guardar el reparto");
+    } finally {
+      setSavingWeights(false);
+    }
+  }
+
+  function discardWeights() {
+    setWeightDraft({ ...baseRef.current });
+  }
+
+  /** Cambiar de sucursal recarga todo y se lleva puesto el borrador. */
+  function handleBranchChange(nextId: number) {
+    if (
+      dirty &&
+      !confirm("Tenés cambios sin guardar en el reparto. ¿Los descartás?")
+    ) {
+      return;
+    }
+    setBranchId(nextId);
+  }
 
   async function saveConfig(next: Partial<BranchWheelConfig>) {
     const merged = { ...config, ...next };
@@ -196,6 +388,44 @@ export default function WheelPage() {
     }
   }
 
+  /**
+   * Crea N gajos de arranque. Nacen VÁLIDOS, activos y distintos entre sí: el
+   * problema de los gajos vacíos se evita creándolos completos, no limpiándolos
+   * después. Que nazcan activos es seguro porque la ruleta no se le muestra a
+   * nadie hasta que el dueño la prenda.
+   */
+  async function quickStart(count: number) {
+    // Valores distintos entre sí: dos gajos con el mismo texto obligan a
+    // editarlos igual, que es justo lo que el arranque rápido viene a evitar.
+    const LADDER = [5, 8, 10, 12, 15, 20, 25, 30];
+    const share = normalize(new Array(count).fill(1));
+    try {
+      setCreatingQuickStart(true);
+      for (let i = 0; i < count; i++) {
+        const pct = LADDER[i] ?? 10;
+        await apiFetch(`/api/branches/${branchId}/wheel-prizes`, {
+          method: "POST",
+          body: JSON.stringify({
+            label: `${pct}% OFF`,
+            type: "percentage",
+            value: pct,
+            max_discount: 0,
+            min_order: 0,
+            weight: share[i],
+            color: "#0f0f12",
+            sort_order: i + 1,
+          }),
+        });
+      }
+    } catch (err: any) {
+      // Los que sí se crearon quedan; el dueño sigue con "+ Nuevo gajo".
+      alert(err.message || "No se pudieron crear todos los gajos");
+    } finally {
+      setCreatingQuickStart(false);
+      loadAll();
+    }
+  }
+
   async function savePrize() {
     if (!form.label.trim()) return alert("Poné el texto del gajo");
     if (form.type === "product" && !form.product_id) {
@@ -209,9 +439,19 @@ export default function WheelPage() {
       const url = editing
         ? `/api/branches/${branchId}/wheel-prizes/${editing.id}`
         : `/api/branches/${branchId}/wheel-prizes`;
+
+      // El peso NO viaja desde el modal: lo maneja el panel de reparto. Al
+      // editar ni se manda, así que guardar el modal no puede pisar un reparto
+      // a medio armar. Al crear se calcula la parte que le tocaría si el
+      // reparto fuera parejo, para no desbalancear lo que ya estaba.
+      const { weight: _ignored, ...rest } = form;
+      const newWeight = inDraw.length
+        ? Math.max(1, Math.round(100 / (inDraw.length + 1)))
+        : 20;
+
       await apiFetch(url, {
         method: editing ? "PUT" : "POST",
-        body: JSON.stringify(form),
+        body: JSON.stringify(editing ? rest : { ...rest, weight: newWeight }),
       });
       setShowModal(false);
       loadAll();
@@ -277,15 +517,6 @@ export default function WheelPage() {
 
   const canEnable = playable.length >= 2;
 
-  // Probabilidad del gajo que se está editando, en vivo. Se suma el peso del
-  // formulario al de los DEMÁS gajos jugables (excluyendo el propio si es una
-  // edición, para no contarlo dos veces).
-  const otherWeight = playable
-    .filter((p) => !editing || p.id !== editing.id)
-    .reduce((sum, p) => sum + p.weight, 0);
-  const formProbability =
-    form.weight > 0 ? form.weight / (otherWeight + form.weight) : 0;
-
   if (loading) {
     return <div className="p-6 text-gray-400">Cargando…</div>;
   }
@@ -311,7 +542,7 @@ export default function WheelPage() {
           {isMaster && branches.length > 0 && (
             <select
               value={branchId}
-              onChange={(e) => setBranchId(Number(e.target.value))}
+              onChange={(e) => handleBranchChange(Number(e.target.value))}
               className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
             >
               {branches.map((b) => (
@@ -347,7 +578,15 @@ export default function WheelPage() {
           </div>
           <button
             onClick={() => saveConfig({ wheel_enabled: config.wheel_enabled ? 0 : 1 })}
-            disabled={!config.wheel_enabled && !canEnable}
+            // Apagar siempre puede: es el freno de mano. Prender no, mientras
+            // haya cambios sin guardar, porque pondría en vivo un reparto
+            // distinto del que se está mirando en pantalla.
+            disabled={!config.wheel_enabled && (!canEnable || dirty)}
+            title={
+              !config.wheel_enabled && dirty
+                ? "Guardá el reparto antes de prender la ruleta"
+                : undefined
+            }
             className={`px-4 py-2 rounded-lg font-medium text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
               config.wheel_enabled
                 ? "bg-emerald-600 hover:bg-emerald-700 text-white"
@@ -360,7 +599,7 @@ export default function WheelPage() {
 
         {!canEnable && (
           <div className="bg-amber-900/20 border border-amber-800/50 rounded-lg p-3 text-amber-300 text-xs">
-            Cargá al menos 2 gajos activos con valor y peso mayores a 0 para poder prender la ruleta.
+            Cargá al menos 2 gajos activos con su premio cargado para poder prender la ruleta.
           </div>
         )}
 
@@ -401,12 +640,174 @@ export default function WheelPage() {
         </div>
       </div>
 
+      {/* ── Reparto de frecuencias ── */}
+      {prizes.length > 0 && (
+        <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 space-y-4">
+          <div>
+            <h3 className="text-white font-bold">Cómo se reparten los premios</h3>
+            <p className="text-xs text-gray-400 mt-1 max-w-2xl">
+              Moviendo cada barra decidís cada cuánto sale ese premio. Los porcentajes
+              son relativos entre sí, así que al mover uno <strong>se reacomodan todos</strong>.
+            </p>
+          </div>
+
+          {inDraw.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              Ningún gajo está en condiciones de salir sorteado todavía.
+            </p>
+          ) : (
+            <>
+              {/* La torta, estirada. Es lo que hace visible que el reparto es
+                  un todo y no cinco decisiones sueltas. */}
+              <div className="flex w-full h-8 rounded-lg overflow-hidden border border-gray-800">
+                {inDraw.map((p, i) => {
+                  const pct = sharePct.get(p.id) || 0;
+                  return (
+                    <div
+                      key={p.id}
+                      className="flex items-center justify-center transition-[width] duration-75"
+                      style={{ width: `${pct}%`, backgroundColor: PALETTE[i % PALETTE.length] }}
+                      title={`${p.label} — ${pct}%`}
+                    >
+                      {pct >= 8 && (
+                        <span className="text-[10px] font-bold text-black/70">{pct}%</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="space-y-3">
+                {inDraw.map((p, i) => {
+                  const pct = sharePct.get(p.id) || 0;
+                  return (
+                    <div
+                      key={p.id}
+                      className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_2fr_auto] items-center gap-x-4 gap-y-1"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className="w-3 h-3 rounded-full shrink-0"
+                          style={{ backgroundColor: PALETTE[i % PALETTE.length] }}
+                        />
+                        <span className="text-sm text-white truncate">{p.label}</span>
+                      </div>
+
+                      <input
+                        type="range"
+                        min={1}
+                        max={100}
+                        step={1}
+                        value={weightDraft[p.id] ?? p.weight}
+                        onChange={(e) =>
+                          setWeightDraft((prev) => ({ ...prev, [p.id]: Number(e.target.value) }))
+                        }
+                        className="w-full accent-emerald-500"
+                        aria-label={`Cada cuánto sale ${p.label}`}
+                      />
+
+                      <div className="text-right whitespace-nowrap">
+                        <span className="text-sm font-bold text-white">{pct}%</span>
+                        <span className="text-xs text-gray-500 ml-2">
+                          {frequencyText(pct / 100)}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {/* Los que quedaron afuera NO se ocultan: si desaparecieran, el dueño
+              se quedaría buscando un premio que cargó y no ve en ningún lado. */}
+          {outOfDraw.length > 0 && (
+            <div className="border-t border-gray-800 pt-3 space-y-1.5">
+              <p className="text-xs text-gray-400">
+                No entran en el reparto ({outOfDraw.length})
+              </p>
+              {outOfDraw.map((p) => (
+                <div key={p.id} className="flex items-center gap-2 text-xs flex-wrap">
+                  <span className="text-gray-400">
+                    "{p.label}" — {notPlayableReason({ ...p, weight: weightDraft[p.id] ?? p.weight })}
+                  </span>
+                  {!p.is_active ? (
+                    <button
+                      onClick={() => togglePrize(p)}
+                      className="text-emerald-400 hover:text-emerald-300 underline"
+                    >
+                      Activar
+                    </button>
+                  ) : (weightDraft[p.id] ?? p.weight) <= 0 ? (
+                    <button
+                      onClick={() =>
+                        setWeightDraft((prev) => ({
+                          ...prev,
+                          [p.id]: Math.max(1, Math.round(100 / (inDraw.length + 1))),
+                        }))
+                      }
+                      className="text-emerald-400 hover:text-emerald-300 underline"
+                    >
+                      Sumar al reparto
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => openEdit(p)}
+                      className="text-blue-400 hover:text-blue-300 underline"
+                    >
+                      Editar
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {dirty && (
+            <div className="bg-amber-900/20 border border-amber-800/50 rounded-lg p-3 text-amber-300 text-xs">
+              Estos porcentajes todavía no están guardados. La ruleta sigue repartiendo
+              como antes.
+            </div>
+          )}
+
+          <div className="flex items-center justify-between gap-3 flex-wrap border-t border-gray-800 pt-4">
+            <div className="text-xs text-gray-400">
+              Costo por giro:{" "}
+              <span className={expectedCost / avgTicket > 0.15 ? "text-red-400 font-bold" : "text-white font-bold"}>
+                {money(expectedCost)}
+              </span>
+              {avgTicket > 0 && (
+                <span className="ml-1">({((expectedCost / avgTicket) * 100).toFixed(1)}%)</span>
+              )}
+            </div>
+            <div className="flex gap-2">
+              {dirty && (
+                <button
+                  onClick={discardWeights}
+                  className="px-4 py-2 border border-gray-700 rounded-lg text-gray-300 text-sm hover:bg-gray-800"
+                >
+                  Deshacer
+                </button>
+              )}
+              <button
+                onClick={saveWeights}
+                disabled={!dirty || savingWeights}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-sm font-medium"
+              >
+                {savingWeights ? "Guardando…" : "Guardar reparto"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Costo esperado ── */}
-      {playable.length > 0 && (
+      {inDraw.length > 0 && (
         <div className="bg-gray-900 border border-gray-800 rounded-lg p-6">
           <h3 className="text-white font-bold mb-1">Cuánto te va a costar</h3>
           <p className="text-xs text-gray-400 mb-4">
-            Cuánto te sale, en promedio, cada giro — según la frecuencia de cada premio.
+            Cuánto te sale, en promedio, cada giro — según el reparto que armaste arriba.
+            Se actualiza mientras movés las barras, antes de guardar.
           </p>
           <div className="flex items-end gap-6 flex-wrap">
             <div>
@@ -435,8 +836,8 @@ export default function WheelPage() {
           </div>
           {expectedCost / avgTicket > 0.15 && (
             <div className="mt-4 bg-red-900/20 border border-red-800/50 rounded-lg p-3 text-red-300 text-xs">
-              Estás regalando más del 15% del ticket en promedio. Poné los premios
-              grandes en "Poco" o "Casi nunca", o ponéles un tope en pesos.
+              Estás regalando más del 15% del ticket en promedio. Bajales la barra a los
+              premios más caros, o ponéles un tope en pesos.
             </div>
           )}
         </div>
@@ -448,15 +849,34 @@ export default function WheelPage() {
           <h3 className="text-white font-bold">Gajos ({prizes.length})</h3>
         </div>
         {prizes.length === 0 ? (
-          <div className="p-8 text-center text-gray-500 text-sm">
-            Todavía no cargaste ningún premio.
+          <div className="p-8 text-center">
+            <p className="text-white font-semibold mb-1">Todavía no cargaste ningún premio</p>
+            <p className="text-sm text-gray-400 mb-5">
+              ¿Cuántos querés en la ruleta? Los creamos con descuentos de ejemplo y el
+              reparto parejo, y después los editás.
+            </p>
+            <div className="flex items-center justify-center gap-2 flex-wrap">
+              {[3, 4, 5, 6, 8].map((n) => (
+                <button
+                  key={n}
+                  onClick={() => quickStart(n)}
+                  disabled={creatingQuickStart}
+                  className="w-12 h-12 rounded-lg bg-gray-800 hover:bg-emerald-600 disabled:opacity-40 text-white font-bold transition-colors"
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+            {creatingQuickStart && (
+              <p className="text-xs text-gray-500 mt-4">Creando los gajos…</p>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-800/50">
                 <tr>
-                  {["Gajo", "Premio", "Tope", "Mínimo", "Cada cuánto sale", "Estado", ""].map((h) => (
+                  {["Gajo", "Premio", "Tope", "Mínimo", "Estado", ""].map((h) => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase">
                       {h}
                     </th>
@@ -481,12 +901,6 @@ export default function WheelPage() {
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-400">
                       {p.min_order > 0 ? money(p.min_order) : "—"}
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      <div className="font-semibold text-white">{oneInEvery(p.probability)}</div>
-                      <div className="text-xs text-gray-500">
-                        {(p.probability * 100).toFixed(0)}% · peso {p.weight}
-                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <button
@@ -730,58 +1144,10 @@ export default function WheelPage() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs text-gray-400 mb-2">
-                  ¿Cada cuánto querés que salga este premio?
-                </label>
-                <div className="grid grid-cols-5 gap-1.5">
-                  {FREQUENCIES.map((f) => (
-                    <button
-                      key={f.weight}
-                      type="button"
-                      onClick={() => setForm({ ...form, weight: f.weight })}
-                      className={`px-1 py-2 rounded-lg text-[11px] font-medium transition-colors ${
-                        form.weight === f.weight
-                          ? "bg-emerald-600 text-white"
-                          : "bg-gray-800 text-gray-400 hover:bg-gray-700"
-                      }`}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* La cuenta ya resuelta, contra los gajos que ya existen. */}
-                <div className="mt-3 bg-gray-800/60 rounded-lg px-3 py-2.5">
-                  <div className="text-sm text-white">
-                    Va a salir <strong>{oneInEvery(formProbability)}</strong> veces
-                    <span className="text-gray-400"> ({(formProbability * 100).toFixed(0)}%)</span>
-                  </div>
-                  <p className="text-[11px] text-gray-500 mt-0.5">
-                    Calculado contra los demás gajos activos. Si agregás o sacás premios,
-                    este número se reacomoda solo.
-                  </p>
-                </div>
-
-                <details className="mt-2">
-                  <summary className="text-[11px] text-gray-500 cursor-pointer hover:text-gray-400">
-                    Ajustar a mano
-                  </summary>
-                  <div className="mt-2 flex items-center gap-2">
-                    <input
-                      type="number"
-                      min={0}
-                      value={form.weight}
-                      onChange={(e) => setForm({ ...form, weight: Number(e.target.value) })}
-                      className="w-24 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
-                    />
-                    <span className="text-[11px] text-gray-500">
-                      Cuántas "bolillas" pone este premio en la bolsa. Más bolillas, más
-                      seguido sale. No hace falta que sumen 100.
-                    </span>
-                  </div>
-                </details>
-              </div>
+              <p className="text-[11px] text-gray-500 bg-gray-800/40 rounded-lg px-3 py-2.5">
+                Cada cuánto sale este premio no se define acá: se ajusta abajo, en
+                <strong> "Cómo se reparten los premios"</strong>, junto con todos los demás.
+              </p>
 
               <div>
                 <label className="block text-xs text-gray-400 mb-1">Orden en la ruleta</label>

@@ -282,7 +282,7 @@ const SECTIONS: HelpSection[] = [
     title: "Ruleta de premios",
     summary: "El cliente gira antes de mandar el pedido y gana un descuento.",
     category: "branch",
-    keywords: "ruleta premio giro sorteo descuento juego gamificacion girar gajo regalo producto gratis obsequio",
+    keywords: "ruleta premio giro sorteo descuento juego gamificacion girar gajo regalo producto gratis obsequio frecuencia reparto deslizador barra porcentaje probabilidad",
     body: (
       <Section>
         <P>
@@ -294,7 +294,12 @@ const SECTIONS: HelpSection[] = [
         <H3>Cargar los premios</H3>
         <Steps>
           <li>
-            Entrá a <strong>Ruleta</strong> y tocá <strong>+ Nuevo gajo</strong>.
+            Entrá a <strong>Ruleta</strong>. Si la sucursal no tiene ningún premio todavía,
+            te ofrece crear varios de una: elegís cuántos y los deja listos con descuentos
+            de ejemplo y el reparto parejo, para que después solo los edites.
+          </li>
+          <li>
+            Para agregar uno suelto, <strong>+ Nuevo gajo</strong>.
           </li>
           <li>
             <strong>Texto del gajo</strong>: lo que el cliente lee en la rueda ("10% OFF").
@@ -310,7 +315,8 @@ const SECTIONS: HelpSection[] = [
             <strong>Pedido mínimo</strong>: si el pedido no llega a ese monto, el premio no aplica.
           </li>
           <li>
-            <strong>Cada cuánto sale</strong>: elegís entre "Muy seguido" y "Casi nunca".
+            <strong>Cada cuánto sale</strong> no se carga acá: se ajusta después, para
+            todos los gajos juntos, en el panel de reparto.
           </li>
         </Steps>
 
@@ -335,24 +341,41 @@ const SECTIONS: HelpSection[] = [
           de $20.000" sube el ticket en vez de solo regalar.
         </Tip>
 
-        <H3>Cada cuánto sale cada premio</H3>
+        <H3>Cómo se reparten los premios</H3>
         <P>
-          Al cargar un gajo elegís su frecuencia entre cinco opciones, de
-          <strong> "Muy seguido"</strong> a <strong>"Casi nunca"</strong>. Justo abajo el
-          sistema te dice el resultado en criollo: <em>"va a salir 1 de cada 7 veces"</em>.
-          No hay que calcular nada.
+          La frecuencia no se elige premio por premio, y hay un motivo: es algo
+          <strong> relativo</strong>. Que un premio salga "seguido" no quiere decir nada por
+          sí solo; solo tiene sentido comparado con los demás. Por eso se reparte entre
+          todos juntos, en un panel único.
         </P>
+        <Steps>
+          <li>
+            Arriba hay una <strong>barra de colores</strong> que es el reparto completo:
+            cada tramo es un premio y su ancho es cada cuánto sale.
+          </li>
+          <li>
+            Abajo, cada premio tiene su <strong>barra deslizable</strong>. Corrés una y los
+            porcentajes de <strong>todos</strong> se reacomodan, porque siempre suman 100
+            entre los que están en juego.
+          </li>
+          <li>
+            Al costado se lee el resultado en criollo: <em>"32% · 3 de cada 10"</em>. No hay
+            que calcular nada.
+          </li>
+          <li>
+            Nada se aplica hasta que tocás <strong>"Guardar reparto"</strong>. Mientras
+            tanto la ruleta sigue repartiendo como antes, y un cartel te lo recuerda.
+          </li>
+        </Steps>
         <P>
-          Por detrás eso es un número que el sistema llama <strong>peso</strong>, y lo podés
-          tocar a mano desplegando <strong>"Ajustar a mano"</strong>. Pensalo como bolillas
-          en una bolsa: el peso es cuántas bolillas pone ese premio. Más bolillas, más
-          seguido sale. <strong>No tienen que sumar 100</strong> — lo que importa es la
-          proporción entre ellos, así que agregar un premio nuevo no te obliga a
-          rebalancear los demás.
+          Los gajos que están apagados o a los que les falta algo <strong>no entran en el
+          reparto</strong> y aparecen listados abajo con el motivo, para que no se te pierda
+          un premio que cargaste y no ves en la barra.
         </P>
         <Tip>
-          La regla para no perder plata: <strong>el premio más caro va con la frecuencia
-          más baja</strong>. Un 20% en "Muy seguido" te come el margen.
+          La regla para no perder plata: <strong>el premio más caro va con la barra más
+          abajo</strong>. Mientras movés, el costo por giro se actualiza al pie del panel:
+          ese es el número para decidir.
         </Tip>
 
         <Warn>

@@ -187,7 +187,7 @@ export default function PrizeWheel({ slices, prize, discount = 0, failed, onClos
           {phase === "revealed" && prize
             ? `🎉 ¡Ganaste ${prize.label}!`
             : phase === "idle"
-              ? "Tenés un giro"
+              ? "Dale un Jiro a la ruleta"
               : "Girando…"}
         </h3>
         <p className="text-xs opacity-70 mb-5" style={{ color: "var(--panel-text, #fff)" }}>
@@ -198,7 +198,7 @@ export default function PrizeWheel({ slices, prize, discount = 0, failed, onClos
                 ? "Ya está aplicado a tu pedido."
                 : "Se aplica a tu pedido."
             : phase === "idle"
-              ? "Girá la ruleta y ganate un descuento."
+              ? "Un solo giro, y el descuento es tuyo."
               : "Estamos sorteando tu premio."}
         </p>
 
