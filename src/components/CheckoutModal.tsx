@@ -1,11 +1,14 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { useCart, useCartDispatch, computeAutoPromoDiscount } from "../store/cartContext";
 import { useStorefront } from "../hooks/useStorefront";
 import { getDateOptions, getTimeSlots } from "../utils/dateTime";
 import { buildWhatsAppMessage, buildWhatsAppUrl } from "../utils/whatsapp";
 import GoogleAddressPicker from "./GoogleAddressPicker";
 import { findDeliveryZone } from "../utils/kmlParser";
-import type { CheckoutData } from "../types";
+import { getDeviceId } from "../utils/deviceId";
+import { plainTotal } from "../utils/money";
+import PrizeWheel from "./PrizeWheel";
+import type { CheckoutData, WonPrize } from "../types";
 
 interface AppliedCoupon {
   code: string;
@@ -23,7 +26,7 @@ interface Props {
 export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onRemoveCoupon }: Props) {
   const { items } = useCart();
   const dispatch = useCartDispatch();
-  const { businessConfig, branchId, deliveryZones, delayMinutes, sameProductPromos } = useStorefront();
+  const { businessConfig, branchId, deliveryZones, delayMinutes, sameProductPromos, wheel } = useStorefront();
 
   // Descuento auto-aplicado por promos "2x1 al mismo producto". Mismo cálculo
   // que el CartModal hace para mostrar el total al cliente — acá lo replicamos
@@ -52,6 +55,100 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [outsideZone, setOutsideZone] = useState(false);
   const timeSlots = getTimeSlots(delayMinutes, form.date);
+
+  // ── Ruleta de premios ──
+  const [wheelPrize, setWheelPrize] = useState<WonPrize | null>(null);
+  const [wheelOpen, setWheelOpen] = useState(false);
+  const [wheelFailed, setWheelFailed] = useState(false);
+
+  // Descuento ya "horneado" en el precio por una promo de tipo percentage.
+  // No aparece en autoPromo (que es solo el 2x1), así que hay que mirarlo
+  // aparte: si no, un cliente con 20% de promo vería la ruleta y ganaría
+  // un premio que el server después descarta.
+  const bakedPromo = useMemo(
+    () =>
+      items.reduce(
+        (sum, i) => sum + Math.max(0, (i.originalPrice ?? i.price) - i.price) * i.quantity,
+        0
+      ),
+    [items]
+  );
+
+  // La ruleta es solo para quien no tiene ya otro descuento. Este predicado
+  // tiene que ser EL MISMO que evalúa el server al crear el pedido: si se
+  // desalinean, el cliente manda por WhatsApp un descuento que la base no
+  // registró y la sucursal lo termina regalando.
+  const hasOtherDiscount = !!appliedCoupon || autoPromo.total > 0 || bakedPromo > 0;
+  const wheelEligible =
+    wheel.enabled && wheel.slices.length > 0 && !hasOtherDiscount && !wheelFailed;
+
+  // Si el carrito cambia y aparece un descuento mejor, el premio se cae solo.
+  // Sin esto el chip quedaría en pantalla prometiendo algo que el server ya
+  // no va a aplicar.
+  useEffect(() => {
+    if (wheelPrize && hasOtherDiscount) setWheelPrize(null);
+  }, [wheelPrize, hasOtherDiscount]);
+
+  const wheelDiscount = useMemo(() => {
+    if (!wheelPrize) return 0;
+    const sub = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+    if (sub <= 0) return 0;
+    if (wheelPrize.minOrder > 0 && sub < wheelPrize.minOrder) return 0;
+    let d =
+      wheelPrize.type === "percentage"
+        ? Math.round((sub * wheelPrize.value) / 100)
+        : wheelPrize.value;
+    if (wheelPrize.maxDiscount > 0) d = Math.min(d, wheelPrize.maxDiscount);
+    return Math.max(0, Math.min(d, sub));
+  }, [wheelPrize, items]);
+
+  // Girar es un click PROPIO y anterior al de enviar. Es a propósito: el
+  // handleSend abre WhatsApp con window.open de forma síncrona con el click,
+  // y si metiéramos este await ahí en el medio, el navegador lo bloquearía
+  // como popup y el pedido no se mandaría.
+  async function handleSpin() {
+    if (!validate()) return;
+    setWheelOpen(true);
+    try {
+      const res = await fetch("/api/wheel/spin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          branchId,
+          phone: form.phone,
+          deviceId: getDeviceId(),
+          items: items.map((i) => ({
+            productId: i.productId,
+            categoryId: i.categoryId,
+            price: i.price,
+            originalPrice: i.originalPrice ?? i.price,
+            quantity: i.quantity,
+          })),
+        }),
+      }).then((r) => r.json());
+
+      if (!res.ok) {
+        // Sin premio disponible o no elegible: se sigue sin ruleta, en
+        // silencio. Nunca bloqueamos el pedido por esto.
+        setWheelFailed(true);
+        setWheelOpen(false);
+        return;
+      }
+
+      setWheelPrize({ token: res.token, expiresAt: res.expiresAt, ...res.prize });
+      if (branchId) {
+        const sid = sessionStorage.getItem("_tp_sid") || "";
+        fetch("/api/analytics/event", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ branchId, eventType: "wheel_spun", sessionId: sid }),
+        }).catch(() => {});
+      }
+    } catch {
+      setWheelFailed(true);
+      setWheelOpen(false);
+    }
+  }
 
   function updateField<K extends keyof CheckoutData>(
     key: K,
@@ -123,12 +220,19 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
 
     const discount = appliedCoupon?.discount || 0;
     const couponCode = appliedCoupon?.code || null;
-    const message = buildWhatsAppMessage(items, form, businessConfig.address, appliedCoupon || undefined, autoPromo);
+    const message = buildWhatsAppMessage(
+      items,
+      form,
+      businessConfig.address,
+      appliedCoupon || undefined,
+      autoPromo,
+      wheelPrize ? { label: wheelPrize.label, discount: wheelDiscount } : undefined
+    );
     const url = buildWhatsAppUrl(businessConfig.whatsapp || businessConfig.phone, message);
 
     // Calculate total
     const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-    const total = Math.max(0, subtotal - autoPromo.total - discount);
+    const total = Math.max(0, subtotal - autoPromo.total - discount - wheelDiscount);
 
     const orderPayload = {
       branchId,
@@ -162,6 +266,10 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
       autoPromoBreakdown: autoPromo.lines,
       total,
       couponCode,
+      // Token opaco: el server resuelve el premio y recalcula el descuento por
+      // su cuenta. Nunca le mandamos el monto.
+      wheelToken: wheelPrize?.token ?? null,
+      deviceId: getDeviceId(),
     };
 
     // Track order_placed analytics event
@@ -198,6 +306,7 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
     }));
 
     dispatch({ type: "CLEAR" });
+    setWheelPrize(null);
     onClose();
 
     // Save order to database (fire-and-forget, validation already happened in cart)
@@ -439,7 +548,22 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
         </div>
 
         {/* Footer */}
-        <div className="border-t border-white/10 p-5 flex gap-3">
+        <div className="border-t border-white/10 p-5 flex flex-wrap gap-3">
+          {/* Premio ya ganado: se muestra arriba de los botones para que el
+              cliente vea el descuento antes de confirmar. */}
+          {wheelPrize && wheelDiscount > 0 && (
+            <div
+              className="w-full rounded-lg px-4 py-2.5 text-sm font-semibold flex items-center justify-between gap-2"
+              style={{
+                backgroundColor: "color-mix(in srgb, var(--btn-bg) 18%, transparent)",
+                color: "var(--general-text)",
+              }}
+            >
+              <span>🎉 Ganaste {wheelPrize.label}</span>
+              <span>-${plainTotal(wheelDiscount)}</span>
+            </div>
+          )}
+
           <button
             onClick={onClose}
             className="flex-1 border border-white/20 py-3 rounded-lg font-semibold text-sm transition-opacity hover:opacity-80"
@@ -447,14 +571,39 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
           >
             Cancelar
           </button>
-          <button
-            onClick={handleSend}
-            data-testid="submit-order"
-            className="flex-1 py-3 rounded-lg font-semibold text-sm transition-opacity hover:opacity-90"
-            style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
-          >
-            Enviar!
-          </button>
+
+          {wheelEligible && !wheelPrize ? (
+            <button
+              onClick={handleSpin}
+              data-testid="spin-wheel"
+              className="flex-1 py-3 rounded-lg font-semibold text-sm transition-opacity hover:opacity-90"
+              style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
+            >
+              🎡 Girar y ganar
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              data-testid="submit-order"
+              className="flex-1 py-3 rounded-lg font-semibold text-sm transition-opacity hover:opacity-90"
+              style={{ backgroundColor: "var(--btn-bg)", color: "var(--btn-text)" }}
+            >
+              Enviar!
+            </button>
+          )}
+
+          {/* La ruleta nunca puede ser un peaje: siempre se puede mandar el
+              pedido sin jugar. */}
+          {wheelEligible && !wheelPrize && (
+            <button
+              onClick={handleSend}
+              data-testid="submit-order"
+              className="w-full text-xs underline opacity-60 hover:opacity-100"
+              style={{ color: "var(--general-text)" }}
+            >
+              Enviar sin girar
+            </button>
+          )}
           {errors.coupon && (
             <div className="w-full mt-2 text-center">
               <p className="text-red-400 text-sm">{errors.coupon}</p>
@@ -474,6 +623,15 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
           )}
         </div>
       </div>
+
+      {wheelOpen && (
+        <PrizeWheel
+          slices={wheel.slices}
+          prize={wheelPrize}
+          failed={wheelFailed}
+          onClose={() => setWheelOpen(false)}
+        />
+      )}
     </div>
   );
 }

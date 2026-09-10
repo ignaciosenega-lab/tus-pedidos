@@ -14,6 +14,7 @@ import AuditPage from "./pages/admin/AuditPage";
 import PriceScanPage from "./pages/admin/PriceScanPage";
 import PromotionsPage from "./pages/admin/PromotionsPage";
 import CouponsPage from "./pages/admin/CouponsPage";
+import WheelPage from "./pages/admin/WheelPage";
 import UsersPage from "./pages/admin/UsersPage";
 import ConfigPage from "./pages/admin/ConfigPage";
 import OperationsPage from "./pages/admin/OperationsPage";
@@ -96,6 +97,7 @@ createRoot(document.getElementById("root")!).render(
               {/* Branch routes */}
               <Route path="promociones" element={<PromotionsPage />} />
               <Route path="cupones" element={<CouponsPage />} />
+              <Route path="ruleta" element={<WheelPage />} />
               <Route path="configuracion" element={<ConfigPage />} />
               <Route path="operacion" element={<OperationsPage />} />
               <Route path="estilos" element={<MasterOnly><StylesPage /></MasterOnly>} />

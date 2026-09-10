@@ -25,7 +25,8 @@ export function buildWhatsAppMessage(
   checkout: CheckoutData,
   storeAddress: string,
   coupon?: CouponInfo,
-  autoPromo?: AutoPromoInfo
+  autoPromo?: AutoPromoInfo,
+  wheelPrize?: { label: string; discount: number }
 ): string {
   // Current order timestamp
   const now = new Date();
@@ -54,7 +55,8 @@ export function buildWhatsAppMessage(
 
   const autoPromoTotal = autoPromo?.total || 0;
   const couponDiscount = (coupon && coupon.discount > 0) ? coupon.discount : 0;
-  const hasAnyDiscount = autoPromoTotal > 0 || couponDiscount > 0;
+  const wheelDiscount = (wheelPrize && wheelPrize.discount > 0) ? wheelPrize.discount : 0;
+  const hasAnyDiscount = autoPromoTotal > 0 || couponDiscount > 0 || wheelDiscount > 0;
 
   if (hasAnyDiscount) {
     msg += `\nSubtotal: $${plainTotal(total)}\n`;
@@ -67,7 +69,10 @@ export function buildWhatsAppMessage(
     if (couponDiscount > 0 && coupon) {
       msg += `Cupón ${coupon.code}: -$${plainTotal(couponDiscount)}\n`;
     }
-    msg += `Total a pagar: $${plainTotal(Math.max(0, total - autoPromoTotal - couponDiscount))}\n`;
+    if (wheelDiscount > 0 && wheelPrize) {
+      msg += `🎡 Ruleta — ${wheelPrize.label}: -$${plainTotal(wheelDiscount)}\n`;
+    }
+    msg += `Total a pagar: $${plainTotal(Math.max(0, total - autoPromoTotal - couponDiscount - wheelDiscount))}\n`;
   } else {
     msg += `\nTotal a pagar: $${plainTotal(total)}\n`;
   }

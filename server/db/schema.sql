@@ -499,3 +499,76 @@ CREATE TABLE IF NOT EXISTS campaign_messages (
 
 CREATE INDEX IF NOT EXISTS idx_cm_campaign ON campaign_messages(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_cm_status ON campaign_messages(campaign_id, status);
+
+-- ================================================================
+-- WHEEL_PRIZES (ruleta de premios: gajos configurables por sucursal)
+-- ================================================================
+-- `weight` es un peso RELATIVO, no un porcentaje: la probabilidad de un gajo
+-- es weight / SUM(weight) sobre los activos. Así agregar o desactivar un
+-- premio redistribuye solo, sin obligar a rebalancear todo a mano.
+CREATE TABLE IF NOT EXISTS wheel_prizes (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  branch_id    INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  label        TEXT    NOT NULL,
+  type         TEXT    NOT NULL DEFAULT 'percentage' CHECK (type IN ('percentage', 'fixed')),
+  value        REAL    NOT NULL DEFAULT 0,
+  max_discount REAL    NOT NULL DEFAULT 0,   -- tope en $ para 'percentage' (0 = sin tope)
+  min_order    REAL    NOT NULL DEFAULT 0,   -- subtotal mínimo para que el premio aplique
+  weight       INTEGER NOT NULL DEFAULT 1,
+  color        TEXT    NOT NULL DEFAULT '#10b981',
+  sort_order   INTEGER NOT NULL DEFAULT 0,
+  is_active    INTEGER NOT NULL DEFAULT 1,
+  created_at   TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_wheel_prizes_branch ON wheel_prizes(branch_id, is_active);
+
+-- ================================================================
+-- WHEEL_SPINS (giros: un premio ya sorteado y su ciclo de vida)
+-- ================================================================
+-- El azar se resuelve UNA sola vez del lado del servidor y queda escrito acá.
+-- Cualquier pedido posterior de girar del mismo cliente devuelve esta misma
+-- fila, así que refrescar, reabrir el checkout o limpiar el localStorage no
+-- regeneran el premio.
+--
+-- Los campos prize_* son un SNAPSHOT del premio al momento del giro: si la
+-- sucursal edita o borra el gajo después, la historia y las métricas no se
+-- reescriben.
+--
+-- roll + total_weight + pool_snapshot permiten REPRODUCIR el sorteo y
+-- verificar que el ganador era el que correspondía.
+CREATE TABLE IF NOT EXISTS wheel_spins (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  branch_id          INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  phone              TEXT    NOT NULL,              -- normalizado: replace(/\D/g,'')
+  device_id          TEXT    NOT NULL DEFAULT '',
+  prize_id           INTEGER,
+  prize_label        TEXT    NOT NULL,
+  prize_type         TEXT    NOT NULL,
+  prize_value        REAL    NOT NULL,
+  prize_max_discount REAL    NOT NULL DEFAULT 0,
+  prize_min_order    REAL    NOT NULL DEFAULT 0,
+  roll               INTEGER NOT NULL,
+  total_weight       INTEGER NOT NULL,
+  pool_snapshot      TEXT    NOT NULL DEFAULT '[]',
+  token              TEXT    NOT NULL,
+  status             TEXT    NOT NULL DEFAULT 'pending'
+                     CHECK (status IN ('pending', 'consumed', 'expired')),
+  order_id           INTEGER,
+  applied_discount   REAL    NOT NULL DEFAULT 0,   -- lo que el premio costó DE VERDAD
+  expires_at         TEXT    NOT NULL,
+  created_at         TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+  consumed_at        TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_wheel_spins_token ON wheel_spins(token);
+
+-- Garantía a nivel base de "un solo giro vivo por teléfono y sucursal".
+-- Es lo que frena el doble tap en Girar: un SELECT previo no alcanza porque
+-- dos requests concurrentes lo pasan las dos.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_wheel_spins_live
+  ON wheel_spins(branch_id, phone) WHERE status = 'pending';
+
+CREATE INDEX IF NOT EXISTS idx_wheel_spins_device ON wheel_spins(branch_id, device_id);
+CREATE INDEX IF NOT EXISTS idx_wheel_spins_phone ON wheel_spins(branch_id, phone, id DESC);
+CREATE INDEX IF NOT EXISTS idx_wheel_spins_date ON wheel_spins(branch_id, created_at);

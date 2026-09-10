@@ -7,6 +7,7 @@ const multer = require("multer");
 const { getDb } = require("./db");
 const os = require("os");
 const { execSync } = require("child_process");
+const crypto = require("crypto");
 const { requireAuth, requireRole } = require("./middleware/auth");
 const authRoutes = require("./routes/auth");
 const usersRoutes = require("./routes/users");
@@ -519,6 +520,223 @@ function computeCouponNetDiscount(db, coupon, items, branchId) {
 }
 
 /* ══════════════════════════════════════════════════
+   RULETA DE PREMIOS
+   ══════════════════════════════════════════════════ */
+
+// Normalización del teléfono: es la única identidad persistente que tiene el
+// comprador en todo el sistema (no hay login). Mismo criterio que usa el
+// upsert de app_users y el first_purchase_only de cupones.
+function normalizePhone(phone) {
+  return String(phone || "").replace(/\D/g, "");
+}
+
+// Un teléfono de menos de 8 dígitos no es una identidad: con "1" o "123"
+// cualquiera se fabrica un cliente nuevo por cada giro.
+const MIN_PHONE_DIGITS = 8;
+
+// Gajos que pueden salir sorteados. El filtro `value > 0` es lo que garantiza
+// la regla "siempre gana algo": no existe un gajo perdedor en el pool.
+function getActiveWheelPrizes(db, branchId) {
+  return db
+    .prepare(
+      `SELECT * FROM wheel_prizes
+        WHERE branch_id = ? AND is_active = 1 AND weight > 0 AND value > 0
+        ORDER BY sort_order, id`
+    )
+    .all(branchId);
+}
+
+// Sorteo ponderado y AUDITABLE. Se persisten roll/total_weight/pool_snapshot
+// para poder reproducir después qué gajo tenía que salir.
+// crypto.randomInt en vez de Math.random(): hace rejection sampling, así que
+// no tiene el sesgo de módulo ni es predecible.
+function drawWheelPrize(pool) {
+  const totalWeight = pool.reduce((sum, p) => sum + Number(p.weight || 0), 0);
+  if (totalWeight <= 0) return null;
+
+  const roll = crypto.randomInt(0, totalWeight);
+  let acc = 0;
+  for (const prize of pool) {
+    acc += Number(prize.weight);
+    if (roll < acc) return { winner: prize, roll, totalWeight, pool };
+  }
+  // Inalcanzable si los pesos son consistentes, pero no dejamos caer un null.
+  return { winner: pool[pool.length - 1], roll, totalWeight, pool };
+}
+
+// Cuánto descuenta REALMENTE un premio sobre un subtotal dado.
+// Math.round para alinear con computeCouponNetDiscount: si el cliente
+// redondeara distinto que el server, el mensaje de WhatsApp y la fila de
+// orders diferirían en un peso y eso aparece como descuadre de caja.
+function computeWheelDiscount(spin, subtotal) {
+  if (!spin || subtotal <= 0) return 0;
+  if (spin.prize_min_order > 0 && subtotal < spin.prize_min_order) return 0;
+
+  let discount =
+    spin.prize_type === "percentage"
+      ? Math.round((subtotal * Number(spin.prize_value)) / 100)
+      : Number(spin.prize_value);
+
+  if (spin.prize_max_discount > 0) discount = Math.min(discount, spin.prize_max_discount);
+  return Math.max(0, Math.min(discount, subtotal));
+}
+
+// Descuento ya "horneado" en el precio por una promo de tipo percentage.
+// NO aparece en promotion_discount (que solo acumula el 2x1), así que si se
+// omite, un cliente con 20% de promo activa se lleva ADEMÁS el premio de la
+// ruleta. Es la misma cuenta que hace computeCouponNetDiscount.
+function computeBakedPromoDiscount(items) {
+  if (!Array.isArray(items)) return 0;
+  return items.reduce((sum, item) => {
+    const original = Number(item.originalPrice ?? item.price) || 0;
+    const price = Number(item.price) || 0;
+    return sum + Math.max(0, original - price) * (Number(item.quantity) || 0);
+  }, 0);
+}
+
+// Resuelve el giro de un cliente. Es IDEMPOTENTE: el azar se decide una sola
+// vez y después esta función devuelve siempre el mismo premio.
+//
+// La decisión de fondo es separar AZAR de VIGENCIA:
+//   - el azar se fija por (teléfono, ventana de cooldown)
+//   - expires_at solo dice si el premio todavía se puede canjear
+// Sin esa separación, esperar a que venza el premio sería una máquina de
+// re-tiradas gratis: bastaría con dejar pasar una hora para volver a sortear.
+function resolveWheelSpin(db, branch, cleanPhone, deviceId) {
+  const branchId = branch.id;
+  const expiresMinutes = Math.max(5, branch.wheel_expires_minutes || 60);
+  const cooldownHours = Math.max(0, branch.wheel_cooldown_hours ?? 24);
+
+  // Las comparaciones de fecha van SIEMPRE dentro del SQL: el schema guarda
+  // datetime('now','localtime') (texto local sin zona) y compararlo en JS
+  // contra un toISOString() (UTC, con "T") da resultados silenciosamente mal.
+  const findLiveByPhone = db.prepare(
+    `SELECT * FROM wheel_spins
+      WHERE branch_id = ? AND phone = ? AND status = 'pending'
+        AND expires_at > datetime('now', 'localtime')`
+  );
+  const findLiveByDevice = db.prepare(
+    `SELECT * FROM wheel_spins
+      WHERE branch_id = ? AND device_id = ? AND device_id != '' AND status = 'pending'
+        AND expires_at > datetime('now', 'localtime')
+      ORDER BY id DESC LIMIT 1`
+  );
+
+  const run = db.transaction(() => {
+    // 1) Ya tiene un premio vivo con este teléfono → el mismo, sin re-sortear.
+    const live = findLiveByPhone.get(branchId, cleanPhone);
+    if (live) return { spin: live, alreadySpun: true };
+
+    // 2) Mismo dispositivo, otro teléfono → también le devolvemos ese premio.
+    //    Esto es lo que frena el "cambio un dígito del celular y giro de nuevo".
+    if (deviceId) {
+      const liveDevice = findLiveByDevice.get(branchId, deviceId);
+      if (liveDevice) return { spin: liveDevice, alreadySpun: true };
+    }
+
+    // 3) Caducar los pendientes vencidos de este teléfono.
+    db.prepare(
+      `UPDATE wheel_spins SET status = 'expired'
+        WHERE branch_id = ? AND phone = ? AND status = 'pending'
+          AND expires_at <= datetime('now', 'localtime')`
+    ).run(branchId, cleanPhone);
+
+    const last = db
+      .prepare(
+        "SELECT * FROM wheel_spins WHERE branch_id = ? AND phone = ? ORDER BY id DESC LIMIT 1"
+      )
+      .get(branchId, cleanPhone);
+
+    if (last && cooldownHours > 0) {
+      const withinCooldown = db
+        .prepare(
+          `SELECT (? > datetime('now', 'localtime', ?)) AS fresh`
+        );
+      const cutoffArg = `-${cooldownHours} hours`;
+
+      // 4) Ya lo usó en un pedido y sigue dentro del cooldown → no gira de nuevo.
+      if (last.status === "consumed" && last.consumed_at) {
+        const fresh = withinCooldown.get(last.consumed_at, cutoffArg).fresh;
+        if (fresh) return { eligible: false, reason: "cooldown" };
+      }
+
+      // 5) STICKY ROLL: venció sin usarlo pero sigue dentro del cooldown.
+      //    NO se re-sortea: se revive la MISMA fila con vigencia nueva.
+      if (last.status === "expired") {
+        const fresh = withinCooldown.get(last.created_at, cutoffArg).fresh;
+        if (fresh) {
+          db.prepare(
+            `UPDATE wheel_spins
+                SET status = 'pending',
+                    expires_at = datetime('now', 'localtime', ?)
+              WHERE id = ?`
+          ).run(`+${expiresMinutes} minutes`, last.id);
+          return {
+            spin: db.prepare("SELECT * FROM wheel_spins WHERE id = ?").get(last.id),
+            alreadySpun: true,
+          };
+        }
+      }
+    }
+
+    // 6) Recién acá se sortea de verdad.
+    const pool = getActiveWheelPrizes(db, branchId);
+    const draw = drawWheelPrize(pool);
+    if (!draw) return { eligible: false, reason: "no_prizes" };
+
+    const { winner, roll, totalWeight } = draw;
+    const token = crypto.randomBytes(16).toString("hex");
+
+    const result = db
+      .prepare(
+        `INSERT INTO wheel_spins
+           (branch_id, phone, device_id, prize_id, prize_label, prize_type, prize_value,
+            prize_max_discount, prize_min_order, roll, total_weight, pool_snapshot,
+            token, status, expires_at)
+         VALUES (@branch_id, @phone, @device_id, @prize_id, @prize_label, @prize_type, @prize_value,
+                 @prize_max_discount, @prize_min_order, @roll, @total_weight, @pool_snapshot,
+                 @token, 'pending', datetime('now', 'localtime', @expires))`
+      )
+      .run({
+        branch_id: branchId,
+        phone: cleanPhone,
+        device_id: deviceId || "",
+        prize_id: winner.id,
+        prize_label: winner.label,
+        prize_type: winner.type,
+        prize_value: winner.value,
+        prize_max_discount: winner.max_discount,
+        prize_min_order: winner.min_order,
+        roll,
+        total_weight: totalWeight,
+        pool_snapshot: JSON.stringify(
+          pool.map((p) => ({ id: p.id, label: p.label, type: p.type, value: p.value, weight: p.weight }))
+        ),
+        token,
+        expires: `+${expiresMinutes} minutes`,
+      });
+
+    return {
+      spin: db.prepare("SELECT * FROM wheel_spins WHERE id = ?").get(result.lastInsertRowid),
+      alreadySpun: false,
+    };
+  });
+
+  try {
+    return run();
+  } catch (e) {
+    // Dos requests concurrentes llegaron al paso 6 a la vez y el índice único
+    // parcial rechazó el segundo INSERT. El giro del ganador ya existe: lo
+    // buscamos y lo devolvemos, que es justo el comportamiento idempotente.
+    if (String(e.code || "").startsWith("SQLITE_CONSTRAINT")) {
+      const live = findLiveByPhone.get(branchId, cleanPhone);
+      if (live) return { spin: live, alreadySpun: true };
+    }
+    throw e;
+  }
+}
+
+/* ══════════════════════════════════════════════════
    DB → AdminState (GET /api/state)
    ══════════════════════════════════════════════════ */
 
@@ -685,6 +903,25 @@ function readStateFromDb(branchSlug) {
   // el descuento on-the-fly. El server vuelve a calcular al crear el order.
   const sameProductPromos = getActiveSameProductPromos(db, promoRows);
 
+  // ── Ruleta de premios ──
+  // Al cliente le mandamos SOLO label y color de cada gajo. Nunca `weight`
+  // (filtraría las probabilidades reales a cualquiera que abra DevTools) ni
+  // `value` (permitiría dibujar en pantalla un premio que no ganó). El valor
+  // del premio se conoce recién en la respuesta del giro.
+  // La query se saltea si la ruleta está apagada: /api/state es no-store y se
+  // pide en cada pageview, no vale la pena pagar un SELECT de más.
+  const wheel = branch.wheel_enabled
+    ? {
+        enabled: true,
+        expiresMinutes: branch.wheel_expires_minutes || 60,
+        slices: getActiveWheelPrizes(db, branch.id).map((p) => ({
+          id: p.id,
+          label: p.label,
+          color: p.color,
+        })),
+      }
+    : { enabled: false, expiresMinutes: 0, slices: [] };
+
   // ── Coupons (own + cross-branch) ──
   const couponRows = db.prepare(`
     SELECT DISTINCT c.* FROM coupons c
@@ -796,6 +1033,7 @@ function readStateFromDb(branchSlug) {
     promotions,
     activePromotions,
     sameProductPromos,
+    wheel,
     coupons,
     deliveryZones,
     businessConfig,
@@ -1411,6 +1649,95 @@ app.post("/api/coupons/validate", (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════
+   Ruleta: giro (POST /api/wheel/spin)
+   Público, igual que /api/coupons/validate.
+   ══════════════════════════════════════════════════ */
+
+// Válvula anti-script, NO identidad. El bloqueo real de re-tiradas es la
+// idempotencia por teléfono + dispositivo; esto solo evita que alguien
+// martille el endpoint. El umbral es generoso a propósito: en Argentina el
+// tráfico móvil sale por CGNAT y miles de clientes comparten IP saliente,
+// así que un límite estrecho bloquearía gente que nunca jugó.
+const wheelRateLimit = new Map();
+const WHEEL_RATE_MAX = 20;
+const WHEEL_RATE_WINDOW_MS = 60 * 60 * 1000;
+
+function wheelRateLimited(ip) {
+  const now = Date.now();
+  const entry = wheelRateLimit.get(ip);
+  if (!entry || now > entry.resetAt) {
+    wheelRateLimit.set(ip, { count: 1, resetAt: now + WHEEL_RATE_WINDOW_MS });
+    return false;
+  }
+  entry.count += 1;
+  return entry.count > WHEEL_RATE_MAX;
+}
+
+app.post("/api/wheel/spin", (req, res) => {
+  try {
+    const db = req.app.locals.db;
+    const { branchId, phone, deviceId, items } = req.body;
+
+    const branch = db
+      .prepare("SELECT * FROM branches WHERE id = ? AND is_active = 1")
+      .get(Number(branchId));
+    if (!branch || !branch.wheel_enabled) {
+      return res.json({ ok: false, reason: "disabled" });
+    }
+
+    const cleanPhone = normalizePhone(phone);
+    if (cleanPhone.length < MIN_PHONE_DIGITS) {
+      return res.json({ ok: false, reason: "invalid_phone" });
+    }
+
+    if (wheelRateLimited(req.ip)) {
+      return res.status(429).json({ ok: false, reason: "rate_limited" });
+    }
+
+    // Elegibilidad: la ruleta es solo para quien no tiene ya otro descuento.
+    // Acá es por cortesía (para no entregar un premio que después se va a
+    // descartar); el chequeo que protege la plata es el de /api/orders.
+    if (Array.isArray(items) && items.length > 0) {
+      const promoRows = getPromoRowsForBranch(db, branch.id);
+      const activePromos = promoRows.filter(isPromotionActiveToday);
+      const autoPromo = computeSameProductDiscounts(items, activePromos);
+      const bakedPromo = computeBakedPromoDiscount(items);
+      if (autoPromo.total > 0 || bakedPromo > 0) {
+        return res.json({ ok: false, reason: "not_eligible" });
+      }
+    }
+
+    const pool = getActiveWheelPrizes(db, branch.id);
+    if (pool.length === 0) return res.json({ ok: false, reason: "no_prizes" });
+
+    const result = resolveWheelSpin(db, branch, cleanPhone, String(deviceId || ""));
+    if (result.eligible === false) {
+      return res.json({ ok: false, reason: result.reason });
+    }
+
+    const { spin, alreadySpun } = result;
+    res.json({
+      ok: true,
+      alreadySpun,
+      token: spin.token,
+      expiresAt: spin.expires_at,
+      prize: {
+        id: spin.prize_id,
+        label: spin.prize_label,
+        type: spin.prize_type,
+        value: spin.prize_value,
+        maxDiscount: spin.prize_max_discount,
+        minOrder: spin.prize_min_order,
+      },
+    });
+  } catch (e) {
+    console.error("Error en giro de ruleta:", e.message);
+    // Degradación silenciosa: la ruleta nunca puede impedir un pedido.
+    res.json({ ok: false, reason: "error" });
+  }
+});
+
+/* ══════════════════════════════════════════════════
    Public order creation (POST /api/orders)
    Called from the storefront when a customer sends via WhatsApp
    ══════════════════════════════════════════════════ */
@@ -1421,6 +1748,7 @@ app.post("/api/orders", (req, res) => {
       deliveryType, address, lat, lng, floor,
       date, time, instructions, paymentMethod,
       items, subtotal, deliveryCost, discount, total, couponCode,
+      wheelToken, deviceId,
     } = req.body;
 
     if (!branchId || !customerName || !customerPhone) {
@@ -1477,41 +1805,122 @@ app.post("/api/orders", (req, res) => {
     const couponDiscount = orderCoupon
       ? computeCouponNetDiscount(db, orderCoupon, items || [], branchId).discount
       : 0;
+
+    // ── Premio de la ruleta ──
+    // El cliente manda un TOKEN OPACO, nunca el descuento: el server resuelve
+    // el premio contra wheel_spins y lo recalcula. Mismo criterio que el cupón.
+    //
+    // El subtotal se recomputa desde los items en vez de confiar en el que
+    // manda el cliente: un percentage sobre un subtotal inflado envenenaría
+    // wheel_discount y con él todas las métricas de costo de la ruleta.
+    const serverSubtotal = (items || []).reduce(
+      (sum, i) => sum + (Number(i.price) || 0) * (Number(i.quantity) || 0),
+      0
+    );
+    const bakedPromoDiscount = computeBakedPromoDiscount(items || []);
+
+    let wheelSpin = null;
+    let wheelDiscount = 0;
+    if (wheelToken) {
+      wheelSpin = db
+        .prepare(
+          `SELECT * FROM wheel_spins
+            WHERE token = ? AND status = 'pending'
+              AND expires_at > datetime('now', 'localtime')`
+        )
+        .get(String(wheelToken));
+
+      // El giro tiene que ser de esta sucursal y de este cliente (por teléfono
+      // o por dispositivo), y el cliente no puede tener ya otro descuento.
+      const ownerOk =
+        wheelSpin &&
+        (wheelSpin.phone === cleanPhone ||
+          (deviceId && wheelSpin.device_id && wheelSpin.device_id === String(deviceId)));
+      const valid =
+        wheelSpin &&
+        wheelSpin.branch_id === Number(branchId) &&
+        ownerOk &&
+        couponDiscount === 0 &&
+        promotionDiscount === 0 &&
+        bakedPromoDiscount === 0;
+
+      if (valid) {
+        wheelDiscount = computeWheelDiscount(wheelSpin, serverSubtotal);
+      } else {
+        // Se descarta en silencio y NUNCA con un 400: el POST del checkout es
+        // fire-and-forget sin manejo de error, así que un error haría
+        // desaparecer el pedido entero. El warn queda para poder detectar en
+        // producción si el criterio del cliente se desalineó del server.
+        console.warn(
+          `[wheel] token descartado (branch=${branchId} phone=${cleanPhone} ` +
+            `found=${!!wheelSpin} coupon=${couponDiscount} promo=${promotionDiscount} baked=${bakedPromoDiscount})`
+        );
+        wheelSpin = null;
+      }
+    }
+
     const computedTotal = Math.max(
       0,
-      (Number(subtotal) || 0) + (Number(deliveryCost) || 0) - couponDiscount - promotionDiscount
+      (Number(subtotal) || 0) +
+        (Number(deliveryCost) || 0) -
+        couponDiscount -
+        promotionDiscount -
+        wheelDiscount
     );
     const orderTotal = computedTotal;
 
-    // Insert order
-    const result = db.prepare(`
-      INSERT INTO orders (
-        branch_id, customer_name, customer_phone,
-        delivery_type, address, lat, lng, floor,
-        date, time, instructions, payment_method,
-        items, subtotal, delivery_cost, discount, promotion_discount, total, coupon_code
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      branchId, customerName, cleanPhone,
-      deliveryType || "delivery", address || "", lat || null, lng || null, floor || "",
-      date || "", time || "", instructions || "", paymentMethod || "Efectivo",
-      JSON.stringify(items || []), subtotal || 0, deliveryCost || 0, couponDiscount, promotionDiscount, orderTotal, couponCode || null,
-    );
+    // Las cuatro escrituras van juntas o no va ninguna. Antes eran sueltas: si
+    // el proceso moría entre el INSERT y el consumo del giro, el premio quedaba
+    // vivo y se podía canjear una segunda vez.
+    const persistOrder = db.transaction(() => {
+      const result = db.prepare(`
+        INSERT INTO orders (
+          branch_id, customer_name, customer_phone,
+          delivery_type, address, lat, lng, floor,
+          date, time, instructions, payment_method,
+          items, subtotal, delivery_cost, discount, promotion_discount, total, coupon_code,
+          wheel_discount, wheel_spin_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        branchId, customerName, cleanPhone,
+        deliveryType || "delivery", address || "", lat || null, lng || null, floor || "",
+        date || "", time || "", instructions || "", paymentMethod || "Efectivo",
+        JSON.stringify(items || []), subtotal || 0, deliveryCost || 0, couponDiscount, promotionDiscount, orderTotal, couponCode || null,
+        wheelDiscount, wheelSpin ? wheelSpin.id : null,
+      );
 
-    // Increment coupon used_count — SOLO el cupón concreto que se aplicó,
-    // no todos los que comparten código entre sucursales.
-    if (orderCoupon) {
+      const orderId = Number(result.lastInsertRowid);
+
+      // Increment coupon used_count — SOLO el cupón concreto que se aplicó,
+      // no todos los que comparten código entre sucursales.
+      if (orderCoupon) {
+        db.prepare(
+          "UPDATE coupons SET used_count = used_count + 1 WHERE id = ?"
+        ).run(orderCoupon.id);
+      }
+
+      // Consumir el giro. El `AND status = 'pending'` lo hace idempotente ante
+      // un doble POST (el fetch del checkout no espera respuesta ni reintenta
+      // de forma controlada, así que puede llegar dos veces).
+      if (wheelSpin) {
+        db.prepare(
+          `UPDATE wheel_spins
+              SET status = 'consumed', order_id = ?, applied_discount = ?,
+                  consumed_at = datetime('now', 'localtime')
+            WHERE id = ? AND status = 'pending'`
+        ).run(orderId, wheelDiscount, wheelSpin.id);
+      }
+
+      // Update total_spent and last_order_date on customer
       db.prepare(
-        "UPDATE coupons SET used_count = used_count + 1 WHERE id = ?"
-      ).run(orderCoupon.id);
-    }
+        "UPDATE app_users SET total_spent = total_spent + ?, last_order_date = datetime('now', 'localtime') WHERE id = ?"
+      ).run(orderTotal, customer.id);
 
-    // Update total_spent and last_order_date on customer
-    db.prepare(
-      "UPDATE app_users SET total_spent = total_spent + ?, last_order_date = datetime('now', 'localtime') WHERE id = ?"
-    ).run(orderTotal, customer.id);
+      return orderId;
+    });
 
-    res.status(201).json({ ok: true, orderId: result.lastInsertRowid });
+    const orderId = persistOrder();
+    res.status(201).json({ ok: true, orderId });
   } catch (e) {
     console.error("Error creating order:", e.message);
     res.status(500).json({ error: "Error creando pedido" });
@@ -1524,7 +1933,7 @@ app.post("/api/orders", (req, res) => {
 app.post("/api/analytics/event", (req, res) => {
   try {
     const { branchId, eventType, productId, sessionId } = req.body;
-    const validTypes = ["session", "product_view", "checkout_start", "order_placed", "maps_load"];
+    const validTypes = ["session", "product_view", "checkout_start", "order_placed", "maps_load", "wheel_shown", "wheel_spun"];
     if (!branchId || !validTypes.includes(eventType)) {
       return res.status(400).json({ error: "Invalid event" });
     }

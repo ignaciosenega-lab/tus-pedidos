@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import type { AdminProduct, Category, BusinessConfig, StyleConfig, ActivePromotion, DeliveryZone, SameProductPromo } from "../types";
+import type { AdminProduct, Category, BusinessConfig, StyleConfig, ActivePromotion, DeliveryZone, SameProductPromo, WheelConfig } from "../types";
 import { setMapsEnabled } from "../utils/loadGoogleMaps";
 
 interface StorefrontData {
@@ -10,6 +10,7 @@ interface StorefrontData {
   categories: Category[];
   activePromotions: ActivePromotion[];
   sameProductPromos: SameProductPromo[];
+  wheel: WheelConfig;
   deliveryZones: DeliveryZone[];
   delayMinutes: number;
   businessConfig: BusinessConfig;
@@ -17,6 +18,8 @@ interface StorefrontData {
   menuMode: boolean;
   loading: boolean;
 }
+
+const emptyWheel: WheelConfig = { enabled: false, expiresMinutes: 0, slices: [] };
 
 const defaultConfig: BusinessConfig = {
   title: "TusPedidos",
@@ -65,6 +68,7 @@ export function useStorefront(): StorefrontData {
     categories: [],
     activePromotions: [],
     sameProductPromos: [],
+    wheel: emptyWheel,
     deliveryZones: [],
     delayMinutes: 30,
     businessConfig: defaultConfig,
@@ -99,6 +103,7 @@ export function useStorefront(): StorefrontData {
             categories: [],
             activePromotions: [],
             sameProductPromos: [],
+            wheel: emptyWheel,
             deliveryZones: [],
             delayMinutes: 30,
             businessConfig: { ...defaultConfig, ...(state.businessConfig || {}) },
@@ -117,6 +122,7 @@ export function useStorefront(): StorefrontData {
           categories: state.categories || [],
           activePromotions: state.activePromotions || [],
           sameProductPromos: state.sameProductPromos || [],
+          wheel: state.wheel || emptyWheel,
           deliveryZones: state.deliveryZones || [],
           delayMinutes: state.delayMinutes || 30,
           businessConfig: state.businessConfig || defaultConfig,

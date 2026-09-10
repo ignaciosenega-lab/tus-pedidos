@@ -154,6 +154,9 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
       menu_id,
       delay_minutes,
       paused_until,
+      wheel_enabled,
+      wheel_expires_minutes,
+      wheel_cooldown_hours,
     } = req.body;
 
     // Check slug uniqueness if changing
@@ -172,6 +175,8 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
         banners = @banners, slider_images = @slider_images, social_links = @social_links,
         style_config = @style_config, payment_config = @payment_config,
         schedule = @schedule, menu_id = @menu_id, delay_minutes = @delay_minutes, paused_until = @paused_until,
+        wheel_enabled = @wheel_enabled, wheel_expires_minutes = @wheel_expires_minutes,
+        wheel_cooldown_hours = @wheel_cooldown_hours,
         updated_at = datetime('now', 'localtime')
       WHERE id = @id
     `).run({
@@ -197,6 +202,16 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
       menu_id: menu_id !== undefined ? menu_id : existing.menu_id,
       delay_minutes: delay_minutes !== undefined ? delay_minutes : (existing.delay_minutes || 30),
       paused_until: paused_until !== undefined ? paused_until : existing.paused_until,
+      wheel_enabled:
+        wheel_enabled !== undefined ? (wheel_enabled ? 1 : 0) : existing.wheel_enabled,
+      wheel_expires_minutes:
+        wheel_expires_minutes !== undefined
+          ? Math.max(5, Number(wheel_expires_minutes) || 60)
+          : (existing.wheel_expires_minutes || 60),
+      wheel_cooldown_hours:
+        wheel_cooldown_hours !== undefined
+          ? Math.max(0, Number(wheel_cooldown_hours) || 0)
+          : (existing.wheel_cooldown_hours ?? 24),
     });
 
     const updated = db.prepare("SELECT * FROM branches WHERE id = ?").get(id);
@@ -1719,6 +1734,294 @@ router.delete("/:id/own-products/:prodId", requireAuth, requireBranchAccess("id"
     console.error("Error deleting own-product:", e.message);
     res.status(500).json({ error: "Error al eliminar: " + e.message });
   }
+});
+
+/* ══════════════════════════════════════════════════
+   WHEEL PRIZES (ruleta de premios, por sucursal)
+   ══════════════════════════════════════════════════ */
+
+// GET /api/branches/:id/wheel-prizes
+// Devuelve los gajos con su probabilidad ya calculada, para que el admin no
+// tenga que hacer la cuenta de weight/SUM(weight) a mano.
+router.get("/:id/wheel-prizes", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+  const prizes = db
+    .prepare("SELECT * FROM wheel_prizes WHERE branch_id = ? ORDER BY sort_order, id")
+    .all(branchId);
+
+  // La probabilidad se reparte SOLO entre los gajos que pueden salir sorteados
+  // (mismo filtro que usa el sorteo del server).
+  const totalWeight = prizes
+    .filter((p) => p.is_active && p.weight > 0 && p.value > 0)
+    .reduce((sum, p) => sum + p.weight, 0);
+
+  res.json(
+    prizes.map((p) => ({
+      ...p,
+      probability:
+        totalWeight > 0 && p.is_active && p.weight > 0 && p.value > 0
+          ? p.weight / totalWeight
+          : 0,
+    }))
+  );
+});
+
+// Valida y normaliza el body de un premio. Devuelve { error } o { data }.
+function parseWheelPrizeBody(body) {
+  const label = String(body.label || "").trim();
+  if (!label) return { error: "El texto del gajo es requerido" };
+
+  const type = body.type === "fixed" ? "fixed" : "percentage";
+  const value = Number(body.value) || 0;
+  if (value <= 0) return { error: "El valor del premio tiene que ser mayor a 0" };
+  if (type === "percentage" && value > 100) {
+    return { error: "Un descuento porcentual no puede superar el 100%" };
+  }
+
+  const weight = Math.trunc(Number(body.weight));
+  if (!Number.isFinite(weight) || weight < 0) {
+    return { error: "El peso tiene que ser un número entero de 0 o más" };
+  }
+
+  return {
+    data: {
+      label,
+      type,
+      value,
+      max_discount: Math.max(0, Number(body.max_discount) || 0),
+      min_order: Math.max(0, Number(body.min_order) || 0),
+      weight,
+      color: String(body.color || "#10b981").slice(0, 32),
+      sort_order: Math.trunc(Number(body.sort_order) || 0),
+      is_active: body.is_active === undefined ? 1 : body.is_active ? 1 : 0,
+    },
+  };
+}
+
+// POST /api/branches/:id/wheel-prizes
+router.post("/:id/wheel-prizes", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+
+  const parsed = parseWheelPrizeBody(req.body);
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+
+  const result = db
+    .prepare(
+      `INSERT INTO wheel_prizes (branch_id, label, type, value, max_discount, min_order, weight, color, sort_order, is_active)
+       VALUES (@branch_id, @label, @type, @value, @max_discount, @min_order, @weight, @color, @sort_order, @is_active)`
+    )
+    .run({ branch_id: branchId, ...parsed.data });
+
+  const created = db.prepare("SELECT * FROM wheel_prizes WHERE id = ?").get(result.lastInsertRowid);
+  res.status(201).json(created);
+});
+
+// PUT /api/branches/:id/wheel-prizes/:prizeId
+// Sirve también para el toggle de activo/inactivo (mismo patrón que cupones).
+router.put("/:id/wheel-prizes/:prizeId", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+  const prizeId = Number(req.params.prizeId);
+
+  const existing = db
+    .prepare("SELECT * FROM wheel_prizes WHERE id = ? AND branch_id = ?")
+    .get(prizeId, branchId);
+  if (!existing) return res.status(404).json({ error: "Premio no encontrado" });
+
+  // Toggle rápido: solo viene is_active, no hay que revalidar todo el premio.
+  if (Object.keys(req.body).length === 1 && req.body.is_active !== undefined) {
+    db.prepare("UPDATE wheel_prizes SET is_active = ? WHERE id = ?").run(
+      req.body.is_active ? 1 : 0,
+      prizeId
+    );
+    return res.json(db.prepare("SELECT * FROM wheel_prizes WHERE id = ?").get(prizeId));
+  }
+
+  const parsed = parseWheelPrizeBody({ ...existing, ...req.body });
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+
+  db.prepare(
+    `UPDATE wheel_prizes SET label = @label, type = @type, value = @value,
+            max_discount = @max_discount, min_order = @min_order, weight = @weight,
+            color = @color, sort_order = @sort_order, is_active = @is_active
+      WHERE id = @id`
+  ).run({ id: prizeId, ...parsed.data });
+
+  res.json(db.prepare("SELECT * FROM wheel_prizes WHERE id = ?").get(prizeId));
+});
+
+// DELETE /api/branches/:id/wheel-prizes/:prizeId
+// Si el premio ya salió sorteado alguna vez, se desactiva en vez de borrarse:
+// así los giros viejos siguen apuntando a algo y las métricas no se rompen.
+router.delete("/:id/wheel-prizes/:prizeId", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+  const prizeId = Number(req.params.prizeId);
+
+  const existing = db
+    .prepare("SELECT id FROM wheel_prizes WHERE id = ? AND branch_id = ?")
+    .get(prizeId, branchId);
+  if (!existing) return res.status(404).json({ error: "Premio no encontrado" });
+
+  const used = db.prepare("SELECT 1 FROM wheel_spins WHERE prize_id = ? LIMIT 1").get(prizeId);
+  if (used) {
+    db.prepare("UPDATE wheel_prizes SET is_active = 0 WHERE id = ?").run(prizeId);
+    return res.json({ ok: true, softDeleted: true });
+  }
+
+  db.prepare("DELETE FROM wheel_prizes WHERE id = ?").run(prizeId);
+  res.json({ ok: true, softDeleted: false });
+});
+
+// POST /api/branches/:id/wheel-prizes/copy-from/:sourceId
+// Copiar el set de premios de otra sucursal. Master only: cruza sucursales.
+router.post(
+  "/:id/wheel-prizes/copy-from/:sourceId",
+  requireAuth,
+  requireRole("master"),
+  (req, res) => {
+    const db = req.app.locals.db;
+    const branchId = Number(req.params.id);
+    const sourceId = Number(req.params.sourceId);
+    if (branchId === sourceId) {
+      return res.status(400).json({ error: "Es la misma sucursal" });
+    }
+
+    const source = db
+      .prepare("SELECT * FROM wheel_prizes WHERE branch_id = ? ORDER BY sort_order, id")
+      .all(sourceId);
+    if (source.length === 0) {
+      return res.status(400).json({ error: "La sucursal de origen no tiene premios cargados" });
+    }
+
+    const ins = db.prepare(
+      `INSERT INTO wheel_prizes (branch_id, label, type, value, max_discount, min_order, weight, color, sort_order, is_active)
+       VALUES (@branch_id, @label, @type, @value, @max_discount, @min_order, @weight, @color, @sort_order, @is_active)`
+    );
+    // Reemplaza el set entero en una transacción: o queda el nuevo completo, o
+    // queda el viejo. Nunca una mezcla de los dos.
+    const copy = db.transaction(() => {
+      db.prepare("DELETE FROM wheel_prizes WHERE branch_id = ?").run(branchId);
+      source.forEach((p) =>
+        ins.run({
+          branch_id: branchId,
+          label: p.label,
+          type: p.type,
+          value: p.value,
+          max_discount: p.max_discount,
+          min_order: p.min_order,
+          weight: p.weight,
+          color: p.color,
+          sort_order: p.sort_order,
+          is_active: p.is_active,
+        })
+      );
+    });
+
+    try {
+      copy();
+    } catch (e) {
+      // Si algún premio del destino ya tenía giros, el DELETE falla por FK.
+      console.error("Error copiando premios de ruleta:", e.message);
+      return res.status(400).json({
+        error: "No se pudieron reemplazar los premios actuales: " + e.message,
+      });
+    }
+
+    res.json({
+      ok: true,
+      copied: source.length,
+      prizes: db
+        .prepare("SELECT * FROM wheel_prizes WHERE branch_id = ? ORDER BY sort_order, id")
+        .all(branchId),
+    });
+  }
+);
+
+// GET /api/branches/:id/wheel-stats?from=&to=
+router.get("/:id/wheel-stats", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+  const from = req.query.from ? String(req.query.from) : "";
+  const to = req.query.to ? String(req.query.to) : "";
+
+  const where = ["branch_id = ?"];
+  const params = [branchId];
+  if (from) { where.push("date(created_at) >= date(?)"); params.push(from); }
+  if (to) { where.push("date(created_at) <= date(?)"); params.push(to); }
+  const spinWhere = where.join(" AND ");
+
+  const summary = db
+    .prepare(
+      `SELECT COUNT(*) AS spins,
+              SUM(CASE WHEN status = 'consumed' THEN 1 ELSE 0 END) AS redeemed,
+              SUM(applied_discount) AS cost,
+              COUNT(DISTINCT phone) AS uniqueCustomers
+         FROM wheel_spins WHERE ${spinWhere}`
+    )
+    .get(...params);
+
+  // Agrupado por el SNAPSHOT del premio, no por prize_id: así un gajo editado
+  // o borrado sigue apareciendo con el valor que tenía cuando se sorteó.
+  const byPrize = db
+    .prepare(
+      `SELECT prize_label, prize_type, prize_value,
+              COUNT(*) AS spins,
+              SUM(CASE WHEN status = 'consumed' THEN 1 ELSE 0 END) AS redeemed,
+              SUM(applied_discount) AS cost
+         FROM wheel_spins WHERE ${spinWhere}
+        GROUP BY prize_label, prize_type, prize_value
+        ORDER BY spins DESC`
+    )
+    .all(...params);
+
+  // Comparación de cohortes. OJO: el control tiene que ser "sin NINGÚN
+  // descuento", no "todos los pedidos" — como la ruleta solo se ofrece a
+  // clientes sin otro descuento, compararla contra el total daría un número
+  // falso (los pedidos con 2x1 tienen otro perfil de ticket).
+  const orderWhere = ["branch_id = ?"];
+  const orderParams = [branchId];
+  if (from) { orderWhere.push("date(created_at) >= date(?)"); orderParams.push(from); }
+  if (to) { orderWhere.push("date(created_at) <= date(?)"); orderParams.push(to); }
+  const ow = orderWhere.join(" AND ");
+
+  const withWheel = db
+    .prepare(
+      `SELECT COUNT(*) AS orders, SUM(total) AS revenue,
+              SUM(wheel_discount) AS cost, AVG(subtotal) AS aov
+         FROM orders WHERE ${ow} AND wheel_discount > 0`
+    )
+    .get(...orderParams);
+
+  const control = db
+    .prepare(
+      `SELECT COUNT(*) AS orders, SUM(total) AS revenue, AVG(subtotal) AS aov
+         FROM orders WHERE ${ow}
+          AND wheel_discount = 0 AND discount = 0 AND promotion_discount = 0`
+    )
+    .get(...orderParams);
+
+  res.json({
+    spins: summary.spins || 0,
+    redeemed: summary.redeemed || 0,
+    cost: summary.cost || 0,
+    uniqueCustomers: summary.uniqueCustomers || 0,
+    redemptionRate: summary.spins > 0 ? (summary.redeemed || 0) / summary.spins : 0,
+    byPrize,
+    withWheel: {
+      orders: withWheel.orders || 0,
+      revenue: withWheel.revenue || 0,
+      cost: withWheel.cost || 0,
+      aov: withWheel.aov || 0,
+    },
+    control: {
+      orders: control.orders || 0,
+      revenue: control.revenue || 0,
+      aov: control.aov || 0,
+    },
+  });
 });
 
 module.exports = router;

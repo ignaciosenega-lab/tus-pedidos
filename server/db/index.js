@@ -151,6 +151,35 @@ function getDb() {
       db.exec("ALTER TABLE branches ADD COLUMN maps_enabled INTEGER NOT NULL DEFAULT 0");
     }
 
+    // Migration: columnas de la ruleta de premios en branches.
+    // Default 0 en wheel_enabled: la feature nace apagada en TODAS las
+    // sucursales y cada una la prende cuando cargó sus premios.
+    if (!branchCols2.includes("wheel_enabled")) {
+      db.exec("ALTER TABLE branches ADD COLUMN wheel_enabled INTEGER NOT NULL DEFAULT 0");
+    }
+    // Cuánto vive un premio ganado antes de vencer (minutos).
+    if (!branchCols2.includes("wheel_expires_minutes")) {
+      db.exec("ALTER TABLE branches ADD COLUMN wheel_expires_minutes INTEGER NOT NULL DEFAULT 60");
+    }
+    // Ventana en la que el azar es "pegajoso": dentro de estas horas el mismo
+    // teléfono NO vuelve a sortear, se le devuelve el premio que ya tenía.
+    if (!branchCols2.includes("wheel_cooldown_hours")) {
+      db.exec("ALTER TABLE branches ADD COLUMN wheel_cooldown_hours INTEGER NOT NULL DEFAULT 24");
+    }
+
+    // Migration: descuento de la ruleta en orders.
+    // Columna propia y no `discount` (que es el del cupón) ni `coupon_code`
+    // (que es un puntero funcional a la tabla coupons): es el mismo criterio
+    // con el que se agregó promotion_discount para el 2x1, y es lo que
+    // permite medir después cuánto costó la ruleta por separado.
+    const orderCols2 = db.prepare("PRAGMA table_info(orders)").all().map((c) => c.name);
+    if (!orderCols2.includes("wheel_discount")) {
+      db.exec("ALTER TABLE orders ADD COLUMN wheel_discount REAL NOT NULL DEFAULT 0");
+    }
+    if (!orderCols2.includes("wheel_spin_id")) {
+      db.exec("ALTER TABLE orders ADD COLUMN wheel_spin_id INTEGER");
+    }
+
     // Migration: normalizar products.type legacy ('variable' → 'options').
     // El commit 8ee8122 cambió el naming pero datos viejos pueden quedar con
     // type='variable' y bloquean cualquier UPDATE por el CHECK constraint.

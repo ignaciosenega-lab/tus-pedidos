@@ -122,6 +122,35 @@ export interface SameProductPromo {
   categoryIds: string[];
 }
 
+// ── Ruleta de premios ──
+// Lo que el server manda al storefront de cada gajo: solo lo necesario para
+// dibujarlo. El peso (probabilidad) y el valor del premio NO viajan hasta que
+// el cliente efectivamente gira.
+export interface WheelSlice {
+  id: number;
+  label: string;
+  color: string;
+}
+
+export interface WheelConfig {
+  enabled: boolean;
+  expiresMinutes: number;
+  slices: WheelSlice[];
+}
+
+// Premio ya ganado. El `token` es opaco: es lo único que el cliente le manda
+// de vuelta al server, que resuelve el descuento por su cuenta.
+export interface WonPrize {
+  token: string;
+  id: number;
+  label: string;
+  type: "percentage" | "fixed";
+  value: number;
+  maxDiscount: number;
+  minOrder: number;
+  expiresAt: string;
+}
+
 export type UserStatus = "activo" | "inactivo" | "bloqueado";
 
 export interface AppUser {
