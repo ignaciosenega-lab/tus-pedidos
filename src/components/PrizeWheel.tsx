@@ -40,6 +40,8 @@ const DIVIDER = "#e11d2f";
 
 /** Cuánto dura el frenado. */
 const SPIN_MS = 5000;
+/** Lo mismo, para quien pidió menos animación: un envión corto y listo. */
+const REDUCED_MS = 700;
 /** Vueltas enteras antes de empezar a frenar: define qué tan rápido arranca. */
 const SPIN_TURNS = 9;
 /**
@@ -58,6 +60,13 @@ export default function PrizeWheel({ slices, prize, discount = 0, failed, onClos
   // donde la rueda está, no desde cero.
   const angleRef = useRef(0);
   const rafRef = useRef<number | null>(null);
+
+  const reducedMotion = useMemo(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
+    []
+  );
 
   function stopFreeSpin() {
     if (rafRef.current !== null) {
@@ -83,17 +92,12 @@ export default function PrizeWheel({ slices, prize, discount = 0, failed, onClos
     setPhase("spinning");
     // Si el premio todavía no llegó, la rueda gira libre hasta que llegue.
     // Si ya está, el efecto de abajo dispara el frenado en el acto.
-    if (!prize) startFreeSpin();
+    // Con "reducir movimiento" no se gira libre: girar sin parar es justo el
+    // tipo de animación que esa preferencia pide evitar.
+    if (!prize && !reducedMotion) startFreeSpin();
   }
 
   useEffect(() => () => stopFreeSpin(), []);
-
-  const reducedMotion = useMemo(
-    () =>
-      typeof window !== "undefined" &&
-      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
-    []
-  );
 
   const step = slices.length > 0 ? 360 / slices.length : 360;
 
@@ -102,9 +106,10 @@ export default function PrizeWheel({ slices, prize, discount = 0, failed, onClos
     if (!prize || phase !== "spinning") return;
 
     const index = slices.findIndex((s) => s.id === prize.id);
-    if (index < 0 || reducedMotion) {
-      // El premio no está entre los gajos dibujados (la sucursal editó la
-      // ruleta mientras el cliente jugaba), o el sistema pide menos animación.
+    if (index < 0) {
+      // El premio no está entre los gajos dibujados: la sucursal editó la
+      // ruleta mientras este cliente la tenía abierta. Se muestra el resultado
+      // igual, que es lo que importa.
       stopFreeSpin();
       setPhase("revealed");
       onRevealed?.();
@@ -126,8 +131,18 @@ export default function PrizeWheel({ slices, prize, discount = 0, failed, onClos
     // desde donde la rueda está AHORA. Así el frenado continúa el movimiento
     // en vez de reiniciarlo.
     const from = angleRef.current;
-    const minTarget = from + SPIN_TURNS * 360;
-    const target = minTarget + (((wanted - minTarget) % 360) + 360) % 360;
+    let target: number;
+    if (reducedMotion) {
+      // "Reducir movimiento" quiere decir MENOS movimiento, no ninguno. Si se
+      // saltea el giro entero, la rueda se queda quieta y parece que la
+      // aplicación se colgó. Así que igual se mueve hasta el gajo ganador,
+      // pero por el camino más corto y en un envión, sin vueltas.
+      const delta = (((wanted - from) % 360) + 360) % 360;
+      target = from + (delta > 180 ? delta - 360 : delta);
+    } else {
+      const minTarget = from + SPIN_TURNS * 360;
+      target = minTarget + ((((wanted - minTarget) % 360) + 360) % 360);
+    }
 
     angleRef.current = target;
     // Dos frames: uno para fijar el ángulo actual sin transición y otro para
@@ -148,7 +163,7 @@ export default function PrizeWheel({ slices, prize, discount = 0, failed, onClos
     const t = setTimeout(() => {
       setPhase("revealed");
       onRevealed?.();
-    }, SPIN_MS + 400);
+    }, (reducedMotion ? REDUCED_MS : SPIN_MS) + 400);
     return () => clearTimeout(t);
   }, [phase, onRevealed]);
 
@@ -230,7 +245,7 @@ export default function PrizeWheel({ slices, prize, discount = 0, failed, onClos
               // tirones.
               transition:
                 phase === "landing"
-                  ? `transform ${SPIN_MS}ms ${SPIN_EASING}`
+                  ? `transform ${reducedMotion ? REDUCED_MS : SPIN_MS}ms ${SPIN_EASING}`
                   : undefined,
             }}
           >
