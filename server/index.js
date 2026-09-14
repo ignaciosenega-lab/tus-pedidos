@@ -1462,6 +1462,10 @@ app.get("/api/branches/public", (req, res) => {
         phone: b.phone,
         whatsapp: b.whatsapp,
         logo: b.logo,
+        // Coordenadas guardadas: con esto el selector ordena por cercanía sin
+        // geocodificar nada en el navegador del visitante.
+        lat: typeof b.lat === "number" ? b.lat : null,
+        lng: typeof b.lng === "number" ? b.lng : null,
         isOpen: openStatus.open,
         nextOpenTime: openStatus.nextOpen,
         holidayReason: openStatus.holidayReason,
@@ -1471,6 +1475,52 @@ app.get("/api/branches/public", (req, res) => {
   } catch (e) {
     console.error("Error listing public branches:", e.message);
     res.status(500).json({ error: "Error listando sucursales" });
+  }
+});
+
+/* ══════════════════════════════════════════════════
+   Semilla pública de coordenadas de sucursal
+   ══════════════════════════════════════════════════ */
+// Si una sucursal todavía no tiene coordenadas, el primer visitante que la vea
+// las calcula en su navegador y las manda acá. Así la próxima persona ya las
+// encuentra guardadas: el caché deja de ser por navegador y pasa a ser de todos.
+//
+// Es público a propósito (el visitante no está logueado), pero acotado:
+//   · escribe UNA sola vez — si ya hay coordenadas, no se pisan;
+//   · solo acepta puntos dentro de Argentina;
+//   · nunca devuelve error al cliente, para no romperle la pantalla.
+// Lo peor que puede hacer un tercero es dejar una coordenada equivocada en una
+// sucursal que no tenía ninguna. Se ve en el panel y se corrige desde ahí.
+const AR_BOUNDS = { latMin: -55.1, latMax: -21.7, lngMin: -73.6, lngMax: -53.6 };
+
+app.post("/api/branches/:id/coords", (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const lat = Number(req.body?.lat);
+    const lng = Number(req.body?.lng);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return res.json({ saved: false, reason: "invalid" });
+    }
+    if (
+      lat < AR_BOUNDS.latMin || lat > AR_BOUNDS.latMax ||
+      lng < AR_BOUNDS.lngMin || lng > AR_BOUNDS.lngMax
+    ) {
+      return res.json({ saved: false, reason: "out_of_bounds" });
+    }
+
+    // Escritura única: el UPDATE solo aplica si todavía no hay nada.
+    const info = db
+      .prepare(
+        `UPDATE branches SET lat = ?, lng = ?
+         WHERE id = ? AND (lat IS NULL OR lat = 0) AND (lng IS NULL OR lng = 0)`
+      )
+      .run(lat, lng, id);
+
+    res.json({ saved: info.changes > 0 });
+  } catch (e) {
+    console.error("Error guardando coordenadas de sucursal:", e.message);
+    res.json({ saved: false, reason: "error" });
   }
 });
 
@@ -1537,6 +1587,10 @@ app.get("/api/state", (req, res) => {
         title: firstBranch.name,
         logo: firstBranch.logo,
         favicon: firstBranch.favicon,
+        // El selector de sucursales vive acá, en el dominio master, y necesita
+        // saber si Maps está habilitado. Sin esto el buscador de direcciones del
+        // selector nunca se enganchaba, aunque el interruptor estuviera prendido.
+        mapsEnabled: !!firstBranch.maps_enabled,
       } : {};
       return res.json({ isMaster: true, branchDomain: BRANCH_DOMAIN, styleConfig, businessConfig });
     }
@@ -1990,7 +2044,7 @@ app.post("/api/orders", (req, res) => {
 app.post("/api/analytics/event", (req, res) => {
   try {
     const { branchId, eventType, productId, sessionId } = req.body;
-    const validTypes = ["session", "product_view", "checkout_start", "order_placed", "maps_load", "wheel_shown", "wheel_spun"];
+    const validTypes = ["session", "product_view", "checkout_start", "order_placed", "maps_load", "maps_geocode", "wheel_shown", "wheel_spun"];
     if (!branchId || !validTypes.includes(eventType)) {
       return res.status(400).json({ error: "Invalid event" });
     }

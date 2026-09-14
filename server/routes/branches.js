@@ -157,6 +157,8 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
       wheel_enabled,
       wheel_expires_minutes,
       wheel_cooldown_hours,
+      lat,
+      lng,
     } = req.body;
 
     // Check slug uniqueness if changing
@@ -166,6 +168,19 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
         return res.status(409).json({ error: "El slug ya existe" });
       }
     }
+
+    // Si la dirección cambió y no mandaron coordenadas nuevas, las viejas dejan
+    // de servir: se limpian para que el panel las recalcule y el selector no
+    // muestre una distancia equivocada.
+    const direccionCambio = address !== undefined && address !== existing.address;
+    const latFinal =
+      lat !== undefined ? (Number.isFinite(Number(lat)) ? Number(lat) : null)
+      : direccionCambio ? null
+      : existing.lat ?? null;
+    const lngFinal =
+      lng !== undefined ? (Number.isFinite(Number(lng)) ? Number(lng) : null)
+      : direccionCambio ? null
+      : existing.lng ?? null;
 
     db.prepare(`
       UPDATE branches SET
@@ -177,10 +192,13 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
         schedule = @schedule, menu_id = @menu_id, delay_minutes = @delay_minutes, paused_until = @paused_until,
         wheel_enabled = @wheel_enabled, wheel_expires_minutes = @wheel_expires_minutes,
         wheel_cooldown_hours = @wheel_cooldown_hours,
+        lat = @lat, lng = @lng,
         updated_at = datetime('now', 'localtime')
       WHERE id = @id
     `).run({
       id,
+      lat: latFinal,
+      lng: lngFinal,
       slug: slug !== undefined ? slug : existing.slug,
       name: name !== undefined ? name : existing.name,
       address: address !== undefined ? address : existing.address,
@@ -1073,6 +1091,76 @@ router.get("/:id/customers", requireAuth, requireBranchAccess("id"), (req, res) 
   }));
 
   res.json(result);
+});
+
+/* ══════════════════════════════════════════════════
+   Clientes sin ubicar en el mapa
+   ══════════════════════════════════════════════════ */
+// El mapa de clientes dibuja los pedidos que tienen lat/lng, y esas coordenadas
+// las guardaba el buscador de Google al hacer el pedido. Los pedidos tomados con
+// Maps apagado entraron con la dirección escrita a mano y no las tienen: esos
+// clientes están en la lista pero no en el mapa.
+//
+// Recuperarlos cuesta una geocodificación por dirección distinta. Este endpoint
+// solo MIDE — es una consulta a la base, no toca Google — para poder decidir con
+// el número a la vista si conviene o no.
+router.get("/:id/customers/unlocated", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+  const limite = Math.min(Number(req.query.limit) || 200, 500);
+
+  const { total } = db
+    .prepare(
+      `SELECT COUNT(DISTINCT address) AS total FROM orders
+       WHERE branch_id = ? AND address != '' AND (lat IS NULL OR lat = 0)`
+    )
+    .get(branchId);
+
+  // Las direcciones a resolver, las de los clientes que más compraron primero:
+  // si se decide recuperar solo una parte, que sea la que más sirve.
+  const direcciones = db
+    .prepare(
+      `SELECT address, COUNT(*) AS pedidos FROM orders
+       WHERE branch_id = ? AND address != '' AND (lat IS NULL OR lat = 0)
+       GROUP BY address
+       ORDER BY pedidos DESC
+       LIMIT ?`
+    )
+    .all(branchId, limite);
+
+  res.json({ total, direcciones });
+});
+
+// Guarda las coordenadas de una dirección en TODOS los pedidos que la comparten:
+// una geocodificación puede ubicar varios pedidos del mismo cliente.
+router.post("/:id/customers/locate", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+  const items = Array.isArray(req.body?.items) ? req.body.items : [];
+
+  let pedidos = 0;
+  let direcciones = 0;
+  const guardar = db.prepare(
+    `UPDATE orders SET lat = ?, lng = ?
+     WHERE branch_id = ? AND address = ? AND (lat IS NULL OR lat = 0)`
+  );
+
+  const tx = db.transaction((lista) => {
+    for (const it of lista) {
+      const lat = Number(it?.lat);
+      const lng = Number(it?.lng);
+      const address = String(it?.address || "");
+      if (!address || !Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      const info = guardar.run(lat, lng, branchId, address);
+      if (info.changes > 0) {
+        direcciones++;
+        pedidos += info.changes;
+      }
+    }
+  });
+  tx(items);
+
+  res.json({ direcciones, pedidos });
 });
 
 // GET /api/branches/:id/customers/map (customer coordinates for map)

@@ -121,7 +121,14 @@ export default function GlobalOperationsPage() {
   const [mapsUsage, setMapsUsage] = useState<{
     loads: number;
     loadsPrevMonth: number;
+    geocodes: number;
+    geocodesPrevMonth: number;
+    projectedGeocodes: number;
+    freeTier: number;
+    freeTierPct: number;
+    projectedFreeTierPct: number;
     estimatedUsd: number;
+    projectedUsd: number;
     pricePer1000: number;
     budgetUsd: number;
     pct: number;
@@ -611,43 +618,57 @@ export default function GlobalOperationsPage() {
               <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div>
                   <p className="text-xs text-gray-400 uppercase tracking-wider">
-                    Uso de Google Maps (este mes)
+                    Consultas a Google Maps (este mes)
                   </p>
                   <p
                     className={`text-3xl font-bold mt-1 ${
-                      mapsUsage.pct >= 1
+                      mapsUsage.projectedFreeTierPct >= 1
                         ? "text-red-400"
-                        : mapsUsage.pct >= 0.7
+                        : mapsUsage.projectedFreeTierPct >= 0.7
                         ? "text-amber-400"
                         : "text-emerald-400"
                     }`}
                   >
-                    ~USD {mapsUsage.estimatedUsd.toFixed(2)}
+                    {mapsUsage.geocodes.toLocaleString("es-AR")}
                     <span className="text-sm font-normal text-gray-500">
-                      {" "}/ {mapsUsage.budgetUsd} presupuesto
+                      {" "}/ {mapsUsage.freeTier.toLocaleString("es-AR")} gratis
                     </span>
                   </p>
                   <p className="text-xs text-gray-500 mt-1">
-                    {mapsUsage.loads.toLocaleString("es-AR")} cargas · mes anterior:{" "}
-                    {mapsUsage.loadsPrevMonth.toLocaleString("es-AR")}
+                    Proyección a fin de mes:{" "}
+                    <span
+                      className={
+                        mapsUsage.projectedFreeTierPct >= 1 ? "text-red-400 font-medium" : ""
+                      }
+                    >
+                      {mapsUsage.projectedGeocodes.toLocaleString("es-AR")}
+                      {mapsUsage.projectedUsd > 0
+                        ? ` (~USD ${mapsUsage.projectedUsd.toFixed(2)})`
+                        : " (sin costo)"}
+                    </span>
+                    {" · "}mes anterior: {mapsUsage.geocodesPrevMonth.toLocaleString("es-AR")}
+                  </p>
+                  <p className="text-[11px] text-gray-600 mt-1">
+                    {mapsUsage.loads.toLocaleString("es-AR")} cargas del mapa (no se cobran)
                   </p>
                 </div>
               </div>
               <div className="w-full h-2 bg-gray-800 rounded-full overflow-hidden mt-3">
                 <div
                   className={`h-full rounded-full ${
-                    mapsUsage.pct >= 1
+                    mapsUsage.freeTierPct >= 1
                       ? "bg-red-500"
-                      : mapsUsage.pct >= 0.7
+                      : mapsUsage.freeTierPct >= 0.7
                       ? "bg-amber-500"
                       : "bg-emerald-500"
                   }`}
-                  style={{ width: `${Math.min(100, Math.round(mapsUsage.pct * 100))}%` }}
+                  style={{ width: `${Math.min(100, Math.round(mapsUsage.freeTierPct * 100))}%` }}
                 />
               </div>
               <p className="text-[11px] text-gray-500 mt-2">
-                Estimado propio (aproximado, {mapsUsage.pricePer1000} USD/1000 cargas). El número
-                real está en{" "}
+                Google regala {mapsUsage.freeTier.toLocaleString("es-AR")} consultas por mes y
+                cobra USD {mapsUsage.pricePer1000} cada 1.000 de ahí en adelante. El número real
+                está en{" "}
                 <a
                   href="https://console.cloud.google.com/billing"
                   target="_blank"

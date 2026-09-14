@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useBranchId } from "../../hooks/useBranchId";
 import CustomerMapModal from "../../components/CustomerMapModal";
+import { loadGoogleMaps, isGoogleMapsUsable, mapsUnavailableMessage } from "../../utils/loadGoogleMaps";
+import { geocodeAddress } from "../../utils/geocodeCache";
 
 interface AppUser {
   id: number;
@@ -29,6 +31,9 @@ export default function UsersPage() {
   const [showMap, setShowMap] = useState(false);
   const [mapData, setMapData] = useState<{ customers: any[]; branchAddress: string } | null>(null);
   const [mapLoading, setMapLoading] = useState(false);
+  const [sinUbicar, setSinUbicar] = useState<number | null>(null);
+  const [ubicandoClientes, setUbicandoClientes] = useState(false);
+  const [ubicarClientesMsg, setUbicarClientesMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isMaster && !branchId) {
@@ -37,6 +42,67 @@ export default function UsersPage() {
     }
     loadUsers();
   }, [branchId, viewAll, isMaster]);
+
+  // Cuántas direcciones no tienen ubicación guardada. Es solo una consulta a
+  // nuestra base: no le pregunta nada a Google ni cuesta un peso. Sirve para
+  // decidir con el número a la vista.
+  useEffect(() => {
+    if (!branchId) return;
+    let cancelado = false;
+    apiFetch<{ total: number }>(`/api/branches/${branchId}/customers/unlocated?limit=1`)
+      .then((d) => {
+        if (!cancelado) setSinUbicar(d.total);
+      })
+      .catch(() => {});
+    return () => {
+      cancelado = true;
+    };
+  }, [branchId, apiFetch]);
+
+  // Calcula y guarda la ubicación de las direcciones que no la tienen, de a
+  // tandas. Una sola consulta puede ubicar varios pedidos del mismo cliente,
+  // porque se guarda por dirección y no por pedido.
+  async function ubicarClientes() {
+    if (!branchId) return;
+    if (!isGoogleMapsUsable()) {
+      setUbicarClientesMsg(mapsUnavailableMessage(true) || "Google Maps no está disponible.");
+      return;
+    }
+    setUbicandoClientes(true);
+    setUbicarClientesMsg("Calculando…");
+    try {
+      await loadGoogleMaps([], { ignorarToggle: true });
+      const { direcciones } = await apiFetch<{
+        total: number;
+        direcciones: { address: string; pedidos: number }[];
+      }>(`/api/branches/${branchId}/customers/unlocated?limit=200`);
+
+      const items: { address: string; lat: number; lng: number }[] = [];
+      for (const d of direcciones) {
+        const coords = await geocodeAddress(d.address);
+        if (coords) items.push({ address: d.address, ...coords });
+        setUbicarClientesMsg(`Calculando… ${items.length}/${direcciones.length}`);
+      }
+
+      const r = await apiFetch<{ direcciones: number; pedidos: number }>(
+        `/api/branches/${branchId}/customers/locate`,
+        { method: "POST", body: JSON.stringify({ items }) }
+      );
+
+      const restantes = await apiFetch<{ total: number }>(
+        `/api/branches/${branchId}/customers/unlocated?limit=1`
+      );
+      setSinUbicar(restantes.total);
+      setUbicarClientesMsg(
+        `${r.direcciones} direcciones ubicadas (${r.pedidos} pedidos)` +
+          (restantes.total > 0 ? ` · quedan ${restantes.total}, volvé a apretar` : " · listo")
+      );
+    } catch (err: any) {
+      setUbicarClientesMsg(err.message || "No se pudieron ubicar");
+    } finally {
+      setUbicandoClientes(false);
+    }
+  }
 
   async function loadUsers() {
     try {
@@ -151,6 +217,35 @@ export default function UsersPage() {
           )}
         </div>
       </div>
+
+      {/* Clientes que el mapa no puede ubicar */}
+      {sinUbicar !== null && sinUbicar > 0 && (
+        <div className="mb-4 bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <p className="text-sm text-gray-300">
+            <span className="font-semibold text-white">
+              {sinUbicar.toLocaleString("es-AR")} direcciones
+            </span>{" "}
+            no se pueden dibujar en el mapa: son pedidos que entraron con el buscador de
+            direcciones apagado, así que no quedó guardada su ubicación.
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            Ubicarlas cuesta una consulta a Google por dirección. Google regala 10.000 por mes,
+            así que {sinUbicar <= 10000 ? "esto entra sin costo" : "el excedente sale USD 5 cada 1.000"}.
+          </p>
+          <div className="flex items-center gap-3 mt-3 flex-wrap">
+            <button
+              onClick={ubicarClientes}
+              disabled={ubicandoClientes}
+              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
+            >
+              {ubicandoClientes ? "Ubicando…" : "Ubicar clientes sin mapa"}
+            </button>
+            {ubicarClientesMsg && (
+              <span className="text-xs text-gray-400">{ubicarClientesMsg}</span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Map button */}
       <button

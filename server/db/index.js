@@ -151,6 +151,19 @@ function getDb() {
       db.exec("ALTER TABLE branches ADD COLUMN maps_enabled INTEGER NOT NULL DEFAULT 0");
     }
 
+    // Migration: coordenadas de la sucursal.
+    // Antes el selector geocodificaba las direcciones de TODAS las sucursales en
+    // el navegador de cada visitante, con caché en localStorage — o sea, por
+    // navegador. Eso costó USD 102,53 en junio (30.506 geocodificaciones = 39
+    // direcciones x 782 visitantes nuevos). Las sucursales no se mueven: se
+    // guardan una vez acá y el cliente no le pregunta nada a Google.
+    if (!branchCols2.includes("lat")) {
+      db.exec("ALTER TABLE branches ADD COLUMN lat REAL");
+    }
+    if (!branchCols2.includes("lng")) {
+      db.exec("ALTER TABLE branches ADD COLUMN lng REAL");
+    }
+
     // Migration: columnas de la ruleta de premios en branches.
     // Default 0 en wheel_enabled: la feature nace apagada en TODAS las
     // sucursales y cada una la prende cuando cargó sus premios.

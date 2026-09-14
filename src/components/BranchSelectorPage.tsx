@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useStorefront } from "../hooks/useStorefront";
 import ThemeStyles from "./ThemeStyles";
 import BranchMapView, { type BranchForMap } from "./BranchMapView";
-import { trackMapsLoad } from "../utils/trackMapsLoad";
+import { trackMapsLoad, trackGeocode } from "../utils/trackMapsLoad";
 import {
   loadGoogleMaps,
   isGoogleMapsConfigured,
@@ -24,6 +24,8 @@ interface PublicBranch {
   phone: string;
   whatsapp: string;
   logo: string;
+  lat: number | null;
+  lng: number | null;
   isOpen: boolean;
   nextOpenTime: string | null;
   holidayReason: string | null;
@@ -61,37 +63,60 @@ export default function BranchSelectorPage() {
       .catch(() => setLoading(false));
   }, []);
 
-  // Precarga el cache de coordenadas en background una vez que tenemos las
-  // sucursales. Así el ordenamiento por distancia y el mapa son instantáneos
-  // cuando el usuario los necesita.
+  // Las coordenadas vienen guardadas del servidor: el orden por cercanía no le
+  // cuesta nada a nadie. Antes esto geocodificaba las 39 direcciones en el
+  // navegador de CADA visitante nuevo (el caché era localStorage), y eso fue el
+  // 100% de la factura de junio: 39 x 782 visitantes = 30.506 consultas.
+  useEffect(() => {
+    if (!branches.length) return;
+    const guardadas: Record<number, Coords> = {};
+    branches.forEach((b) => {
+      if (typeof b.lat === "number" && typeof b.lng === "number" && b.lat !== 0) {
+        guardadas[b.id] = { lat: b.lat, lng: b.lng };
+      }
+    });
+    setCoordsByBranchId((previo) => ({ ...guardadas, ...previo }));
+  }, [branches]);
+
+  // Respaldo para una sucursal recién creada a la que nadie le calculó todavía
+  // la ubicación: se geocodifica una vez y se MANDA AL SERVIDOR, así el próximo
+  // visitante ya la encuentra guardada. El caché deja de ser por navegador.
+  // Sin este envío, una sucursal sin coordenadas costaría una consulta por cada
+  // persona que entre, que es exactamente como se generó el gasto anterior.
   useEffect(() => {
     if (!branches.length || !isGoogleMapsConfigured()) return;
-    let cancelled = false;
 
+    const faltantes = branches.filter(
+      (b) => b.address && !(typeof b.lat === "number" && b.lat !== 0)
+    );
+    if (!faltantes.length) return;
+
+    let cancelled = false;
     loadGoogleMaps(["places"])
       .then(async () => {
-        // Contar una carga de Maps por visitante para el monitor de uso del admin.
         if (!mapsTrackedRef.current && branches[0]) {
           mapsTrackedRef.current = true;
           trackMapsLoad(branches[0].id);
         }
-        const entries = await Promise.all(
-          branches.map(async (b) => {
-            if (!b.address) return null;
-            const coords =
-              getCachedCoords(b.address) || (await geocodeAddress(b.address));
-            return coords ? ([b.id, coords] as const) : null;
-          })
-        );
-        if (cancelled) return;
-        const map: Record<number, Coords> = {};
-        entries.forEach((e) => {
-          if (e) map[e[0]] = e[1];
-        });
-        setCoordsByBranchId(map);
+        for (const b of faltantes) {
+          if (cancelled) return;
+          const cacheado = getCachedCoords(b.address);
+          const coords = cacheado || (await geocodeAddress(b.address));
+          // Solo contamos las que realmente le pegaron a Google.
+          if (!cacheado) trackGeocode(branches[0]?.id);
+          if (!coords) continue;
+          if (cancelled) return;
+          setCoordsByBranchId((previo) => ({ ...previo, [b.id]: coords }));
+          // Fire-and-forget: el servidor la guarda si todavía no tenía ninguna.
+          fetch(`/api/branches/${b.id}/coords`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(coords),
+          }).catch(() => {});
+        }
       })
       .catch(() => {
-        /* sin mapa el ordenamiento por distancia simplemente no aplica */
+        /* sin Maps, esa sucursal simplemente no muestra distancia */
       });
 
     return () => {
@@ -103,7 +128,12 @@ export default function BranchSelectorPage() {
   // cliente tipea una dirección y selecciona una sugerencia, fijamos
   // searchLocation con esas coords y las sucursales se ordenan por
   // cercanía a ese punto (sin filtro por texto).
+  // Se engancha recién cuando el visitante toca el buscador: el que entra,
+  // elige una sucursal de la lista y se va, no dispara nada.
+  const [buscadorTocado, setBuscadorTocado] = useState(false);
+
   useEffect(() => {
+    if (!buscadorTocado) return;
     if (!isGoogleMapsConfigured() || !searchInputRef.current) return;
     let cancelled = false;
     loadGoogleMaps(["places"])
@@ -133,7 +163,7 @@ export default function BranchSelectorPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [buscadorTocado]);
 
   // Punto de referencia para distancias y ordenamiento: la dirección
   // buscada gana sobre la geolocalización del navegador.
@@ -377,7 +407,9 @@ export default function BranchSelectorPage() {
               type="text"
               placeholder="Buscar sucursal o ingresá tu dirección..."
               value={search}
+              onFocus={() => setBuscadorTocado(true)}
               onChange={(e) => {
+                setBuscadorTocado(true);
                 setSearch(e.target.value);
                 // Si el usuario edita después de haber elegido una dirección,
                 // soltamos el anchor para que vuelva a filtrar por texto.

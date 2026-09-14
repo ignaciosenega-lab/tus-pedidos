@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { useApi } from "../../hooks/useApi";
+import { loadGoogleMaps, isGoogleMapsUsable, mapsUnavailableMessage } from "../../utils/loadGoogleMaps";
+import { geocodeAddress } from "../../utils/geocodeCache";
 
 interface Branch {
   id: number;
@@ -12,6 +14,8 @@ interface Branch {
   is_open: number;
   is_active: number;
   menu_id: number | null;
+  lat: number | null;
+  lng: number | null;
   created_at: string;
 }
 
@@ -40,6 +44,55 @@ export default function BranchesPage() {
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingBranch, setEditingBranch] = useState<Branch | null>(null);
+  const [ubicando, setUbicando] = useState(false);
+  const [ubicarMsg, setUbicarMsg] = useState<string | null>(null);
+
+  const sinUbicar = branches.filter(
+    (b) => b.address && !(typeof b.lat === "number" && b.lat !== 0)
+  );
+
+  // Calcula las coordenadas de las sucursales que no las tienen y las guarda.
+  // Se aprieta una vez: las sucursales no se mudan. Mientras estén guardadas,
+  // el selector de sucursales ordena por cercanía SIN consultarle nada a Google,
+  // que es lo que costaba USD 102 por mes.
+  async function ubicarFaltantes() {
+    if (!sinUbicar.length) return;
+    if (!isGoogleMapsUsable()) {
+      setUbicarMsg(mapsUnavailableMessage(true) || "Google Maps no está disponible.");
+      return;
+    }
+    setUbicando(true);
+    setUbicarMsg(null);
+    let ok = 0;
+    let fallaron: string[] = [];
+    try {
+      // ignorarToggle: el panel no depende del interruptor de las tiendas, así
+      // esta carga se puede hacer con las tiendas todavía apagadas.
+      await loadGoogleMaps([], { ignorarToggle: true });
+      for (const b of sinUbicar) {
+        const coords = await geocodeAddress(b.address);
+        if (!coords) {
+          fallaron.push(b.name);
+          continue;
+        }
+        await apiFetch(`/api/branches/${b.id}`, {
+          method: "PUT",
+          body: JSON.stringify({ lat: coords.lat, lng: coords.lng }),
+        });
+        ok++;
+      }
+      const partes = [`${ok} ubicada${ok === 1 ? "" : "s"}`];
+      if (fallaron.length) {
+        partes.push(`${fallaron.length} sin resultado (${fallaron.join(", ")})`);
+      }
+      setUbicarMsg(partes.join(" · "));
+      await loadBranches();
+    } catch (err: any) {
+      setUbicarMsg(err.message || "No se pudieron calcular las ubicaciones");
+    } finally {
+      setUbicando(false);
+    }
+  }
   const [formData, setFormData] = useState<BranchFormData>({
     slug: "",
     name: "",
@@ -187,13 +240,33 @@ export default function BranchesPage() {
           <h2 className="text-2xl font-bold text-white mb-2">Sucursales</h2>
           <p className="text-gray-400">Gestiona las sucursales del sistema multi-tenant</p>
         </div>
+        <div className="flex items-center gap-2">
+        {sinUbicar.length > 0 && (
+          <button
+            onClick={ubicarFaltantes}
+            disabled={ubicando}
+            title="Calcula y guarda la ubicación de las sucursales que no la tienen. Se hace una sola vez: después el selector ordena por cercanía sin consultarle nada a Google."
+            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors text-sm"
+          >
+            {ubicando
+              ? "Ubicando…"
+              : `Calcular ${sinUbicar.length} ubicación${sinUbicar.length === 1 ? "" : "es"} faltante${sinUbicar.length === 1 ? "" : "s"}`}
+          </button>
+        )}
         <button
           onClick={openCreateModal}
           className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors"
         >
           + Nueva Sucursal
         </button>
+        </div>
       </div>
+
+      {ubicarMsg && (
+        <div className="mb-4 bg-gray-900 border border-gray-800 rounded-lg px-4 py-3 text-sm text-gray-300">
+          {ubicarMsg}
+        </div>
+      )}
 
       {branches.length === 0 ? (
         <div className="bg-gray-900 border border-gray-800 rounded-lg p-8 text-center">

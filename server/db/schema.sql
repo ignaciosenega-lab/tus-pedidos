@@ -14,6 +14,10 @@ CREATE TABLE IF NOT EXISTS branches (
   slug          TEXT    NOT NULL UNIQUE,
   name          TEXT    NOT NULL,
   address       TEXT    NOT NULL DEFAULT '',
+  -- Coordenadas de la sucursal. Se calculan una sola vez (desde el panel) y el
+  -- selector las lee de acá: así el cliente nunca geocodifica.
+  lat           REAL,
+  lng           REAL,
   address_url   TEXT    NOT NULL DEFAULT '',
   whatsapp      TEXT    NOT NULL DEFAULT '',
   phone         TEXT    NOT NULL DEFAULT '',

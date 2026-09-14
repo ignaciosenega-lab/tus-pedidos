@@ -338,36 +338,59 @@ function safeParseJson(str, fallback) {
 /* ══════════════════════════════════════════════════
    Uso estimado de la API de Google Maps (mes actual)
    ══════════════════════════════════════════════════ */
-// Constantes editables. Ajustá MAPS_PRICE_PER_1000 hasta que el estimado matchee
-// tu factura real de Google. MAPS_MONTHLY_BUDGET_USD es el tope contra el que se
-// compara la barra del admin (no es un límite que corte nada; solo referencia).
-const MAPS_PRICE_PER_1000 = 7; // USD por 1000 cargas (aprox. Maps JS dinámico)
-const MAPS_MONTHLY_BUDGET_USD = 50;
+// Lo que se cobra son las GEOCODIFICACIONES, no las cargas del script. La
+// factura de junio lo dejó clarísimo: USD 102,53 = (30.506 − 10.000) ÷ 1000 × 5,
+// exacto. Antes esto contaba cargas y estimaba a USD 7 cada 1.000, así que
+// mostraba un número que no tenía nada que ver con lo que llegaba a fin de mes.
+const GEOCODE_FREE_TIER = 10000; // gratis por mes, por SKU
+const GEOCODE_PRICE_PER_1000 = 5; // USD, pasado el tramo gratis
+const MAPS_MONTHLY_BUDGET_USD = 20;
 
 router.get("/metrics/maps-usage", (req, res) => {
   const db = req.app.locals.db;
-  const countInMonth = (offset) =>
+  const countInMonth = (offset, tipo) =>
     db
       .prepare(
         `SELECT COUNT(*) n FROM analytics_events
-         WHERE event_type = 'maps_load'
+         WHERE event_type = ?
            AND created_at >= date('now','localtime','start of month', ?)
            AND created_at <  date('now','localtime','start of month', ?)`
       )
-      .get(`${offset} month`, `${offset + 1} month`).n;
+      .get(tipo, `${offset} month`, `${offset + 1} month`).n;
 
-  const loads = countInMonth(0);
-  const loadsPrevMonth = countInMonth(-1);
-  const estimatedUsd = (loads / 1000) * MAPS_PRICE_PER_1000;
+  const loads = countInMonth(0, "maps_load");
+  const loadsPrevMonth = countInMonth(-1, "maps_load");
+  const geocodes = countInMonth(0, "maps_geocode");
+  const geocodesPrevMonth = countInMonth(-1, "maps_geocode");
+
+  // Proyección a fin de mes: al día 5 con 2.000 geocodificaciones, el problema
+  // ya existe aunque el número todavía se vea chico.
+  const hoy = new Date();
+  const diaDelMes = hoy.getDate();
+  const diasDelMes = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0).getDate();
+  const proyeccion = Math.round((geocodes / Math.max(diaDelMes, 1)) * diasDelMes);
+
+  const cobrable = (n) => Math.max(0, n - GEOCODE_FREE_TIER);
+  const estimatedUsd = (cobrable(geocodes) / 1000) * GEOCODE_PRICE_PER_1000;
+  const projectedUsd = (cobrable(proyeccion) / 1000) * GEOCODE_PRICE_PER_1000;
 
   res.json({
     month: new Date().toISOString().slice(0, 7),
     loads,
     loadsPrevMonth,
+    geocodes,
+    geocodesPrevMonth,
+    projectedGeocodes: proyeccion,
+    freeTier: GEOCODE_FREE_TIER,
+    // Cuánto del tramo gratis se consumió: esto es lo que hay que mirar, y se
+    // pone en rojo ANTES de que empiece a costar, no después.
+    freeTierPct: geocodes / GEOCODE_FREE_TIER,
+    projectedFreeTierPct: proyeccion / GEOCODE_FREE_TIER,
     estimatedUsd,
-    pricePer1000: MAPS_PRICE_PER_1000,
+    projectedUsd,
+    pricePer1000: GEOCODE_PRICE_PER_1000,
     budgetUsd: MAPS_MONTHLY_BUDGET_USD,
-    pct: MAPS_MONTHLY_BUDGET_USD > 0 ? estimatedUsd / MAPS_MONTHLY_BUDGET_USD : 0,
+    pct: MAPS_MONTHLY_BUDGET_USD > 0 ? projectedUsd / MAPS_MONTHLY_BUDGET_USD : 0,
   });
 });
 

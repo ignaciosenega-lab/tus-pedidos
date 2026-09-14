@@ -65,7 +65,8 @@ export function mapsUnavailableReason(): MapsUnavailableReason {
   return null;
 }
 
-export function mapsUnavailableMessage(): string {
+export function mapsUnavailableMessage(paraPanel = false): string {
+  if (paraPanel && isGoogleMapsUsable()) return "";
   switch (mapsUnavailableReason()) {
     case "nokey":
       return "Falta la clave de Google Maps en la compilación. Hay que volver a desplegar pasando VITE_GOOGLE_MAPS_KEY.";
@@ -100,8 +101,25 @@ export function isGoogleMapsConfigured(): boolean {
   return mapsEnabled();
 }
 
-export function loadGoogleMaps(libraries: Library[] = []): Promise<void> {
-  if (!mapsEnabled()) {
+// Para el PANEL. El interruptor de Configuración existe para que la *tienda* no
+// le muestre errores al cliente si Google falla; el panel abre el mapa porque el
+// dueño apretó un botón, y eso no necesita la misma protección. Además permite
+// hacer la carga inicial de coordenadas con las tiendas todavía apagadas.
+export function isGoogleMapsUsable(): boolean {
+  return !!API_KEY && !authFailed;
+}
+
+interface OpcionesCarga {
+  /** El panel ignora el interruptor de las tiendas. Ver isGoogleMapsUsable. */
+  ignorarToggle?: boolean;
+}
+
+export function loadGoogleMaps(
+  libraries: Library[] = [],
+  opciones: OpcionesCarga = {}
+): Promise<void> {
+  const habilitado = opciones.ignorarToggle ? isGoogleMapsUsable() : mapsEnabled();
+  if (!habilitado) {
     return Promise.reject(new Error("Google Maps deshabilitado"));
   }
 
@@ -116,7 +134,7 @@ export function loadGoogleMaps(libraries: Library[] = []): Promise<void> {
   if (inflight) {
     return inflight.then(() => {
       if (hasAllLibs(libraries)) return;
-      return loadGoogleMaps(libraries);
+      return loadGoogleMaps(libraries, opciones);
     });
   }
 
