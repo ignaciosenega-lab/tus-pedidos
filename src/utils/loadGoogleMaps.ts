@@ -53,6 +53,31 @@ export function isGoogleMapsAuthFailed(): boolean {
   return authFailed || !enabledByConfig;
 }
 
+// Por qué Maps no está disponible. Las tres causas se arreglan en lugares
+// distintos, así que la UI tiene que poder distinguirlas en vez de mandar a
+// todo el mundo a editar un .env que casi nunca es el problema.
+export type MapsUnavailableReason = null | "nokey" | "off" | "authfailed";
+
+export function mapsUnavailableReason(): MapsUnavailableReason {
+  if (!API_KEY) return "nokey";
+  if (!enabledByConfig) return "off";
+  if (authFailed) return "authfailed";
+  return null;
+}
+
+export function mapsUnavailableMessage(): string {
+  switch (mapsUnavailableReason()) {
+    case "nokey":
+      return "Falta la clave de Google Maps en la compilación. Hay que volver a desplegar pasando VITE_GOOGLE_MAPS_KEY.";
+    case "off":
+      return "El buscador de direcciones está apagado. Prendelo en Configuración para ver el mapa.";
+    case "authfailed":
+      return "Google rechazó la clave de Maps, casi siempre por la facturación. Revisá el billing en Google Cloud y volvé a entrar.";
+    default:
+      return "";
+  }
+}
+
 type Library = "places" | "visualization" | "geometry" | "drawing" | "marker";
 
 let inflight: Promise<void> | null = null;

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useBranchId } from "../../hooks/useBranchId";
+import { setMapsEnabled as publicarMapsEnabled } from "../../utils/loadGoogleMaps";
 
 interface DayHours {
   open: string;
@@ -151,6 +152,9 @@ export default function ConfigPage() {
         body: JSON.stringify({ enabled: next }),
       });
       setMapsEnabled(res.enabled);
+      // El loader de Maps guarda el flag en memoria: sin esto, prender el
+      // toggle no surte efecto hasta recargar la página.
+      publicarMapsEnabled(res.enabled);
     } catch (err: any) {
       setError(err.message || "Error al cambiar el buscador de direcciones");
     } finally {

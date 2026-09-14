@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { loadGoogleMaps, isGoogleMapsConfigured } from "../utils/loadGoogleMaps";
+import { loadGoogleMaps, isGoogleMapsConfigured, mapsUnavailableMessage } from "../utils/loadGoogleMaps";
 
 interface CustomerPoint {
   name: string;
@@ -178,7 +178,7 @@ export default function CustomerMapModal({ customers, branchAddress, onClose }: 
     return (
       <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-4" onClick={onClose}>
         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 text-center max-w-md" onClick={(e) => e.stopPropagation()}>
-          <p className="text-gray-400">Configurá VITE_GOOGLE_MAPS_KEY en .env para ver el mapa</p>
+          <p className="text-gray-400">{mapsUnavailableMessage()}</p>
           <button onClick={onClose} className="mt-4 px-4 py-2 bg-gray-800 text-white rounded-lg text-sm">Cerrar</button>
         </div>
       </div>

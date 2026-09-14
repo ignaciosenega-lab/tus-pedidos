@@ -1,6 +1,8 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { NavLink, Outlet, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../store/authContext";
+import { useApi } from "../hooks/useApi";
+import { setMapsEnabled } from "../utils/loadGoogleMaps";
 
 /** Detect if we're on the master subdomain (or localhost) vs a branch subdomain */
 function useIsMasterDomain(): boolean {
@@ -54,7 +56,30 @@ const CAMPAIGN_NAV_ITEMS = [
 export default function AdminLayout() {
   const { isAuthenticated, user, logout } = useAuth();
   const navigate = useNavigate();
+  const { apiFetch } = useApi();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Todos los hooks van antes de cualquier return condicional: si alguno queda
+  // debajo, React se encuentra con menos hooks al desloguear y rompe.
+  const isMasterDomain = useIsMasterDomain();
+
+  // El estado del toggle de Maps lo publicaba solo useStorefront, que vive en
+  // <App /> y nunca se monta bajo /admin. Sin esto el loader se queda con el
+  // default (apagado) y el mapa de clientes no abre nunca, tenga o no key.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelado = false;
+    apiFetch<{ enabled: boolean }>("/api/config/maps-enabled")
+      .then((r) => {
+        if (!cancelado) setMapsEnabled(!!r.enabled);
+      })
+      .catch(() => {
+        /* si falla, Maps queda apagado y el cartel lo explica */
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [isAuthenticated, apiFetch]);
 
   if (!isAuthenticated) {
     return <Navigate to="/admin/login" replace />;
@@ -65,7 +90,6 @@ export default function AdminLayout() {
     navigate("/admin/login", { replace: true });
   }
 
-  const isMasterDomain = useIsMasterDomain();
   const isMaster = user?.role === "master" && isMasterDomain;
 
   return (

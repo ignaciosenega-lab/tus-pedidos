@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   loadGoogleMaps,
   isGoogleMapsConfigured,
+  mapsUnavailableMessage,
 } from "../utils/loadGoogleMaps";
 import {
   geocodeAddress,
@@ -281,8 +282,7 @@ export default function BranchMapView({
         className="w-full rounded-xl flex items-center justify-center text-sm opacity-70 px-6 py-12 text-center"
         style={{ backgroundColor: "var(--panel-bg)", color: "var(--general-text)" }}
       >
-        Configurá <code className="px-1 opacity-80">VITE_GOOGLE_MAPS_KEY</code> en
-        &nbsp;.env para ver el mapa de sucursales.
+        {mapsUnavailableMessage()}
       </div>
     );
   }
