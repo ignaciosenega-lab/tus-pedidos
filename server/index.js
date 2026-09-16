@@ -1479,6 +1479,75 @@ app.get("/api/branches/public", (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════
+   Copia de seguridad descargable (solo master)
+   ══════════════════════════════════════════════════ */
+// Los snapshots automáticos de config_snapshots NO son un backup: guardan solo
+// las tablas de configuración (catálogo, promos, cupones) y viven DENTRO de la
+// misma base. Sirven para deshacer un cambio, no para sobrevivir a la pérdida
+// del disco: si se pierde el volumen, se van los pedidos, los clientes y los
+// snapshots juntos.
+//
+// Esto baja la base entera —pedidos y clientes incluidos— en un archivo.
+//
+// Se usa VACUUM INTO y no una copia del archivo: la base está EN USO, y copiar
+// un .db mientras SQLite escribe puede dejar un archivo corrupto que recién se
+// descubre el día que hace falta. VACUUM INTO produce una copia consistente y
+// además compactada.
+app.get("/api/backup", requireAuth, requireRole("master"), (req, res) => {
+  const stamp = new Date()
+    .toLocaleString("sv-SE", { timeZone: "America/Argentina/Buenos_Aires" })
+    .replace(/[: ]/g, "-");
+  const destino = path.join(DATA_DIR, `backup-${stamp}.db`);
+
+  try {
+    // El archivo destino no puede existir.
+    if (fs.existsSync(destino)) fs.unlinkSync(destino);
+    db.prepare("VACUUM INTO ?").run(destino);
+
+    const bytes = fs.statSync(destino).size;
+    console.log(`[backup] ${req.user?.username || "?"} descargó ${bytes} bytes`);
+
+    res.download(destino, `tuspedidos-${stamp}.db`, (err) => {
+      // Se borra siempre: no dejamos copias con datos de clientes en el volumen.
+      fs.unlink(destino, () => {});
+      if (err) console.error("[backup] error enviando:", err.message);
+    });
+  } catch (e) {
+    console.error("[backup] error:", e.message);
+    if (fs.existsSync(destino)) fs.unlink(destino, () => {});
+    res.status(500).json({ error: "No se pudo generar la copia: " + e.message });
+  }
+});
+
+// Cuánto pesa y qué hay adentro, para mostrarlo antes de descargar.
+app.get("/api/backup/info", requireAuth, requireRole("master"), (_req, res) => {
+  try {
+    const contar = (t) => {
+      try {
+        return db.prepare(`SELECT COUNT(*) n FROM ${t}`).get().n;
+      } catch {
+        return null;
+      }
+    };
+    let bytes = null;
+    try {
+      bytes = fs.statSync(path.join(DATA_DIR, "tuspedidos.db")).size;
+    } catch {
+      /* ignore */
+    }
+    res.json({
+      bytes,
+      pedidos: contar("orders"),
+      clientes: contar("app_users"),
+      productos: contar("products"),
+      sucursales: contar("branches"),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/* ══════════════════════════════════════════════════
    Semilla pública de coordenadas de sucursal
    ══════════════════════════════════════════════════ */
 // Si una sucursal todavía no tiene coordenadas, el primer visitante que la vea

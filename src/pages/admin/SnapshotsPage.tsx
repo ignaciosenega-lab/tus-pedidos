@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useApi } from "../../hooks/useApi";
+import { useAuth } from "../../store/authContext";
 
 interface Snapshot {
   id: number;
@@ -38,6 +39,49 @@ export default function SnapshotsPage() {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [working, setWorking] = useState(false);
+  const { token } = useAuth();
+  const [backupInfo, setBackupInfo] = useState<{
+    bytes: number | null;
+    pedidos: number | null;
+    clientes: number | null;
+    productos: number | null;
+    sucursales: number | null;
+  } | null>(null);
+  const [bajando, setBajando] = useState(false);
+  const [backupError, setBackupError] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiFetch<typeof backupInfo>("/api/backup/info")
+      .then(setBackupInfo)
+      .catch(() => {});
+  }, []);
+
+  // La descarga no puede ir por <a href> porque el endpoint pide el token en la
+  // cabecera: se baja con fetch y se arma el archivo en el navegador.
+  async function descargarBackup() {
+    setBajando(true);
+    setBackupError(null);
+    try {
+      const r = await fetch("/api/backup", {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!r.ok) throw new Error(`No se pudo generar la copia (HTTP ${r.status})`);
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const sello = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+      a.href = url;
+      a.download = `tuspedidos-${sello}.db`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setBackupError(e.message || "Error al descargar");
+    } finally {
+      setBajando(false);
+    }
+  }
   const [filter, setFilter] = useState<"all" | "manual" | "auto">("all");
 
   // Recuperar una categoría puntual desde un snapshot (sin rollback completo).
@@ -170,6 +214,40 @@ export default function SnapshotsPage() {
         >
           + Crear punto
         </button>
+      </div>
+
+      {/* Copia de seguridad completa — lo único que sobrevive a perder el disco */}
+      <div className="bg-gray-900 border border-amber-900/40 rounded-xl p-4 mb-6">
+        <h3 className="text-white font-semibold text-sm">Copia de seguridad completa</h3>
+        <p className="text-xs text-gray-500 mt-1 mb-3">
+          Los puntos de restauración de abajo guardan el catálogo y las promos, y viven dentro
+          de la misma base: sirven para deshacer un cambio, no para sobrevivir a la pérdida del
+          servidor. Esto se baja <strong className="text-gray-300">todo</strong> —pedidos y
+          clientes incluidos— en un archivo. Guardalo fuera del servidor.
+        </p>
+        {backupInfo && (
+          <p className="text-xs text-gray-400 mb-3">
+            {backupInfo.pedidos?.toLocaleString("es-AR")} pedidos ·{" "}
+            {backupInfo.clientes?.toLocaleString("es-AR")} clientes ·{" "}
+            {backupInfo.productos?.toLocaleString("es-AR")} productos ·{" "}
+            {backupInfo.sucursales?.toLocaleString("es-AR")} sucursales
+            {backupInfo.bytes ? ` · ${formatBytes(backupInfo.bytes)}` : ""}
+          </p>
+        )}
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={descargarBackup}
+            disabled={bajando}
+            className="bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white px-4 py-2 rounded-lg text-sm font-semibold"
+          >
+            {bajando ? "Generando…" : "Descargar copia de seguridad"}
+          </button>
+          {backupError && <span className="text-xs text-red-400">{backupError}</span>}
+        </div>
+        <p className="text-[11px] text-gray-600 mt-3">
+          El archivo contiene los teléfonos y direcciones de tus clientes. Guardalo donde
+          guardarías la facturación.
+        </p>
       </div>
 
       {/* Recuperar una categoría puntual (sin rollback completo) */}
