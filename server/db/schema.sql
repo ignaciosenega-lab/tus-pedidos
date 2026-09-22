@@ -295,6 +295,33 @@ CREATE TABLE IF NOT EXISTS coupon_branches (
 -- ================================================================
 -- DELIVERY_ZONES
 -- ================================================================
+-- ================================================================
+-- PRIVATE_NEIGHBORHOODS — barrios cerrados / countries
+-- ================================================================
+-- Para saber cuántos clientes hay en cada barrio privado. El campo
+-- app_users.neighborhood NO sirve para esto: sale de cortar la dirección por
+-- comas, así que "Ruta 58 km 15,5 Santa Rita" termina como barrio "5 Santa Rita".
+--
+-- Un barrio se reconoce por su NOMBRE dentro del texto de la dirección (o por
+-- cualquiera de sus alias, porque el cliente escribe "St Thomas", "saint tomas",
+-- "sthomas"). Si además se le carga un POLÍGONO, ese gana: no depende de cómo
+-- escriba el cliente.
+--
+-- Es por sucursal a propósito: esto aplica en Canning y quizás Pilar, no en
+-- Belgrano. Una sucursal sin filas acá no ve ninguna diferencia.
+CREATE TABLE IF NOT EXISTS private_neighborhoods (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  branch_id   INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  name        TEXT    NOT NULL,
+  aliases     TEXT    NOT NULL DEFAULT '[]',   -- variantes escritas, JSON
+  polygon     TEXT    NOT NULL DEFAULT '[]',   -- opcional; si está, manda
+  is_active   INTEGER NOT NULL DEFAULT 1,
+  color       TEXT    NOT NULL DEFAULT '#3B82F6',
+  created_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_barrios_branch ON private_neighborhoods(branch_id);
+
 CREATE TABLE IF NOT EXISTS delivery_zones (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   branch_id   INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,

@@ -1,5 +1,6 @@
 const express = require("express");
 const { requireAuth, requireRole, requireBranchAccess } = require("../middleware/auth");
+const barriosLib = require("../lib/barrios");
 
 const router = express.Router();
 
@@ -472,6 +473,152 @@ router.delete("/:id/overrides/variants/:variantId", requireAuth, requireBranchAc
    ══════════════════════════════════════════════════ */
 
 // GET /api/branches/:id/zones
+/* ══════════════════════════════════════════════════
+   BARRIOS CERRADOS / COUNTRIES
+   ══════════════════════════════════════════════════ */
+// Por sucursal y opcional: aplica en Canning y quizás Pilar, no en Belgrano.
+// Una sucursal sin filas no ve ninguna diferencia en ningún lado.
+
+function leerBarrios(db, branchId) {
+  return db
+    .prepare("SELECT * FROM private_neighborhoods WHERE branch_id = ? ORDER BY name")
+    .all(branchId);
+}
+
+function salidaBarrio(b) {
+  return {
+    ...b,
+    aliases: safeParseJson(b.aliases, []),
+    polygon: safeParseJson(b.polygon, []),
+  };
+}
+
+router.get("/:id/barrios", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  res.json(leerBarrios(db, Number(req.params.id)).map(salidaBarrio));
+});
+
+router.post("/:id/barrios", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const { name, aliases, polygon, is_active, color } = req.body;
+  if (!name || !String(name).trim()) {
+    return res.status(400).json({ error: "El nombre es obligatorio" });
+  }
+  const r = db
+    .prepare(
+      `INSERT INTO private_neighborhoods (branch_id, name, aliases, polygon, is_active, color)
+       VALUES (@branch_id, @name, @aliases, @polygon, @is_active, @color)`
+    )
+    .run({
+      branch_id: Number(req.params.id),
+      name: String(name).trim(),
+      aliases: JSON.stringify(Array.isArray(aliases) ? aliases : []),
+      polygon: JSON.stringify(Array.isArray(polygon) ? polygon : []),
+      is_active: is_active === false ? 0 : 1,
+      color: color || "#3B82F6",
+    });
+  const creado = db.prepare("SELECT * FROM private_neighborhoods WHERE id = ?").get(r.lastInsertRowid);
+  res.status(201).json(salidaBarrio(creado));
+});
+
+router.put("/:id/barrios/:barrioId", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+  const barrioId = Number(req.params.barrioId);
+  const actual = db
+    .prepare("SELECT * FROM private_neighborhoods WHERE id = ? AND branch_id = ?")
+    .get(barrioId, branchId);
+  if (!actual) return res.status(404).json({ error: "Barrio no encontrado" });
+
+  const { name, aliases, polygon, is_active, color } = req.body;
+  db.prepare(
+    `UPDATE private_neighborhoods
+        SET name = @name, aliases = @aliases, polygon = @polygon,
+            is_active = @is_active, color = @color
+      WHERE id = @id`
+  ).run({
+    id: barrioId,
+    name: name !== undefined ? String(name).trim() : actual.name,
+    aliases: aliases !== undefined ? JSON.stringify(aliases || []) : actual.aliases,
+    polygon: polygon !== undefined ? JSON.stringify(polygon || []) : actual.polygon,
+    is_active: is_active !== undefined ? (is_active ? 1 : 0) : actual.is_active,
+    color: color !== undefined ? color : actual.color,
+  });
+  res.json(salidaBarrio(db.prepare("SELECT * FROM private_neighborhoods WHERE id = ?").get(barrioId)));
+});
+
+router.delete("/:id/barrios/:barrioId", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  db.prepare("DELETE FROM private_neighborhoods WHERE id = ? AND branch_id = ?")
+    .run(Number(req.params.barrioId), Number(req.params.id));
+  res.json({ ok: true });
+});
+
+// Nombres que se repiten en las direcciones y todavía no están cargados. Evita
+// tener que inventar la lista de memoria: sale de los datos reales.
+router.get("/:id/barrios/sugeridos", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+  const barrios = barriosLib.prepararBarrios(leerBarrios(db, branchId));
+  const direcciones = db
+    .prepare("SELECT DISTINCT address FROM orders WHERE branch_id = ? AND address != ''")
+    .all(branchId)
+    .map((r) => r.address);
+  res.json({ total: direcciones.length, sugeridos: barriosLib.sugerir(direcciones, barrios) });
+});
+
+// El ranking. Cuenta clientes distintos (por teléfono), pedidos y facturado.
+// La fila "sin clasificar" es la que dice si la lista de barrios está completa.
+router.get("/:id/metrics/barrios", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+  const { from, to } = req.query;
+
+  const barrios = barriosLib.prepararBarrios(leerBarrios(db, branchId));
+
+  let sql = `SELECT customer_phone, address, lat, lng, total
+               FROM orders
+              WHERE branch_id = ? AND status != 'cancelled'`;
+  const args = [branchId];
+  if (from) { sql += " AND date(created_at) >= date(?)"; args.push(from); }
+  if (to)   { sql += " AND date(created_at) <= date(?)"; args.push(to); }
+  const pedidos = db.prepare(sql).all(...args);
+
+  const acc = new Map();
+  const bolsa = (clave, nombre, color) => {
+    if (!acc.has(clave)) {
+      acc.set(clave, { id: clave, name: nombre, color, pedidos: 0, facturado: 0, telefonos: new Set() });
+    }
+    return acc.get(clave);
+  };
+  for (const b of barrios) bolsa(b.id, b.name, b.color); // los vacíos también se muestran
+
+  for (const p of pedidos) {
+    const b = barriosLib.clasificar(p, barrios);
+    const fila = b ? bolsa(b.id, b.name, b.color) : bolsa("__sin__", "Sin clasificar", "#6B7280");
+    fila.pedidos++;
+    fila.facturado += Number(p.total) || 0;
+    if (p.customer_phone) fila.telefonos.add(String(p.customer_phone).replace(/\D/g, ""));
+  }
+
+  const filas = [...acc.values()].map((f) => ({
+    id: f.id,
+    name: f.name,
+    color: f.color,
+    clientes: f.telefonos.size,
+    pedidos: f.pedidos,
+    facturado: f.facturado,
+  }));
+  // Los barrios por cantidad de clientes; "sin clasificar" siempre al final.
+  filas.sort((a, b) => {
+    if (a.id === "__sin__") return 1;
+    if (b.id === "__sin__") return -1;
+    return b.clientes - a.clientes || b.pedidos - a.pedidos;
+  });
+
+  res.json({ barrios: filas, totalPedidos: pedidos.length });
+});
+
 router.get("/:id/zones", requireAuth, requireBranchAccess("id"), (req, res) => {
   const db = req.app.locals.db;
   const branchId = Number(req.params.id);

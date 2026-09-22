@@ -20,6 +20,7 @@ import ConfigPage from "./pages/admin/ConfigPage";
 import OperationsPage from "./pages/admin/OperationsPage";
 import StylesPage from "./pages/admin/StylesPage";
 import DeliveryZonesPage from "./pages/admin/DeliveryZonesPage";
+import BarriosPage from "./pages/admin/BarriosPage";
 import MenusPage from "./pages/admin/MenusPage";
 import ResourcesPage from "./pages/admin/ResourcesPage";
 import MetricsPage from "./pages/admin/MetricsPage";
@@ -78,6 +79,7 @@ createRoot(document.getElementById("root")!).render(
               {/* Shared (role-aware internally) */}
               <Route path="catalogo" element={<CatalogPage />} />
               <Route path="clientes" element={<UsersPage />} />
+              <Route path="barrios" element={<BarriosPage />} />
               {/* Master-only routes */}
               <Route path="sucursales" element={<MasterOnly><BranchesPage /></MasterOnly>} />
               <Route path="menus" element={<MasterOnly><MenusPage /></MasterOnly>} />

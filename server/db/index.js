@@ -151,6 +151,21 @@ function getDb() {
       db.exec("ALTER TABLE branches ADD COLUMN maps_enabled INTEGER NOT NULL DEFAULT 0");
     }
 
+    // Migration: barrios cerrados / countries (ver schema.sql para el porqué).
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS private_neighborhoods (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        branch_id   INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+        name        TEXT    NOT NULL,
+        aliases     TEXT    NOT NULL DEFAULT '[]',
+        polygon     TEXT    NOT NULL DEFAULT '[]',
+        is_active   INTEGER NOT NULL DEFAULT 1,
+        color       TEXT    NOT NULL DEFAULT '#3B82F6',
+        created_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_barrios_branch ON private_neighborhoods(branch_id);
+    `);
+
     // Migration: coordenadas de la sucursal.
     // Antes el selector geocodificaba las direcciones de TODAS las sucursales en
     // el navegador de cada visitante, con caché en localStorage — o sea, por

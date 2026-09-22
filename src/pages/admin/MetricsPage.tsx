@@ -1,8 +1,17 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useBranchId } from "../../hooks/useBranchId";
 
-type Tab = "funnel" | "products" | "patterns";
+type Tab = "funnel" | "products" | "patterns" | "barrios";
+
+interface BarrioFila {
+  id: number | string;
+  name: string;
+  color: string;
+  clientes: number;
+  pedidos: number;
+  facturado: number;
+}
 
 interface FunnelData {
   sessions: number;
@@ -55,6 +64,17 @@ export default function MetricsPage() {
   const [loading, setLoading] = useState(false);
   const [patternsData, setPatternsData] = useState<PatternsData | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("revenue");
+  const [barriosData, setBarriosData] = useState<{ barrios: BarrioFila[]; totalPedidos: number } | null>(null);
+  // La pestaña de barrios solo existe si la sucursal cargó alguno: en Belgrano
+  // no tiene sentido, en Canning sí.
+  const [hayBarrios, setHayBarrios] = useState(false);
+
+  useEffect(() => {
+    if (!branchId) return;
+    apiFetch<any[]>(`/api/branches/${branchId}/barrios`)
+      .then((bs) => setHayBarrios(bs.length > 0))
+      .catch(() => setHayBarrios(false));
+  }, [branchId]);
   const [sortAsc, setSortAsc] = useState(false);
 
   async function loadMetrics() {
@@ -71,6 +91,11 @@ export default function MetricsPage() {
           `/api/branches/${branchId}/metrics/products?from=${dateFrom}&to=${dateTo}`
         );
         setProductData(data);
+      } else if (tab === "barrios") {
+        const data = await apiFetch<{ barrios: BarrioFila[]; totalPedidos: number }>(
+          `/api/branches/${branchId}/metrics/barrios?from=${dateFrom}&to=${dateTo}`
+        );
+        setBarriosData(data);
       } else {
         const data = await apiFetch<PatternsData>(
           `/api/branches/${branchId}/metrics/patterns?from=${dateFrom}&to=${dateTo}`
@@ -162,6 +187,18 @@ export default function MetricsPage() {
         >
           Días y Horarios
         </button>
+        {hayBarrios && (
+          <button
+            onClick={() => { setTab("barrios"); setBarriosData(null); }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              tab === "barrios"
+                ? "bg-emerald-600 text-white"
+                : "bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700"
+            }`}
+          >
+            Barrios cerrados
+          </button>
+        )}
       </div>
 
       {/* Filters */}
@@ -268,6 +305,51 @@ export default function MetricsPage() {
       )}
 
       {/* Patterns Tab */}
+      {tab === "barrios" && barriosData && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          <table className="w-full">
+            <thead className="bg-gray-800/50">
+              <tr className="text-left text-xs text-gray-400 uppercase tracking-wider">
+                <th className="px-4 py-3">Barrio</th>
+                <th className="px-4 py-3 text-right">Clientes</th>
+                <th className="px-4 py-3 text-right">Pedidos</th>
+                <th className="px-4 py-3 text-right">Facturado</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-800">
+              {barriosData.barrios.map((b) => {
+                const sinClasificar = b.id === "__sin__";
+                return (
+                  <tr key={b.id} className={sinClasificar ? "bg-gray-950/50" : ""}>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center gap-2 text-sm ${sinClasificar ? "text-gray-500 italic" : "text-white font-medium"}`}>
+                        <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: b.color }} />
+                        {b.name}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm text-white tabular-nums">
+                      {b.clientes.toLocaleString("es-AR")}
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm text-gray-300 tabular-nums">
+                      {b.pedidos.toLocaleString("es-AR")}
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm text-emerald-400 tabular-nums">
+                      ${Math.round(b.facturado).toLocaleString("es-AR")}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p className="px-4 py-3 text-xs text-gray-500 border-t border-gray-800">
+            {barriosData.totalPedidos.toLocaleString("es-AR")} pedidos en el período.
+            Un pedido cae en un barrio por su contorno si tiene coordenadas, y si no, porque el
+            nombre aparece en la dirección. Si &quot;Sin clasificar&quot; está muy alto, faltan
+            nombres: cargalos en Barrios cerrados.
+          </p>
+        </div>
+      )}
+
       {tab === "patterns" && (
         <>
           {!patternsData ? (
