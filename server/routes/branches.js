@@ -1275,7 +1275,19 @@ router.get("/:id/customers/unlocated", requireAuth, requireBranchAccess("id"), (
     )
     .all(branchId, limite);
 
-  res.json({ total, direcciones });
+  // Contexto geográfico para geocodificar. Las direcciones que llegan acá son
+  // justamente las que el cliente escribió a mano sin el autocompletado, o sea
+  // las vagas: "terralagos", "Barrio el rebenque", "lote 429". Solas no se
+  // pueden ubicar; con la localidad de la sucursal atrás, sí.
+  const suc = db.prepare("SELECT address FROM branches WHERE id = ?").get(branchId);
+  const partes = String(suc?.address || "")
+    .split(",")
+    .map((x) => x.trim().replace(/[.\s]+$/, "")) // "Canning." -> "Canning"
+    .filter(Boolean);
+  // Se descarta el primer pedazo, que es la calle y altura de la sucursal.
+  const contexto = [...partes.slice(1), "Argentina"].join(", ");
+
+  res.json({ total, contexto, direcciones });
 });
 
 // Guarda las coordenadas de una dirección en TODOS los pedidos que la comparten:

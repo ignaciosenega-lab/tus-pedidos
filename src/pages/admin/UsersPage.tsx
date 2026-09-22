@@ -3,7 +3,7 @@ import { useApi } from "../../hooks/useApi";
 import { useBranchId } from "../../hooks/useBranchId";
 import CustomerMapModal from "../../components/CustomerMapModal";
 import { loadGoogleMaps, isGoogleMapsUsable, mapsUnavailableMessage } from "../../utils/loadGoogleMaps";
-import { geocodeAddress } from "../../utils/geocodeCache";
+import { geocodeAddressDetailed } from "../../utils/geocodeCache";
 
 interface AppUser {
   id: number;
@@ -72,16 +72,30 @@ export default function UsersPage() {
     setUbicarClientesMsg("Calculando…");
     try {
       await loadGoogleMaps([], { ignorarToggle: true });
-      const { direcciones } = await apiFetch<{
+      const { direcciones, contexto } = await apiFetch<{
         total: number;
+        contexto: string;
         direcciones: { address: string; pedidos: number }[];
       }>(`/api/branches/${branchId}/customers/unlocated?limit=200`);
 
       const items: { address: string; lat: number; lng: number }[] = [];
-      for (const d of direcciones) {
-        const coords = await geocodeAddress(d.address);
-        if (coords) items.push({ address: d.address, ...coords });
-        setUbicarClientesMsg(`Calculando… ${items.length}/${direcciones.length}`);
+      const motivos: Record<string, number> = {};
+      for (let i = 0; i < direcciones.length; i++) {
+        const d = direcciones[i];
+        // El contexto es lo que salva las direcciones escritas a mano:
+        // "terralagos" solo no se puede ubicar, "terralagos, Canning" sí.
+        const r = await geocodeAddressDetailed(d.address, { contexto });
+        if (r.coords) {
+          items.push({ address: d.address, ...r.coords });
+        } else {
+          motivos[r.status] = (motivos[r.status] || 0) + 1;
+          // Si Google empieza a limitar, esperamos antes de seguir: si no, el
+          // resto de la tanda falla en cascada por velocidad, no por la
+          // dirección.
+          if (r.status === "OVER_QUERY_LIMIT") await new Promise((res) => setTimeout(res, 1500));
+        }
+        setUbicarClientesMsg(`Calculando… ${i + 1}/${direcciones.length}`);
+        await new Promise((res) => setTimeout(res, 120)); // respiro entre consultas
       }
 
       const r = await apiFetch<{ direcciones: number; pedidos: number }>(
@@ -93,9 +107,21 @@ export default function UsersPage() {
         `/api/branches/${branchId}/customers/unlocated?limit=1`
       );
       setSinUbicar(restantes.total);
+      // El desglose importa: "0 ubicadas" sin motivo no dice si el problema es
+      // la dirección, la clave de Google o el límite de consultas.
+      const detalle = Object.entries(motivos)
+        .map(([estado, n]) => {
+          if (estado === "ZERO_RESULTS") return `${n} que Google no reconoce`;
+          if (estado === "OVER_QUERY_LIMIT") return `${n} frenadas por límite de Google`;
+          if (estado === "REQUEST_DENIED") return `${n} rechazadas (revisar la clave / facturación)`;
+          if (estado === "NO_MAPS") return `${n} sin Maps cargado`;
+          return `${n} con error ${estado}`;
+        })
+        .join(" · ");
       setUbicarClientesMsg(
         `${r.direcciones} direcciones ubicadas (${r.pedidos} pedidos)` +
-          (restantes.total > 0 ? ` · quedan ${restantes.total}, volvé a apretar` : " · listo")
+          (detalle ? ` · ${detalle}` : "") +
+          (restantes.total > 0 ? ` · quedan ${restantes.total}` : " · listo")
       );
     } catch (err: any) {
       setUbicarClientesMsg(err.message || "No se pudieron ubicar");

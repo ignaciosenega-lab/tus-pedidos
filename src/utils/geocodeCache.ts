@@ -43,37 +43,72 @@ export function getCachedCoords(address: string): Coords | null {
  * Falla silenciosamente: si el geocoder devuelve error o no hay window.google,
  * resuelve a `null` y no rompe la UI.
  */
-export function geocodeAddress(address: string): Promise<Coords | null> {
-  if (!address) return Promise.resolve(null);
+export interface GeocodeOpts {
+  /**
+   * Texto que se le agrega a la dirección para darle contexto geográfico.
+   * Sin esto, una dirección escrita a mano como "terralagos" o "Barrio el
+   * rebenque" no se puede resolver: Google no sabe en qué parte del mundo
+   * buscar. Con ", Canning, Buenos Aires" sí.
+   */
+  contexto?: string;
+}
+
+export interface GeocodeResult {
+  coords: Coords | null;
+  /** El estado que devolvió Google: OK, ZERO_RESULTS, OVER_QUERY_LIMIT, … */
+  status: string;
+}
+
+/**
+ * Igual que geocodeAddress pero devolviendo el motivo del fallo. Sin esto no se
+ * puede distinguir "esta dirección no existe" de "Google me está limitando", y
+ * las dos se ven como un cero.
+ */
+export function geocodeAddressDetailed(
+  address: string,
+  opts: GeocodeOpts = {}
+): Promise<GeocodeResult> {
+  if (!address) return Promise.resolve({ coords: null, status: "EMPTY" });
 
   const cached = getCachedCoords(address);
-  if (cached) return Promise.resolve(cached);
+  if (cached) return Promise.resolve({ coords: cached, status: "CACHE" });
 
   const g = (window as any).google?.maps;
-  if (!g?.Geocoder) return Promise.resolve(null);
+  if (!g?.Geocoder) return Promise.resolve({ coords: null, status: "NO_MAPS" });
 
-  return new Promise<Coords | null>((resolve) => {
+  const consulta = opts.contexto ? `${address}, ${opts.contexto}` : address;
+
+  return new Promise<GeocodeResult>((resolve) => {
     try {
       const geocoder = new g.Geocoder();
       geocoder.geocode(
-        { address },
+        // Restringir a Argentina evita que "Santa Rita" caiga en Brasil.
+        { address: consulta, componentRestrictions: { country: "ar" } },
         (results: any, status: string) => {
           if (status === "OK" && results && results[0]) {
             const loc = results[0].geometry.location;
             const coords: Coords = { lat: loc.lat(), lng: loc.lng() };
+            // Se cachea bajo la dirección ORIGINAL, no la del contexto.
             const cache = readCache();
             cache[normalize(address)] = coords;
             writeCache(cache);
-            resolve(coords);
+            resolve({ coords, status: "OK" });
           } else {
-            resolve(null);
+            resolve({ coords: null, status: status || "ERROR" });
           }
         }
       );
     } catch {
-      resolve(null);
+      resolve({ coords: null, status: "EXCEPTION" });
     }
   });
+}
+
+export function geocodeAddress(
+  address: string,
+  opts: GeocodeOpts = {}
+): Promise<Coords | null> {
+  return geocodeAddressDetailed(address, opts).then((r) => r.coords);
 }
 
 /** Distancia en km entre dos puntos (fórmula de Haversine). */
