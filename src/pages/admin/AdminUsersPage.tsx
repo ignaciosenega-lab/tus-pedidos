@@ -35,6 +35,43 @@ export default function AdminUsersPage() {
   const { apiFetch } = useApi();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [claveNueva, setClaveNueva] = useState<{ username: string; password: string } | null>(null);
+  const [generando, setGenerando] = useState<number | null>(null);
+  const [copiado, setCopiado] = useState(false);
+
+  function nombreSucursal(branchId: number | null): string {
+    if (!branchId) return "—";
+    const b = branches.find((x) => x.id === branchId);
+    return b ? b.name : `#${branchId}`;
+  }
+
+  // Las contraseñas no se pueden leer (bcrypt es de una sola dirección), así que
+  // cuando una sucursal se la olvida se genera una nueva y se le dicta.
+  async function generarClave(user: AdminUser) {
+    if (!confirm(`Se va a generar una contraseña nueva para "${user.username}".\n\nLa actual deja de funcionar inmediatamente. ¿Seguimos?`)) return;
+    setGenerando(user.id);
+    try {
+      const r = await apiFetch<{ username: string; password: string }>(
+        `/api/users/${user.id}/generate-password`,
+        { method: "POST" }
+      );
+      setClaveNueva(r);
+    } catch (e: any) {
+      alert(e.message || "No se pudo generar la contraseña");
+    } finally {
+      setGenerando(null);
+    }
+  }
+
+  function copiarLista() {
+    const texto = users
+      .map((u) => `${nombreSucursal(u.branch_id)}\t${u.username}\t${ROLE_LABELS[u.role]}`)
+      .join("\n");
+    navigator.clipboard.writeText(texto).then(() => {
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2000);
+    });
+  }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -199,14 +236,34 @@ export default function AdminUsersPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-2xl font-bold text-white mb-2">Usuarios Admin</h2>
-          <p className="text-gray-400">Gestiona los usuarios administradores del sistema</p>
+          <p className="text-gray-400">Los accesos al panel de cada sucursal</p>
         </div>
-        <button
-          onClick={openCreateModal}
-          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors"
-        >
-          + Nuevo Usuario
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={copiarLista}
+            className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-sm font-medium transition-colors"
+          >
+            {copiado ? "Copiado" : "Copiar lista"}
+          </button>
+          <button
+            onClick={openCreateModal}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium transition-colors"
+          >
+            + Nuevo Usuario
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-gray-900 border border-gray-800 rounded-lg p-4 mb-6">
+        <p className="text-sm text-gray-300">
+          Las contraseñas <strong className="text-white">no se pueden ver</strong>, ni acá ni en
+          ningún lado: se guardan cifradas de una sola dirección, que es lo que impide que alguien
+          que acceda a la base se lleve todos los accesos.
+        </p>
+        <p className="text-xs text-gray-500 mt-1">
+          Si una sucursal se la olvida, usá <strong className="text-gray-400">Generar contraseña</strong>:
+          arma una nueva, te la muestra una vez para que se la pases, y la anterior deja de servir.
+        </p>
       </div>
 
       {users.length === 0 ? (
@@ -246,8 +303,8 @@ export default function AdminUsersPage() {
                       {ROLE_LABELS[user.role]}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-400">
-                    {user.branch_id ? `#${user.branch_id}` : "-"}
+                  <td className="px-4 py-3 text-sm text-gray-300">
+                    {nombreSucursal(user.branch_id)}
                   </td>
                   <td className="px-4 py-3">
                     <button
@@ -268,6 +325,13 @@ export default function AdminUsersPage() {
                         className="text-sm text-emerald-400 hover:text-emerald-300 font-medium"
                       >
                         Editar
+                      </button>
+                      <button
+                        onClick={() => generarClave(user)}
+                        disabled={generando === user.id}
+                        className="text-sm text-amber-400 hover:text-amber-300 font-medium disabled:opacity-50"
+                      >
+                        {generando === user.id ? "Generando…" : "Generar contraseña"}
                       </button>
                       <button
                         onClick={() => deleteUser(user.id, user.username)}
@@ -424,6 +488,54 @@ export default function AdminUsersPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* La contraseña se ve UNA vez: no queda guardada en ningún lado. */}
+      {claveNueva && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setClaveNueva(null)}
+        >
+          <div
+            className="bg-gray-900 border border-amber-700/50 rounded-2xl p-6 w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-white font-bold text-lg">Contraseña nueva</h3>
+            <p className="text-sm text-gray-400 mt-1">
+              Para <span className="font-mono text-gray-200">{claveNueva.username}</span>
+            </p>
+
+            <div className="my-5 bg-gray-950 border border-gray-800 rounded-xl px-4 py-5 text-center">
+              <span className="font-mono text-2xl text-amber-400 tracking-wide break-all select-all">
+                {claveNueva.password}
+              </span>
+            </div>
+
+            <p className="text-sm text-amber-300/90">
+              Anotala o pasásela ahora. Cuando cierres esta ventana no se puede volver a ver: habría
+              que generar otra.
+            </p>
+
+            <div className="flex justify-end gap-2 mt-6">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(claveNueva.password);
+                  setCopiado(true);
+                  setTimeout(() => setCopiado(false), 2000);
+                }}
+                className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-sm font-medium"
+              >
+                {copiado ? "Copiada" : "Copiar"}
+              </button>
+              <button
+                onClick={() => setClaveNueva(null)}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold"
+              >
+                Ya la anoté
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useBranchId } from "../../hooks/useBranchId";
 import { setMapsEnabled as publicarMapsEnabled } from "../../utils/loadGoogleMaps";
+import { useAuth } from "../../store/authContext";
 
 interface DayHours {
   open: string;
@@ -100,6 +101,39 @@ export default function ConfigPage() {
   const [payment, setPayment] = useState<PaymentFormData>(DEFAULT_PAYMENT);
   const [schedule, setSchedule] = useState<ScheduleData>(DEFAULT_SCHEDULE);
   const [mapsEnabled, setMapsEnabled] = useState(false);
+  const { user } = useAuth();
+  const [claveActual, setClaveActual] = useState("");
+  const [claveNueva, setClaveNueva] = useState("");
+  const [claveRepetir, setClaveRepetir] = useState("");
+  const [cambiandoClave, setCambiandoClave] = useState(false);
+  const [claveMsg, setClaveMsg] = useState<{ ok: boolean; texto: string } | null>(null);
+
+  async function cambiarClave() {
+    setClaveMsg(null);
+    if (claveNueva !== claveRepetir) {
+      setClaveMsg({ ok: false, texto: "Las dos nuevas no coinciden" });
+      return;
+    }
+    if (claveNueva.length < 8) {
+      setClaveMsg({ ok: false, texto: "La nueva tiene que tener al menos 8 caracteres" });
+      return;
+    }
+    setCambiandoClave(true);
+    try {
+      await apiFetch("/api/auth/change-password", {
+        method: "POST",
+        body: JSON.stringify({ current: claveActual, next: claveNueva }),
+      });
+      setClaveActual("");
+      setClaveNueva("");
+      setClaveRepetir("");
+      setClaveMsg({ ok: true, texto: "Listo. Usá la nueva la próxima vez que entres." });
+    } catch (e: any) {
+      setClaveMsg({ ok: false, texto: e.message || "No se pudo cambiar" });
+    } finally {
+      setCambiandoClave(false);
+    }
+  }
   const [savingMaps, setSavingMaps] = useState(false);
 
   useEffect(() => {
@@ -333,6 +367,64 @@ export default function ConfigPage() {
           <span className="text-sm text-gray-300">{isOpen ? "Sucursal abierta" : "Sucursal cerrada"}</span>
         </label>
       </div>
+
+      {/* Mi contraseña — solo el encargado. El personal comparte el usuario del
+          local, así que no puede cambiarlo y dejar afuera a los demás. */}
+      {(user?.role === "branch_admin" || user?.role === "master") && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 mb-6">
+          <h3 className="text-lg font-semibold text-white mb-2">Mi contraseña</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            Cambiá la contraseña con la que entrás al panel. Vas a necesitar la actual.
+            Si no te la acordás, pedile una nueva a la administración.
+          </p>
+          <div className="grid gap-4 sm:grid-cols-3 max-w-2xl">
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Actual</label>
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={claveActual}
+                onChange={(e) => setClaveActual(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Nueva</label>
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={claveNueva}
+                onChange={(e) => setClaveNueva(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-1">Repetir la nueva</label>
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={claveRepetir}
+                onChange={(e) => setClaveRepetir(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+              />
+            </div>
+          </div>
+          <div className="flex items-center gap-3 mt-4">
+            <button
+              onClick={cambiarClave}
+              disabled={cambiandoClave || !claveActual || !claveNueva || !claveRepetir}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-semibold"
+            >
+              {cambiandoClave ? "Cambiando…" : "Cambiar contraseña"}
+            </button>
+            {claveMsg && (
+              <span className={`text-sm ${claveMsg.ok ? "text-emerald-400" : "text-red-400"}`}>
+                {claveMsg.texto}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Medios de Pago */}
       <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 space-y-4">

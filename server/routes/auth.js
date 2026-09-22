@@ -47,4 +47,43 @@ router.get("/me", requireAuth, (req, res) => {
   res.json({ user: req.user });
 });
 
+/* ══════════════════════════════════════════════════
+   Cambiar la propia contraseña
+   ══════════════════════════════════════════════════ */
+// La pide el encargado de sucursal desde su panel. El personal (staff) no: el
+// usuario de la sucursal suele estar compartido entre varias personas del local
+// y cualquiera de ellas podría dejar afuera al resto sin querer.
+router.post("/change-password", requireAuth, (req, res) => {
+  const db = req.app.locals.db;
+  const { current, next } = req.body || {};
+
+  if (!["master", "branch_admin"].includes(req.user?.role)) {
+    return res.status(403).json({ error: "No tenés permiso para cambiar la contraseña" });
+  }
+  if (!current || !next) {
+    return res.status(400).json({ error: "Faltan la contraseña actual y la nueva" });
+  }
+  if (String(next).length < 8) {
+    return res.status(400).json({ error: "La nueva tiene que tener al menos 8 caracteres" });
+  }
+  if (String(next) === String(current)) {
+    return res.status(400).json({ error: "La nueva tiene que ser distinta de la actual" });
+  }
+
+  const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+  if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+
+  // Verificar la actual antes que nada: sin esto, cualquiera que se siente
+  // frente a una sesión abierta se queda con la cuenta.
+  if (!bcrypt.compareSync(String(current), user.password_hash)) {
+    return res.status(400).json({ error: "La contraseña actual no es correcta" });
+  }
+
+  db.prepare("UPDATE users SET password_hash = ? WHERE id = ?")
+    .run(bcrypt.hashSync(String(next), 10), user.id);
+
+  console.log(`[auth] ${user.username} cambió su contraseña`);
+  res.json({ ok: true });
+});
+
 module.exports = router;

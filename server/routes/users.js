@@ -125,6 +125,51 @@ router.put("/:id", (req, res) => {
   res.json(updated);
 });
 
+/* ══════════════════════════════════════════════════
+   Generar una contraseña nueva
+   ══════════════════════════════════════════════════ */
+// Las contraseñas se guardan con bcrypt, que es de una sola dirección: no hay
+// forma de leer la que tiene puesta una sucursal, ni acá ni en ningún lado.
+// Cuando se la olvidan, la salida no es mostrarla sino fabricar una nueva.
+//
+// El texto plano se devuelve UNA sola vez, en esta respuesta. No se guarda en la
+// base, no se escribe en los logs, no se puede volver a pedir.
+
+// Palabras cortas, comunes y fáciles de dictar por teléfono. Sin acentos ni ñ,
+// que se transcriben mal cuando se las pasan por WhatsApp.
+const PALABRAS = [
+  "sushi", "verde", "rojo", "salmon", "arroz", "fuego", "luna", "rio", "campo",
+  "pizza", "mesa", "silla", "puerta", "cielo", "tigre", "puma", "zorro", "gato",
+  "playa", "monte", "norte", "suave", "rapido", "fresco", "dulce", "limon",
+];
+
+function generarContrasena() {
+  const crypto = require("crypto");
+  const a = PALABRAS[crypto.randomInt(PALABRAS.length)];
+  let b = PALABRAS[crypto.randomInt(PALABRAS.length)];
+  while (b === a) b = PALABRAS[crypto.randomInt(PALABRAS.length)];
+  // 4 dígitos, sin ceros a la izquierda perdidos.
+  const num = String(crypto.randomInt(1000, 10000));
+  return `${a}-${b}-${num}`;
+}
+
+// POST /api/users/:id/generate-password
+router.post("/:id/generate-password", (req, res) => {
+  const db = req.app.locals.db;
+  const userId = Number(req.params.id);
+  const user = db.prepare("SELECT id, username FROM users WHERE id = ?").get(userId);
+  if (!user) return res.status(404).json({ error: "Usuario no encontrado" });
+
+  const password = generarContrasena();
+  db.prepare("UPDATE users SET password_hash = ? WHERE id = ?")
+    .run(bcrypt.hashSync(password, 10), userId);
+
+  // Ojo: nada de console.log con la contraseña adentro.
+  console.log(`[auth] contraseña regenerada para ${user.username}`);
+
+  res.json({ username: user.username, password });
+});
+
 // DELETE /api/users/:id — delete admin user
 router.delete("/:id", (req, res) => {
   const db = req.app.locals.db;
