@@ -580,7 +580,13 @@ router.delete("/:id/barrios/:barrioId", requireAuth, requireBranchAccess("id"), 
 //
 // OpenStreetMap sí tiene el contorno real de cada barrio, mapeado como
 // landuse=residential con nombre. Es abierto, gratis y no necesita clave.
-const OVERPASS = "https://overpass-api.de/api/interpreter";
+// Varios espejos: el principal devuelve 504 seguido cuando está cargado, y no
+// hay motivo para hacer fracasar la importación por eso.
+const OVERPASS_ESPEJOS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.osm.jp/api/interpreter",
+];
 
 router.post("/:id/barrios/importar-osm", requireAuth, requireBranchAccess("id"), async (req, res) => {
   const db = req.app.locals.db;
@@ -593,63 +599,110 @@ router.post("/:id/barrios/importar-osm", requireAuth, requireBranchAccess("id"),
     });
   }
 
-  // ~8 km a la redonda: alcanza para la zona de reparto y mantiene la consulta
-  // liviana. Overpass se cae con áreas grandes.
-  const d = 0.075;
-  const caja = `${(suc.lat - d).toFixed(4)},${(suc.lng - d).toFixed(4)},${(suc.lat + d).toFixed(4)},${(suc.lng + d).toFixed(4)}`;
-  const consulta = `[out:json][timeout:25];(way["landuse"="residential"]["name"](${caja});way["place"="neighbourhood"]["name"](${caja}););out geom;`;
+  // Recorre los espejos y reintenta: un 504 casi siempre es carga momentánea.
+  async function overpass(consulta) {
+    let ultimo = "";
+    for (let vuelta = 0; vuelta < 2; vuelta++) {
+      for (const url of OVERPASS_ESPEJOS) {
+        try {
+          const r = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "tuspedidos/1.0" },
+            body: "data=" + encodeURIComponent(consulta),
+            signal: AbortSignal.timeout(60000),
+          });
+          if (!r.ok) {
+            ultimo = `${new URL(url).hostname} respondió ${r.status}`;
+            continue;
+          }
+          return await r.json();
+        } catch (e) {
+          ultimo = `${new URL(url).hostname}: ${e.message}`;
+        }
+      }
+      if (vuelta === 0) await new Promise((res) => setTimeout(res, 3000));
+    }
+    throw new Error(ultimo || "ningún servidor de OpenStreetMap respondió");
+  }
 
-  let datos;
+  // Dos pasos a propósito. Pedir los contornos de un área grande hace que
+  // Overpass devuelva 504: la primera vuelta trae solo NOMBRES (liviana, cubre
+  // ~15 km) y la segunda pide los contornos únicamente de los que emparejaron.
+  const d = 0.135;
+  const caja = `${(suc.lat - d).toFixed(4)},${(suc.lng - d).toFixed(4)},${(suc.lat + d).toFixed(4)},${(suc.lng + d).toFixed(4)}`;
+
+  let nombres;
   try {
-    const r = await fetch(OVERPASS, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "tuspedidos/1.0" },
-      body: "data=" + encodeURIComponent(consulta),
-      signal: AbortSignal.timeout(60000),
-    });
-    if (!r.ok) throw new Error(`Overpass respondió ${r.status}`);
-    datos = await r.json();
+    nombres = await overpass(
+      `[out:json][timeout:60];(way["landuse"="residential"]["name"](${caja});relation["landuse"="residential"]["name"](${caja});way["place"="neighbourhood"]["name"](${caja}););out tags;`
+    );
   } catch (e) {
     return res.status(502).json({
       error: "No se pudo consultar OpenStreetMap ahora (" + e.message + "). Suele ser momentáneo: probá de nuevo en un minuto.",
     });
   }
 
-  const areas = (datos.elements || [])
-    .filter((e) => Array.isArray(e.geometry) && e.geometry.length >= 3 && e.tags?.name)
-    .map((e) => ({
-      nombre: e.tags.name,
-      clave: barriosLib.normalizar(e.tags.name),
-      poligono: e.geometry.map((p) => [p.lat, p.lon]),
-    }));
+  const delMapa = (nombres.elements || [])
+    .filter((e) => e.tags?.name)
+    .map((e) => ({ id: e.id, tipo: e.type, nombre: e.tags.name, clave: barriosLib.claveBarrio(e.tags.name) }));
 
+  // Emparejar. claveBarrio ya saca artículos, paréntesis y pasa los romanos a
+  // número: "El Principado (Club de Campo)" y "Principado" son lo mismo.
   const barrios = leerBarrios(db, branchId);
-  const guardar = db.prepare("UPDATE private_neighborhoods SET polygon = ? WHERE id = ?");
-
-  let pegados = 0;
+  const parejas = [];
   const sinContorno = [];
   for (const b of barrios) {
-    const clave = barriosLib.normalizar(b.name);
-    // Primero el nombre exacto; si no, que uno contenga al otro ("Casuarinas"
-    // vs "Casuarinas 5", "Lagos de Canning" vs "Lagos de Canning II").
-    let m = areas.find((a) => a.clave === clave);
-    if (!m) m = areas.find((a) => a.clave.startsWith(clave + " ") || clave.startsWith(a.clave + " "));
-    if (m) {
-      guardar.run(JSON.stringify(m.poligono), b.id);
-      pegados++;
-    } else {
-      sinContorno.push(b.name);
+    const clave = barriosLib.claveBarrio(b.name);
+    let m = delMapa.find((a) => a.clave === clave);
+    if (!m) m = delMapa.find((a) => a.clave.startsWith(clave + " ") || clave.startsWith(a.clave + " "));
+    if (m) parejas.push({ barrio: b, osm: m });
+    else sinContorno.push(b.name);
+  }
+
+  // Segunda vuelta: los contornos, solo de los que emparejaron.
+  let pegados = 0;
+  if (parejas.length) {
+    const ways = parejas.filter((p) => p.osm.tipo === "way").map((p) => p.osm.id);
+    const rels = parejas.filter((p) => p.osm.tipo === "relation").map((p) => p.osm.id);
+    const partes = [];
+    if (ways.length) partes.push(`way(id:${ways.join(",")});`);
+    if (rels.length) partes.push(`relation(id:${rels.join(",")});`);
+    try {
+      const geo = await overpass(`[out:json][timeout:60];(${partes.join("")});out geom;`);
+      const porId = new Map();
+      for (const e of geo.elements || []) {
+        let pts = null;
+        if (Array.isArray(e.geometry)) {
+          pts = e.geometry;
+        } else if (Array.isArray(e.members)) {
+          // Relación multipolígono: se usa el anillo exterior más largo.
+          const outers = e.members.filter((m) => m.role === "outer" && Array.isArray(m.geometry));
+          if (outers.length) pts = outers.sort((a, b2) => b2.geometry.length - a.geometry.length)[0].geometry;
+        }
+        if (pts && pts.length >= 3) porId.set(`${e.type}/${e.id}`, pts.map((p) => [p.lat, p.lon]));
+      }
+      const guardar = db.prepare("UPDATE private_neighborhoods SET polygon = ? WHERE id = ?");
+      for (const p of parejas) {
+        const poly = porId.get(`${p.osm.tipo}/${p.osm.id}`);
+        if (poly) {
+          guardar.run(JSON.stringify(poly), p.barrio.id);
+          pegados++;
+        } else {
+          sinContorno.push(p.barrio.name);
+        }
+      }
+    } catch (e) {
+      return res.status(502).json({ error: "Se encontraron los barrios pero no se pudieron bajar los contornos: " + e.message });
     }
   }
 
-  // Los que están en el mapa y no tenés cargados: candidatos a agregar.
-  const cargadas = new Set(barrios.map((b) => barriosLib.normalizar(b.name)));
-  const disponibles = areas
+  const cargadas = new Set(barrios.map((b) => barriosLib.claveBarrio(b.name)));
+  const disponibles = delMapa
     .filter((a) => !cargadas.has(a.clave))
     .map((a) => a.nombre)
     .sort();
 
-  res.json({ encontradas: areas.length, pegados, sinContorno, disponibles });
+  res.json({ encontradas: delMapa.length, pegados, sinContorno, disponibles });
 });
 
 // Nombres que se repiten en las direcciones y todavía no están cargados. Evita
@@ -663,6 +716,55 @@ router.get("/:id/barrios/sugeridos", requireAuth, requireBranchAccess("id"), (re
     .all(branchId)
     .map((r) => r.address);
   res.json({ total: direcciones.length, sugeridos: barriosLib.sugerir(direcciones, barrios) });
+});
+
+// Los clientes de UN barrio, para poder verlos y no solo contarlos. Se pasa
+// "__sin__" para ver los que no cayeron en ninguno, que es donde se descubre
+// qué barrio falta cargar.
+router.get("/:id/metrics/barrios/:barrioId/clientes", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+  const buscado = req.params.barrioId;
+  const { from, to } = req.query;
+
+  const barrios = barriosLib.prepararBarrios(leerBarrios(db, branchId));
+
+  let sql = `SELECT customer_name, customer_phone, address, lat, lng, total, created_at
+               FROM orders
+              WHERE branch_id = ? AND status != 'cancelled'`;
+  const args = [branchId];
+  if (from) { sql += " AND date(created_at) >= date(?)"; args.push(from); }
+  if (to)   { sql += " AND date(created_at) <= date(?)"; args.push(to); }
+  const pedidos = db.prepare(sql).all(...args);
+
+  const porTel = new Map();
+  for (const p of pedidos) {
+    const b = barriosLib.clasificar(p, barrios);
+    const clave = b ? String(b.id) : "__sin__";
+    if (clave !== String(buscado)) continue;
+
+    const tel = String(p.customer_phone || "").replace(/\D/g, "") || "?";
+    if (!porTel.has(tel)) {
+      porTel.set(tel, {
+        nombre: p.customer_name,
+        telefono: p.customer_phone,
+        direccion: p.address,
+        pedidos: 0,
+        gastado: 0,
+        ultimo: p.created_at,
+      });
+    }
+    const c = porTel.get(tel);
+    c.pedidos++;
+    c.gastado += Number(p.total) || 0;
+    if (p.created_at > c.ultimo) {
+      c.ultimo = p.created_at;
+      c.direccion = p.address; // la dirección más reciente
+    }
+  }
+
+  const clientes = [...porTel.values()].sort((a, b) => b.gastado - a.gastado);
+  res.json({ clientes });
 });
 
 // El ranking. Cuenta clientes distintos (por teléfono), pedidos y facturado.

@@ -68,6 +68,24 @@ export default function MetricsPage() {
   // La pestaña de barrios solo existe si la sucursal cargó alguno: en Belgrano
   // no tiene sentido, en Canning sí.
   const [hayBarrios, setHayBarrios] = useState(false);
+  const [barrioAbierto, setBarrioAbierto] = useState<string | number | null>(null);
+  const [clientesBarrio, setClientesBarrio] = useState<any[] | null>(null);
+
+  // Al tocar una fila se abre la lista de quiénes son. Sirve sobre todo en
+  // "Sin clasificar": ahí se ve qué barrio falta cargar.
+  async function abrirBarrio(id: string | number) {
+    if (barrioAbierto === id) { setBarrioAbierto(null); setClientesBarrio(null); return; }
+    setBarrioAbierto(id);
+    setClientesBarrio(null);
+    try {
+      const r = await apiFetch<{ clientes: any[] }>(
+        `/api/branches/${branchId}/metrics/barrios/${id}/clientes?from=${dateFrom}&to=${dateTo}`
+      );
+      setClientesBarrio(r.clientes);
+    } catch {
+      setClientesBarrio([]);
+    }
+  }
 
   useEffect(() => {
     if (!branchId) return;
@@ -319,8 +337,14 @@ export default function MetricsPage() {
             <tbody className="divide-y divide-gray-800">
               {barriosData.barrios.map((b) => {
                 const sinClasificar = b.id === "__sin__";
+                const abierto = barrioAbierto === b.id;
                 return (
-                  <tr key={b.id} className={sinClasificar ? "bg-gray-950/50" : ""}>
+                  <>
+                  <tr
+                    key={b.id}
+                    onClick={() => b.pedidos > 0 && abrirBarrio(b.id)}
+                    className={`${sinClasificar ? "bg-gray-950/50" : ""} ${b.pedidos > 0 ? "cursor-pointer hover:bg-gray-800/40" : ""}`}
+                  >
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center gap-2 text-sm ${sinClasificar ? "text-gray-500 italic" : "text-white font-medium"}`}>
                         <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: b.color }} />
@@ -337,15 +361,52 @@ export default function MetricsPage() {
                       ${Math.round(b.facturado).toLocaleString("es-AR")}
                     </td>
                   </tr>
+                  {abierto && (
+                    <tr key={`${b.id}-det`}>
+                      <td colSpan={4} className="px-4 pb-4 bg-gray-950/40">
+                        {clientesBarrio === null ? (
+                          <p className="text-sm text-gray-500 py-3">Cargando…</p>
+                        ) : clientesBarrio.length === 0 ? (
+                          <p className="text-sm text-gray-500 py-3">Sin clientes en este período.</p>
+                        ) : (
+                          <table className="w-full mt-1">
+                            <thead>
+                              <tr className="text-left text-[11px] text-gray-500 uppercase tracking-wider">
+                                <th className="py-2">Cliente</th>
+                                <th className="py-2">Teléfono</th>
+                                <th className="py-2">Dirección</th>
+                                <th className="py-2 text-right">Pedidos</th>
+                                <th className="py-2 text-right">Gastado</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {clientesBarrio.map((c, i) => (
+                                <tr key={i} className="border-t border-gray-800/60">
+                                  <td className="py-2 text-sm text-white">{c.nombre || "—"}</td>
+                                  <td className="py-2 text-sm text-gray-400 font-mono">{c.telefono}</td>
+                                  <td className="py-2 text-sm text-gray-400 max-w-md truncate">{c.direccion || "—"}</td>
+                                  <td className="py-2 text-sm text-gray-300 text-right tabular-nums">{c.pedidos}</td>
+                                  <td className="py-2 text-sm text-emerald-400 text-right tabular-nums">
+                                    ${Math.round(c.gastado).toLocaleString("es-AR")}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                  </>
                 );
               })}
             </tbody>
           </table>
           <p className="px-4 py-3 text-xs text-gray-500 border-t border-gray-800">
             {barriosData.totalPedidos.toLocaleString("es-AR")} pedidos en el período.
-            Un pedido cae en un barrio por su contorno si tiene coordenadas, y si no, porque el
-            nombre aparece en la dirección. Si &quot;Sin clasificar&quot; está muy alto, faltan
-            nombres: cargalos en Barrios cerrados.
+            Tocá cualquier fila para ver quiénes son. Un pedido cae en un barrio por su contorno
+            si tiene coordenadas, y si no, porque el nombre aparece en la dirección. Mirá
+            &quot;Sin clasificar&quot; para descubrir qué barrio falta cargar.
           </p>
         </div>
       )}

@@ -27,6 +27,28 @@ function normalizar(txt) {
     .replace(/\s+/g, " ");
 }
 
+// Números romanos que aparecen en los nombres de countries: "El Venado II".
+const ROMANOS = { i: "1", ii: "2", iii: "3", iv: "4", v: "5", vi: "6" };
+
+/**
+ * Clave para emparejar el nombre de un barrio con el del mapa. Además de
+ * normalizar, saca lo que difiere entre una lista escrita a mano y
+ * OpenStreetMap:
+ *   · el paréntesis    "El Principado (Club de Campo)" -> "principado"
+ *   · el artículo      "El Lauquen"                    -> "lauquen"
+ *   · el romano        "El Venado II" / "Venado 2"     -> "venado 2"
+ */
+function claveBarrio(txt) {
+  let t = String(txt || "").replace(/\([^)]*\)/g, " "); // fuera los paréntesis
+  t = normalizar(t);
+  t = t.replace(/^(el|la|los|las|barrio|country|bo) /, "");
+  return t
+    .split(" ")
+    .map((w) => ROMANOS[w] || w)
+    .join(" ")
+    .trim();
+}
+
 /**
  * Ray casting: ¿el punto cae dentro del polígono?
  *
@@ -219,4 +241,4 @@ function sugerir(direcciones, barrios, { minimo = 2, max = 25 } = {}) {
     .map(([texto, direcciones]) => ({ texto, direcciones }));
 }
 
-module.exports = { normalizar, puntoEnPoligono, distanciaM, prepararBarrios, clasificar, sugerir };
+module.exports = { normalizar, claveBarrio, puntoEnPoligono, distanciaM, prepararBarrios, clasificar, sugerir };
