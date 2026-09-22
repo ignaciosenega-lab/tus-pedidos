@@ -570,6 +570,88 @@ router.delete("/:id/barrios/:barrioId", requireAuth, requireBranchAccess("id"), 
   res.json({ ok: true });
 });
 
+/* ══════════════════════════════════════════════════
+   Contornos desde OpenStreetMap
+   ══════════════════════════════════════════════════ */
+// Geocodificar el nombre de un country devuelve la GARITA, no su centro, y
+// estos barrios miden cientos de metros: medido en Canning, los clientes quedan
+// a 676-936 m de ese punto, mientras que dos barrios vecinos tienen sus centros
+// a 731 m. No existe un radio que agarre a los clientes sin comerse al vecino.
+//
+// OpenStreetMap sí tiene el contorno real de cada barrio, mapeado como
+// landuse=residential con nombre. Es abierto, gratis y no necesita clave.
+const OVERPASS = "https://overpass-api.de/api/interpreter";
+
+router.post("/:id/barrios/importar-osm", requireAuth, requireBranchAccess("id"), async (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+
+  const suc = db.prepare("SELECT lat, lng, name FROM branches WHERE id = ?").get(branchId);
+  if (!suc || typeof suc.lat !== "number") {
+    return res.status(400).json({
+      error: "La sucursal no tiene ubicación. Calculala primero en Sucursales.",
+    });
+  }
+
+  // ~8 km a la redonda: alcanza para la zona de reparto y mantiene la consulta
+  // liviana. Overpass se cae con áreas grandes.
+  const d = 0.075;
+  const caja = `${(suc.lat - d).toFixed(4)},${(suc.lng - d).toFixed(4)},${(suc.lat + d).toFixed(4)},${(suc.lng + d).toFixed(4)}`;
+  const consulta = `[out:json][timeout:25];(way["landuse"="residential"]["name"](${caja});way["place"="neighbourhood"]["name"](${caja}););out geom;`;
+
+  let datos;
+  try {
+    const r = await fetch(OVERPASS, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "tuspedidos/1.0" },
+      body: "data=" + encodeURIComponent(consulta),
+      signal: AbortSignal.timeout(60000),
+    });
+    if (!r.ok) throw new Error(`Overpass respondió ${r.status}`);
+    datos = await r.json();
+  } catch (e) {
+    return res.status(502).json({
+      error: "No se pudo consultar OpenStreetMap ahora (" + e.message + "). Suele ser momentáneo: probá de nuevo en un minuto.",
+    });
+  }
+
+  const areas = (datos.elements || [])
+    .filter((e) => Array.isArray(e.geometry) && e.geometry.length >= 3 && e.tags?.name)
+    .map((e) => ({
+      nombre: e.tags.name,
+      clave: barriosLib.normalizar(e.tags.name),
+      poligono: e.geometry.map((p) => [p.lat, p.lon]),
+    }));
+
+  const barrios = leerBarrios(db, branchId);
+  const guardar = db.prepare("UPDATE private_neighborhoods SET polygon = ? WHERE id = ?");
+
+  let pegados = 0;
+  const sinContorno = [];
+  for (const b of barrios) {
+    const clave = barriosLib.normalizar(b.name);
+    // Primero el nombre exacto; si no, que uno contenga al otro ("Casuarinas"
+    // vs "Casuarinas 5", "Lagos de Canning" vs "Lagos de Canning II").
+    let m = areas.find((a) => a.clave === clave);
+    if (!m) m = areas.find((a) => a.clave.startsWith(clave + " ") || clave.startsWith(a.clave + " "));
+    if (m) {
+      guardar.run(JSON.stringify(m.poligono), b.id);
+      pegados++;
+    } else {
+      sinContorno.push(b.name);
+    }
+  }
+
+  // Los que están en el mapa y no tenés cargados: candidatos a agregar.
+  const cargadas = new Set(barrios.map((b) => barriosLib.normalizar(b.name)));
+  const disponibles = areas
+    .filter((a) => !cargadas.has(a.clave))
+    .map((a) => a.nombre)
+    .sort();
+
+  res.json({ encontradas: areas.length, pegados, sinContorno, disponibles });
+});
+
 // Nombres que se repiten en las direcciones y todavía no están cargados. Evita
 // tener que inventar la lista de memoria: sale de los datos reales.
 router.get("/:id/barrios/sugeridos", requireAuth, requireBranchAccess("id"), (req, res) => {

@@ -181,6 +181,38 @@ export default function BarriosPage() {
     }
   }
 
+  // Baja los contornos reales de OpenStreetMap y se los pega a los barrios por
+  // nombre. Es lo que hace que esto funcione de verdad: geocodificar el nombre
+  // devuelve la garita del country, no su superficie, y con un círculo no hay
+  // manera de agarrar a los clientes sin comerse al barrio de al lado.
+  async function importarOsm() {
+    if (!branchId) return;
+    setUbicando(true);
+    setUbicarMsg("Bajando los contornos del mapa…");
+    try {
+      const r = await apiFetch<{
+        encontradas: number;
+        pegados: number;
+        sinContorno: string[];
+        disponibles: string[];
+      }>(`/api/branches/${branchId}/barrios/importar-osm`, { method: "POST" });
+
+      const partes = [`${r.pegados} de ${barrios.length} barrios ahora tienen su contorno real`];
+      if (r.sinContorno.length) {
+        partes.push(`sin contorno: ${r.sinContorno.join(", ")}`);
+      }
+      if (r.disponibles.length) {
+        partes.push(`en el mapa hay ${r.disponibles.length} más que no tenés cargados: ${r.disponibles.slice(0, 12).join(", ")}${r.disponibles.length > 12 ? "…" : ""}`);
+      }
+      setUbicarMsg(partes.join(" · "));
+      await cargar();
+    } catch (e: any) {
+      setUbicarMsg(e.message || "No se pudieron bajar los contornos");
+    } finally {
+      setUbicando(false);
+    }
+  }
+
   async function cambiarRadio(b: Barrio, metros: number) {
     if (!branchId) return;
     await apiFetch(`/api/branches/${branchId}/barrios/${b.id}`, {
@@ -270,12 +302,20 @@ export default function BarriosPage() {
             </select>
           )}
           <button
+            onClick={importarOsm}
+            disabled={ubicando || !barrios.length}
+            title="Baja el contorno real de cada barrio desde OpenStreetMap, que es abierto y gratis. Es lo más preciso sin tener que dibujar nada."
+            className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg text-sm font-medium"
+          >
+            {ubicando ? "Trabajando…" : "Bajar contornos del mapa"}
+          </button>
+          <button
             onClick={ubicarTodos}
             disabled={ubicando || !barrios.length}
-            title="Le pregunta a Google dónde queda cada barrio y guarda el centro. Una consulta por barrio, una sola vez."
+            title="Plan B, solo para los que no estén en OpenStreetMap: le pregunta a Google dónde queda el barrio. Devuelve la garita, no la superficie, así que es mucho menos preciso."
             className="px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded-lg text-sm font-medium"
           >
-            {ubicando ? "Ubicando…" : "Ubicar todos"}
+            {ubicando ? "…" : "Ubicar por nombre"}
           </button>
           <input ref={archivoRef} type="file" accept=".kml,.xml" onChange={importarKml} className="hidden" />
           <button
