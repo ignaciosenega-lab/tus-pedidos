@@ -166,6 +166,22 @@ function getDb() {
       CREATE INDEX IF NOT EXISTS idx_barrios_branch ON private_neighborhoods(branch_id);
     `);
 
+    // Migration: centro y radio de un barrio cerrado.
+    // Las direcciones que entran por el buscador de Google vienen normalizadas
+    // como calle + altura + localidad: NUNCA traen el nombre del country. Por
+    // eso buscar el nombre en el texto no alcanza, y hace falta ubicarlos en el
+    // mapa. El radio permite tenerlos andando sin dibujar 30 polígonos a mano.
+    const barrioCols = db.prepare("PRAGMA table_info(private_neighborhoods)").all().map((c) => c.name);
+    if (!barrioCols.includes("lat")) {
+      db.exec("ALTER TABLE private_neighborhoods ADD COLUMN lat REAL");
+    }
+    if (!barrioCols.includes("lng")) {
+      db.exec("ALTER TABLE private_neighborhoods ADD COLUMN lng REAL");
+    }
+    if (!barrioCols.includes("radio_m")) {
+      db.exec("ALTER TABLE private_neighborhoods ADD COLUMN radio_m INTEGER NOT NULL DEFAULT 600");
+    }
+
     // Migration: coordenadas de la sucursal.
     // Antes el selector geocodificaba las direcciones de TODAS las sucursales en
     // el navegador de cada visitante, con caché en localStorage — o sea, por

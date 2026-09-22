@@ -495,7 +495,18 @@ function salidaBarrio(b) {
 
 router.get("/:id/barrios", requireAuth, requireBranchAccess("id"), (req, res) => {
   const db = req.app.locals.db;
-  res.json(leerBarrios(db, Number(req.params.id)).map(salidaBarrio));
+  const branchId = Number(req.params.id);
+  // El contexto se usa para geocodificar los nombres: "El Rocío" solo no se
+  // puede ubicar, "El Rocío, Canning, Argentina" sí.
+  const suc = db.prepare("SELECT address FROM branches WHERE id = ?").get(branchId);
+  const partes = String(suc?.address || "")
+    .split(",")
+    .map((x) => x.trim().replace(/[.\s]+$/, ""))
+    .filter(Boolean);
+  res.json({
+    contexto: [...partes.slice(1), "Argentina"].join(", "),
+    barrios: leerBarrios(db, branchId).map(salidaBarrio),
+  });
 });
 
 router.post("/:id/barrios", requireAuth, requireBranchAccess("id"), (req, res) => {
@@ -530,11 +541,13 @@ router.put("/:id/barrios/:barrioId", requireAuth, requireBranchAccess("id"), (re
     .get(barrioId, branchId);
   if (!actual) return res.status(404).json({ error: "Barrio no encontrado" });
 
-  const { name, aliases, polygon, is_active, color } = req.body;
+  const { name, aliases, polygon, is_active, color, lat, lng, radio_m } = req.body;
+  const num = (v, porDefecto) => (v === undefined ? porDefecto : Number.isFinite(Number(v)) ? Number(v) : null);
   db.prepare(
     `UPDATE private_neighborhoods
         SET name = @name, aliases = @aliases, polygon = @polygon,
-            is_active = @is_active, color = @color
+            is_active = @is_active, color = @color,
+            lat = @lat, lng = @lng, radio_m = @radio_m
       WHERE id = @id`
   ).run({
     id: barrioId,
@@ -543,6 +556,9 @@ router.put("/:id/barrios/:barrioId", requireAuth, requireBranchAccess("id"), (re
     polygon: polygon !== undefined ? JSON.stringify(polygon || []) : actual.polygon,
     is_active: is_active !== undefined ? (is_active ? 1 : 0) : actual.is_active,
     color: color !== undefined ? color : actual.color,
+    lat: num(lat, actual.lat),
+    lng: num(lng, actual.lng),
+    radio_m: radio_m !== undefined && Number(radio_m) > 0 ? Number(radio_m) : actual.radio_m || 600,
   });
   res.json(salidaBarrio(db.prepare("SELECT * FROM private_neighborhoods WHERE id = ?").get(barrioId)));
 });

@@ -71,8 +71,8 @@ export default function MetricsPage() {
 
   useEffect(() => {
     if (!branchId) return;
-    apiFetch<any[]>(`/api/branches/${branchId}/barrios`)
-      .then((bs) => setHayBarrios(bs.length > 0))
+    apiFetch<{ barrios: any[] }>(`/api/branches/${branchId}/barrios`)
+      .then((r) => setHayBarrios((r.barrios || []).length > 0))
       .catch(() => setHayBarrios(false));
   }, [branchId]);
   const [sortAsc, setSortAsc] = useState(false);

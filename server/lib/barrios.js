@@ -49,6 +49,18 @@ function puntoEnPoligono(lat, lng, poligono) {
   return dentro;
 }
 
+/** Distancia en metros entre dos puntos (Haversine). */
+function distanciaM(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const rad = (d) => (d * Math.PI) / 180;
+  const dLat = rad(lat2 - lat1);
+  const dLng = rad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 /**
  * Prepara la lista una sola vez para no re-parsear el JSON en cada pedido.
  * Devuelve cada barrio con sus términos normalizados, ordenados de más largo a
@@ -75,7 +87,16 @@ function prepararBarrios(filas) {
         .map(normalizar)
         .filter(Boolean)
         .sort((x, y) => y.length - x.length);
-      return { id: b.id, name: b.name, color: b.color, terminos, poligono };
+      return {
+        id: b.id,
+        name: b.name,
+        color: b.color,
+        terminos,
+        poligono,
+        lat: typeof b.lat === "number" ? b.lat : null,
+        lng: typeof b.lng === "number" ? b.lng : null,
+        radioM: Number(b.radio_m) > 0 ? Number(b.radio_m) : 600,
+      };
     });
 }
 
@@ -87,8 +108,10 @@ function clasificar(pedido, barrios) {
   const lat = Number(pedido?.lat);
   const lng = Number(pedido?.lng);
 
-  // 1. El polígono manda cuando hay coordenadas.
-  if (Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0) {
+  const hayCoords = Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0;
+
+  // 1. El contorno dibujado manda: es el dato más preciso que hay.
+  if (hayCoords) {
     for (const b of barrios) {
       if (b.poligono.length >= 3 && puntoEnPoligono(lat, lng, b.poligono)) {
         return b;
@@ -96,8 +119,26 @@ function clasificar(pedido, barrios) {
     }
   }
 
-  // 2. Si no, se busca el nombre en la dirección. Gana la coincidencia más
-  //    larga de todas, no la del primer barrio de la lista.
+  // 2. Después el círculo. Los countries de una misma zona se tocan, así que
+  //    cuando el punto cae en más de uno gana el de CENTRO MÁS CERCANO, no el
+  //    primero de la lista.
+  if (hayCoords) {
+    let mejorCirculo = null;
+    let mejorDist = Infinity;
+    for (const b of barrios) {
+      if (b.lat === null || b.lng === null) continue;
+      const d = distanciaM(lat, lng, b.lat, b.lng);
+      if (d <= b.radioM && d < mejorDist) {
+        mejorCirculo = b;
+        mejorDist = d;
+      }
+    }
+    if (mejorCirculo) return mejorCirculo;
+  }
+
+  // 3. Último recurso, el texto. Solo sirve para las direcciones escritas a
+  //    mano: las que pasan por el buscador de Google vienen como calle y
+  //    altura, sin el nombre del barrio. Gana la coincidencia más larga.
   const texto = normalizar(pedido?.address);
   if (!texto) return null;
 
@@ -178,4 +219,4 @@ function sugerir(direcciones, barrios, { minimo = 2, max = 25 } = {}) {
     .map(([texto, direcciones]) => ({ texto, direcciones }));
 }
 
-module.exports = { normalizar, puntoEnPoligono, prepararBarrios, clasificar, sugerir };
+module.exports = { normalizar, puntoEnPoligono, distanciaM, prepararBarrios, clasificar, sugerir };

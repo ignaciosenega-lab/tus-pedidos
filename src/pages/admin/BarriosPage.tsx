@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useBranchId } from "../../hooks/useBranchId";
 import { parseKML } from "../../utils/kmlParser";
+import { loadGoogleMaps, isGoogleMapsUsable, mapsUnavailableMessage } from "../../utils/loadGoogleMaps";
+import { geocodeAddressDetailed } from "../../utils/geocodeCache";
 
 /**
  * Barrios cerrados / countries.
@@ -22,6 +24,9 @@ interface Barrio {
   polygon: [number, number][];
   is_active: number;
   color: string;
+  lat: number | null;
+  lng: number | null;
+  radio_m: number;
 }
 
 interface Sugerido {
@@ -40,6 +45,9 @@ export default function BarriosPage() {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [importando, setImportando] = useState(false);
+  const [contexto, setContexto] = useState("");
+  const [ubicando, setUbicando] = useState(false);
+  const [ubicarMsg, setUbicarMsg] = useState<string | null>(null);
   const archivoRef = useRef<HTMLInputElement>(null);
 
   const [editando, setEditando] = useState<Barrio | null>(null);
@@ -58,10 +66,11 @@ export default function BarriosPage() {
     setError(null);
     try {
       const [bs, sug] = await Promise.all([
-        apiFetch<Barrio[]>(`/api/branches/${branchId}/barrios`),
+        apiFetch<{ contexto: string; barrios: Barrio[] }>(`/api/branches/${branchId}/barrios`),
         apiFetch<{ sugeridos: Sugerido[] }>(`/api/branches/${branchId}/barrios/sugeridos`),
       ]);
-      setBarrios(bs);
+      setBarrios(bs.barrios || []);
+      setContexto(bs.contexto || "");
       setSugeridos(sug.sugeridos || []);
     } catch (e: any) {
       setError(e.message || "Error al cargar barrios");
@@ -121,6 +130,64 @@ export default function BarriosPage() {
     if (!confirm(`¿Borrar "${b.name}"? Los pedidos no se tocan, solo dejan de agruparse.`)) return;
     await apiFetch(`/api/branches/${branchId}/barrios/${b.id}`, { method: "DELETE" });
     cargar();
+  }
+
+  // Le pregunta a Google dónde queda cada barrio y guarda el centro. Es lo que
+  // hace que el agrupamiento funcione: las direcciones que entran por el
+  // buscador vienen como calle y altura, sin el nombre del country, así que
+  // buscar el nombre en el texto no encuentra nada. Con el centro y un radio,
+  // se clasifica por dónde vive el cliente y no por cómo escribió.
+  async function ubicarTodos() {
+    if (!branchId) return;
+    const faltan = barrios.filter((b) => b.lat === null && b.polygon.length < 3);
+    if (!faltan.length) {
+      setUbicarMsg("Todos los barrios ya tienen ubicación.");
+      return;
+    }
+    if (!isGoogleMapsUsable()) {
+      setUbicarMsg(mapsUnavailableMessage(true) || "Google Maps no está disponible.");
+      return;
+    }
+    setUbicando(true);
+    setUbicarMsg(null);
+    let ok = 0;
+    const sinSuerte: string[] = [];
+    try {
+      await loadGoogleMaps([], { ignorarToggle: true });
+      for (let i = 0; i < faltan.length; i++) {
+        const b = faltan[i];
+        setUbicarMsg(`Ubicando… ${i + 1}/${faltan.length}`);
+        const r = await geocodeAddressDetailed(b.name, { contexto });
+        if (r.coords) {
+          await apiFetch(`/api/branches/${branchId}/barrios/${b.id}`, {
+            method: "PUT",
+            body: JSON.stringify({ lat: r.coords.lat, lng: r.coords.lng }),
+          });
+          ok++;
+        } else {
+          sinSuerte.push(b.name);
+        }
+        await new Promise((res) => setTimeout(res, 120));
+      }
+      setUbicarMsg(
+        `${ok} ubicado${ok === 1 ? "" : "s"}` +
+          (sinSuerte.length ? ` · Google no encontró: ${sinSuerte.join(", ")}` : "")
+      );
+      await cargar();
+    } catch (e: any) {
+      setUbicarMsg(e.message || "No se pudieron ubicar");
+    } finally {
+      setUbicando(false);
+    }
+  }
+
+  async function cambiarRadio(b: Barrio, metros: number) {
+    if (!branchId) return;
+    await apiFetch(`/api/branches/${branchId}/barrios/${b.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ radio_m: metros }),
+    });
+    setBarrios((prev) => prev.map((x) => (x.id === b.id ? { ...x, radio_m: metros } : x)));
   }
 
   // Mismo flujo que Zonas de Envío: se exporta el KML de My Maps y se sube acá.
@@ -202,6 +269,14 @@ export default function BarriosPage() {
               ))}
             </select>
           )}
+          <button
+            onClick={ubicarTodos}
+            disabled={ubicando || !barrios.length}
+            title="Le pregunta a Google dónde queda cada barrio y guarda el centro. Una consulta por barrio, una sola vez."
+            className="px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded-lg text-sm font-medium"
+          >
+            {ubicando ? "Ubicando…" : "Ubicar todos"}
+          </button>
           <input ref={archivoRef} type="file" accept=".kml,.xml" onChange={importarKml} className="hidden" />
           <button
             onClick={() => archivoRef.current?.click()}
@@ -223,6 +298,12 @@ export default function BarriosPage() {
       {error && (
         <div className="bg-red-900/20 border border-red-900/50 rounded-lg p-3 text-red-400 text-sm mb-4">
           {error}
+        </div>
+      )}
+
+      {ubicarMsg && (
+        <div className="bg-gray-900 border border-gray-800 rounded-lg p-3 text-gray-300 text-sm mb-4">
+          {ubicarMsg}
         </div>
       )}
 
@@ -281,9 +362,22 @@ export default function BarriosPage() {
                   </td>
                   <td className="px-4 py-3 text-sm">
                     {b.polygon?.length >= 3 ? (
-                      <span className="text-emerald-400">{b.polygon.length} puntos</span>
+                      <span className="text-emerald-400">contorno dibujado ({b.polygon.length} puntos)</span>
+                    ) : b.lat !== null ? (
+                      <span className="inline-flex items-center gap-2 text-gray-300">
+                        centro +
+                        <select
+                          value={b.radio_m}
+                          onChange={(e) => cambiarRadio(b, Number(e.target.value))}
+                          className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white"
+                        >
+                          {[300, 500, 600, 800, 1000, 1500, 2000].map((m) => (
+                            <option key={m} value={m}>{m} m</option>
+                          ))}
+                        </select>
+                      </span>
                     ) : (
-                      <span className="text-gray-600">solo por nombre</span>
+                      <span className="text-amber-500/80">sin ubicar</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right text-sm whitespace-nowrap">

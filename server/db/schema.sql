@@ -314,7 +314,13 @@ CREATE TABLE IF NOT EXISTS private_neighborhoods (
   branch_id   INTEGER NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
   name        TEXT    NOT NULL,
   aliases     TEXT    NOT NULL DEFAULT '[]',   -- variantes escritas, JSON
-  polygon     TEXT    NOT NULL DEFAULT '[]',   -- opcional; si está, manda
+  polygon     TEXT    NOT NULL DEFAULT '[]',   -- contorno dibujado; si está, manda
+  -- Centro y radio: la forma rápida de ubicar un barrio sin dibujarlo. Se
+  -- obtiene geocodificando el nombre una vez. Un pedido cae adentro si sus
+  -- coordenadas están a menos de radio_m del centro.
+  lat         REAL,
+  lng         REAL,
+  radio_m     INTEGER NOT NULL DEFAULT 600,
   is_active   INTEGER NOT NULL DEFAULT 1,
   color       TEXT    NOT NULL DEFAULT '#3B82F6',
   created_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
