@@ -79,7 +79,7 @@ createRoot(document.getElementById("root")!).render(
               {/* Shared (role-aware internally) */}
               <Route path="catalogo" element={<CatalogPage />} />
               <Route path="clientes" element={<UsersPage />} />
-              <Route path="barrios" element={<BarriosPage />} />
+              <Route path="barrios" element={<MasterOnly><BarriosPage /></MasterOnly>} />
               {/* Master-only routes */}
               <Route path="sucursales" element={<MasterOnly><BranchesPage /></MasterOnly>} />
               <Route path="menus" element={<MasterOnly><MenusPage /></MasterOnly>} />

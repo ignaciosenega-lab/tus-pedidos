@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useApi } from "../../hooks/useApi";
 import { useBranchId } from "../../hooks/useBranchId";
+import { useAuth } from "../../store/authContext";
 import CustomerMapModal from "../../components/CustomerMapModal";
 import { loadGoogleMaps, isGoogleMapsUsable, mapsUnavailableMessage } from "../../utils/loadGoogleMaps";
 import { geocodeAddressDetailed } from "../../utils/geocodeCache";
@@ -31,6 +32,8 @@ export default function UsersPage() {
   const [showMap, setShowMap] = useState(false);
   const [mapData, setMapData] = useState<{ customers: any[]; branchAddress: string } | null>(null);
   const [mapLoading, setMapLoading] = useState(false);
+  const { user: usuarioActual } = useAuth();
+  const esMaster = usuarioActual?.role === "master";
   const [sinUbicar, setSinUbicar] = useState<number | null>(null);
   const [ubicandoClientes, setUbicandoClientes] = useState(false);
   const [ubicarClientesMsg, setUbicarClientesMsg] = useState<string | null>(null);
@@ -47,7 +50,7 @@ export default function UsersPage() {
   // nuestra base: no le pregunta nada a Google ni cuesta un peso. Sirve para
   // decidir con el número a la vista.
   useEffect(() => {
-    if (!branchId) return;
+    if (!branchId || !esMaster) return;
     let cancelado = false;
     apiFetch<{ total: number }>(`/api/branches/${branchId}/customers/unlocated?limit=1`)
       .then((d) => {
@@ -244,8 +247,10 @@ export default function UsersPage() {
         </div>
       </div>
 
-      {/* Clientes que el mapa no puede ubicar */}
-      {sinUbicar !== null && sinUbicar > 0 && (
+      {/* Clientes que el mapa no puede ubicar.
+          Solo el master: ubicarlos gasta consultas a Google, y con 47
+          encargados apretando el botón el gasto se descontrola. */}
+      {esMaster && sinUbicar !== null && sinUbicar > 0 && (
         <div className="mb-4 bg-gray-900 border border-gray-800 rounded-xl p-4">
           <p className="text-sm text-gray-300">
             <span className="font-semibold text-white">

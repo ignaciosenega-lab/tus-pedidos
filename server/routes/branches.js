@@ -476,6 +476,11 @@ router.delete("/:id/overrides/variants/:variantId", requireAuth, requireBranchAc
 /* ══════════════════════════════════════════════════
    BARRIOS CERRADOS / COUNTRIES
    ══════════════════════════════════════════════════ */
+// ⚠️ Todo lo que ESCRIBE o consulta servicios externos es master-only. Un
+// encargado de sucursal que aprieta "bajar contornos" o "ubicar clientes"
+// gasta consultas a Google, y con 47 encargados eso se descontrola sin que
+// nadie se entere hasta que llega la factura. Leer sigue abierto: son los
+// datos de su propia sucursal.
 // Por sucursal y opcional: aplica en Canning y quizás Pilar, no en Belgrano.
 // Una sucursal sin filas no ve ninguna diferencia en ningún lado.
 
@@ -509,7 +514,7 @@ router.get("/:id/barrios", requireAuth, requireBranchAccess("id"), (req, res) =>
   });
 });
 
-router.post("/:id/barrios", requireAuth, requireBranchAccess("id"), (req, res) => {
+router.post("/:id/barrios", requireAuth, requireRole("master"), requireBranchAccess("id"), (req, res) => {
   const db = req.app.locals.db;
   const { name, aliases, polygon, is_active, color } = req.body;
   if (!name || !String(name).trim()) {
@@ -532,7 +537,7 @@ router.post("/:id/barrios", requireAuth, requireBranchAccess("id"), (req, res) =
   res.status(201).json(salidaBarrio(creado));
 });
 
-router.put("/:id/barrios/:barrioId", requireAuth, requireBranchAccess("id"), (req, res) => {
+router.put("/:id/barrios/:barrioId", requireAuth, requireRole("master"), requireBranchAccess("id"), (req, res) => {
   const db = req.app.locals.db;
   const branchId = Number(req.params.id);
   const barrioId = Number(req.params.barrioId);
@@ -563,7 +568,7 @@ router.put("/:id/barrios/:barrioId", requireAuth, requireBranchAccess("id"), (re
   res.json(salidaBarrio(db.prepare("SELECT * FROM private_neighborhoods WHERE id = ?").get(barrioId)));
 });
 
-router.delete("/:id/barrios/:barrioId", requireAuth, requireBranchAccess("id"), (req, res) => {
+router.delete("/:id/barrios/:barrioId", requireAuth, requireRole("master"), requireBranchAccess("id"), (req, res) => {
   const db = req.app.locals.db;
   db.prepare("DELETE FROM private_neighborhoods WHERE id = ? AND branch_id = ?")
     .run(Number(req.params.barrioId), Number(req.params.id));
@@ -588,7 +593,7 @@ const OVERPASS_ESPEJOS = [
   "https://overpass.osm.jp/api/interpreter",
 ];
 
-router.post("/:id/barrios/importar-osm", requireAuth, requireBranchAccess("id"), async (req, res) => {
+router.post("/:id/barrios/importar-osm", requireAuth, requireRole("master"), requireBranchAccess("id"), async (req, res) => {
   const db = req.app.locals.db;
   const branchId = Number(req.params.id);
 
@@ -1492,7 +1497,7 @@ router.get("/:id/customers/unlocated", requireAuth, requireBranchAccess("id"), (
 
 // Guarda las coordenadas de una dirección en TODOS los pedidos que la comparten:
 // una geocodificación puede ubicar varios pedidos del mismo cliente.
-router.post("/:id/customers/locate", requireAuth, requireBranchAccess("id"), (req, res) => {
+router.post("/:id/customers/locate", requireAuth, requireRole("master"), requireBranchAccess("id"), (req, res) => {
   const db = req.app.locals.db;
   const branchId = Number(req.params.id);
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
