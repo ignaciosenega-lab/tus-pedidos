@@ -850,12 +850,18 @@ function readStateFromDb(branchSlug) {
   //  • Producto con filas → solo aparece si branch.menu_id está en esa lista.
   // `branch.menu_id ?? -1` evita un bind null si la sucursal no tiene menú
   // asignado (en ese caso solo entran los productos sin exclusividad).
+  // Y además: un producto con dueño solo lo ve la sucursal dueña. Sin esto, un
+  // "producto propio" de Cipolletti aparecía en la tienda de Comodoro por
+  // compartir menú.
   const prodRows = db.prepare(`
     SELECT p.* FROM products p
-    WHERE NOT EXISTS (SELECT 1 FROM product_exclusive_menus pem WHERE pem.product_id = p.id)
-       OR EXISTS (SELECT 1 FROM product_exclusive_menus pem WHERE pem.product_id = p.id AND pem.menu_id = ?)
+    WHERE (
+            NOT EXISTS (SELECT 1 FROM product_exclusive_menus pem WHERE pem.product_id = p.id)
+            OR EXISTS (SELECT 1 FROM product_exclusive_menus pem WHERE pem.product_id = p.id AND pem.menu_id = ?)
+          )
+      AND (p.owner_branch_id IS NULL OR p.owner_branch_id = ?)
     ORDER BY p.id
-  `).all(branch.menu_id ?? -1);
+  `).all(branch.menu_id ?? -1, branch.id);
   const products = prodRows.map((p) => {
     const override = productOverrides[p.id];
     const isAvailable = override?.is_available !== null && override?.is_available !== undefined

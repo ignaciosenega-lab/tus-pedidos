@@ -151,6 +151,18 @@ function getDb() {
       db.exec("ALTER TABLE branches ADD COLUMN maps_enabled INTEGER NOT NULL DEFAULT 0");
     }
 
+    // Migration: dueño de un producto propio.
+    // La exclusividad de product_exclusive_menus es por MENÚ, y varias
+    // sucursales comparten menú: un producto creado en Cipolletti aparecía en
+    // Comodoro como "propio", y el encargado de allá podía editarlo o borrarlo.
+    // owner_branch_id ata el producto a la sucursal que lo creó.
+    // NULL = producto del catálogo global, o uno viejo sin dueño asignado.
+    const prodCols = db.prepare("PRAGMA table_info(products)").all().map((c) => c.name);
+    if (!prodCols.includes("owner_branch_id")) {
+      db.exec("ALTER TABLE products ADD COLUMN owner_branch_id INTEGER REFERENCES branches(id) ON DELETE SET NULL");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_products_owner ON products(owner_branch_id)");
+    }
+
     // Migration: tope de descuento por pedido.
     // Red de seguridad contra una promo mal cargada (90% en vez de 9%): por
     // más que se acumulen promos, cupón y ruleta, el pedido nunca baja de

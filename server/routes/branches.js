@@ -1965,14 +1965,50 @@ router.get("/:id/own-products", requireAuth, requireBranchAccess("id"), (req, re
   if (!menuId) {
     return res.json([]);
   }
-  // Productos cuya ÚNICA exclusividad es este menú.
+  // Productos cuya ÚNICA exclusividad es este menú. Se dividen en dos:
+  //  · los que tienen a esta sucursal como dueña → propios de verdad;
+  //  · los que no tienen dueño → quedaron de antes, cuando la exclusividad era
+  //    solo por menú. Los comparten todas las sucursales del menú y hay que
+  //    asignarlos para que dejen de verse en las otras.
   const rows = db.prepare(`
     SELECT p.* FROM products p
     WHERE EXISTS (SELECT 1 FROM product_exclusive_menus pem WHERE pem.product_id = p.id AND pem.menu_id = ?)
       AND NOT EXISTS (SELECT 1 FROM product_exclusive_menus pem2 WHERE pem2.product_id = p.id AND pem2.menu_id != ?)
+      AND (p.owner_branch_id IS NULL OR p.owner_branch_id = ?)
     ORDER BY p.id DESC
-  `).all(menuId, menuId);
-  res.json(rows.map((p) => hydrateProduct(db, p)));
+  `).all(menuId, menuId, branchId);
+
+  // Las sucursales que comparten este menú, para poder decirle al usuario con
+  // quién está compartiendo los que no tienen dueño.
+  const comparten = db
+    .prepare("SELECT name FROM branches WHERE menu_id = ? AND id != ? AND is_active = 1 ORDER BY name")
+    .all(menuId, branchId)
+    .map((b) => b.name);
+
+  res.json({
+    propios: rows.filter((p) => p.owner_branch_id === branchId).map((p) => hydrateProduct(db, p)),
+    sinAsignar: rows.filter((p) => p.owner_branch_id === null).map((p) => hydrateProduct(db, p)),
+    comparten,
+  });
+});
+
+// Adopta un producto heredado (sin dueño) para esta sucursal: a partir de ahí
+// deja de verse en las otras del mismo menú, en el panel y en la tienda.
+router.post("/:id/own-products/:prodId/adoptar", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+  const prodId = Number(req.params.prodId);
+  const menuId = getBranchMenuId(db, branchId);
+  if (!menuId || !isProductOwnedByMenu(db, prodId, menuId)) {
+    return res.status(403).json({ error: "Este producto no es de tu menú." });
+  }
+  const prod = db.prepare("SELECT owner_branch_id FROM products WHERE id = ?").get(prodId);
+  if (!prod) return res.status(404).json({ error: "Producto no encontrado" });
+  if (prod.owner_branch_id !== null) {
+    return res.status(409).json({ error: "Este producto ya tiene sucursal asignada." });
+  }
+  db.prepare("UPDATE products SET owner_branch_id = ? WHERE id = ?").run(branchId, prodId);
+  res.json({ ok: true });
 });
 
 // POST /api/branches/:id/own-products — crear producto exclusivo del menú
@@ -2014,9 +2050,12 @@ router.post("/:id/own-products", requireAuth, requireBranchAccess("id"), (req, r
 
     const createTx = db.transaction(() => {
       const result = db.prepare(`
-        INSERT INTO products (name, description, category_id, image_url, type, base_price, stock, badges, is_active, is_featured, is_private, gallery)
-        VALUES (@name, @description, @category_id, @image_url, @type, @base_price, @stock, @badges, @is_active, @is_featured, @is_private, @gallery)
+        INSERT INTO products (name, description, category_id, image_url, type, base_price, stock, badges, is_active, is_featured, is_private, gallery, owner_branch_id)
+        VALUES (@name, @description, @category_id, @image_url, @type, @base_price, @stock, @badges, @is_active, @is_featured, @is_private, @gallery, @owner_branch_id)
       `).run({
+        // La sucursal que lo crea queda como dueña: las demás del mismo menú
+        // no lo van a ver ni en su catálogo ni en su tienda.
+        owner_branch_id: branchId,
         name,
         description: description || "",
         category_id,
@@ -2092,6 +2131,10 @@ router.put("/:id/own-products/:prodId", requireAuth, requireBranchAccess("id"), 
     }
     const existing = db.prepare("SELECT * FROM products WHERE id = ?").get(prodId);
     if (!existing) return res.status(404).json({ error: "Producto no encontrado" });
+    // Mismo criterio que al borrar: si tiene dueño, solo la dueña lo edita.
+    if (existing.owner_branch_id !== null && existing.owner_branch_id !== branchId) {
+      return res.status(403).json({ error: "Este producto es de otra sucursal." });
+    }
 
     const {
       name, description, category_id, image_url, type, base_price, stock,
@@ -2182,6 +2225,12 @@ router.delete("/:id/own-products/:prodId", requireAuth, requireBranchAccess("id"
       return res.status(403).json({
         error: "Este producto no es exclusivo de tu sucursal — solo el master puede eliminarlo.",
       });
+    }
+    // Y además tiene que ser de esta sucursal. Sin esto, el encargado de una
+    // podía borrar el producto de otra con solo compartir el menú.
+    const duenio = db.prepare("SELECT owner_branch_id FROM products WHERE id = ?").get(prodId);
+    if (duenio && duenio.owner_branch_id !== null && duenio.owner_branch_id !== branchId) {
+      return res.status(403).json({ error: "Este producto es de otra sucursal." });
     }
     // El CASCADE definido en el schema borra product_variants, product_toppings,
     // branch_product_overrides y product_exclusive_menus automáticamente.

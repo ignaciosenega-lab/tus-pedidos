@@ -1189,6 +1189,10 @@ function BranchCatalog() {
   const [error, setError] = useState("");
   // Productos propios (exclusivos del menú de esta sucursal).
   const [ownProducts, setOwnProducts] = useState<Product[]>([]);
+  // Heredados de cuando la exclusividad era solo por menú: los comparten todas
+  // las sucursales del menú hasta que alguien los adopte.
+  const [sinAsignar, setSinAsignar] = useState<Product[]>([]);
+  const [comparten, setComparten] = useState<string[]>([]);
   const [editingOwn, setEditingOwn] = useState<Product | null>(null);
   const [savingOwn, setSavingOwn] = useState(false);
 
@@ -1200,6 +1204,17 @@ function BranchCatalog() {
     loadData();
   }, [branchId]);
 
+  async function adoptar(p: Product) {
+    if (!branchId) return;
+    if (!confirm(`¿"${p.name}" es de esta sucursal?\n\nSi lo adoptás, deja de verse en las otras sucursales del menú, tanto en el panel como en la tienda.`)) return;
+    try {
+      await apiFetch(`/api/branches/${branchId}/own-products/${p.id}/adoptar`, { method: "POST" });
+      await loadData();
+    } catch (e: any) {
+      alert(e.message || "No se pudo adoptar");
+    }
+  }
+
   async function loadData() {
     try {
       setLoading(true);
@@ -1207,11 +1222,15 @@ function BranchCatalog() {
         apiFetch<{ products: Product[]; categories: Category[] }>(
           `/api/branches/${branchId}/catalog`
         ),
-        apiFetch<Product[]>(`/api/branches/${branchId}/own-products`).catch(() => []),
+        apiFetch<{ propios: Product[]; sinAsignar: Product[]; comparten: string[] }>(
+          `/api/branches/${branchId}/own-products`
+        ).catch(() => ({ propios: [], sinAsignar: [], comparten: [] })),
       ]);
       setProducts(cat.products);
       setCategories(cat.categories);
-      setOwnProducts(own);
+      setOwnProducts(own.propios || []);
+      setSinAsignar(own.sinAsignar || []);
+      setComparten(own.comparten || []);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -1345,6 +1364,39 @@ function BranchCatalog() {
         <TourButton onClick={() => setTourOpen(true)} />
       </div>
 
+      {/* Heredados sin dueño: se comparten hasta que alguien los adopte */}
+      {sinAsignar.length > 0 && (
+        <div className="mb-6 bg-gray-900 border border-amber-900/50 rounded-xl p-5">
+          <h3 className="text-lg font-bold text-white">Productos sin sucursal asignada</h3>
+          <p className="text-xs text-gray-400 mt-1">
+            Estos {sinAsignar.length} productos se crearon cuando lo &quot;propio&quot; era del
+            menú y no de la sucursal, así que{" "}
+            {comparten.length > 0 ? (
+              <>los comparten <strong className="text-amber-400">{comparten.join(", ")}</strong></>
+            ) : (
+              <>los comparten todas las sucursales de tu menú</>
+            )}
+            . Si uno es tuyo, adoptalo: deja de verse en las otras, acá y en la tienda.
+          </p>
+          <div className="space-y-2 mt-3">
+            {sinAsignar.map((p) => (
+              <div key={p.id} className="flex items-center gap-3 bg-gray-800/40 rounded-lg p-2.5">
+                <span className="flex-1 text-sm text-white">{p.name}</span>
+                <span className="text-sm text-emerald-400">
+                  ${Number((p as any).base_price ?? 0).toLocaleString("es-AR")}
+                </span>
+                <button
+                  onClick={() => adoptar(p)}
+                  className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold"
+                >
+                  Es de mi sucursal
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Productos propios de la sucursal */}
       <div data-tour="propios" className="mb-8 bg-gray-900 border border-violet-900/40 rounded-xl p-5">
         <div className="flex items-center justify-between gap-3 mb-3">
@@ -1353,7 +1405,7 @@ function BranchCatalog() {
               🔒 Productos propios
             </h3>
             <p className="text-xs text-gray-400 mt-0.5">
-              Items exclusivos de tu sucursal. No los ven otras sucursales.
+              Items creados por esta sucursal. No los ve ninguna otra, ni en el panel ni en la tienda.
             </p>
           </div>
           <button

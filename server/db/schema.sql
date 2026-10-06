@@ -81,6 +81,11 @@ CREATE TABLE IF NOT EXISTS products (
   is_active   INTEGER NOT NULL DEFAULT 1,
   is_featured INTEGER NOT NULL DEFAULT 0,
   is_private  INTEGER NOT NULL DEFAULT 0,
+  -- Sucursal dueña de un "producto propio". La exclusividad de
+  -- product_exclusive_menus es por MENÚ y varias sucursales comparten menú,
+  -- así que sin esto el producto de una aparecía como propio en las otras.
+  -- NULL = producto del catálogo global (lo ven todas las del menú).
+  owner_branch_id INTEGER REFERENCES branches(id) ON DELETE SET NULL,
   gallery     TEXT    NOT NULL DEFAULT '[]',
   created_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
   updated_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
