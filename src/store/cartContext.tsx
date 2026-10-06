@@ -183,6 +183,11 @@ export function computeAutoPromoDiscount(
     if (!item.quantity || item.quantity <= 0) continue;
     const unitPrice = item.originalPrice ?? item.price ?? 0;
     if (unitPrice <= 0) continue;
+    // Lo que la promo porcentual ya descontó por unidad: el precio del catálogo
+    // viene con ese descuento adentro. Sin restarlo, los dos se suman.
+    // Gemela de computeSameProductDiscounts en server/index.js — si tocás una,
+    // tocá la otra, o lo que ve el cliente deja de coincidir con lo que cobra.
+    const bakedPerUnit = Math.max(0, unitPrice - (item.price ?? unitPrice));
 
     let bestLine: AutoPromoLine | null = null;
     for (const promo of promos) {
@@ -200,8 +205,9 @@ export function computeAutoPromoDiscount(
       const pairs = Math.floor(item.quantity / minQty);
       const discountedUnits = pairs * minQty;
       const perUnit = Math.round((unitPrice * Number(promo.percentage)) / 100);
-      const lineDiscount = discountedUnits * perUnit;
-      if (!bestLine || lineDiscount > bestLine.discount) {
+      const perUnitNeto = Math.max(0, perUnit - bakedPerUnit);
+      const lineDiscount = discountedUnits * perUnitNeto;
+      if (lineDiscount > 0 && (!bestLine || lineDiscount > bestLine.discount)) {
         bestLine = {
           promoId: promo.id,
           promoName: promo.name,

@@ -101,6 +101,7 @@ export default function ConfigPage() {
   const [payment, setPayment] = useState<PaymentFormData>(DEFAULT_PAYMENT);
   const [schedule, setSchedule] = useState<ScheduleData>(DEFAULT_SCHEDULE);
   const [mapsEnabled, setMapsEnabled] = useState(false);
+  const [topeDescuento, setTopeDescuento] = useState(0);
   const { user } = useAuth();
   const [claveActual, setClaveActual] = useState("");
   const [claveNueva, setClaveNueva] = useState("");
@@ -158,6 +159,7 @@ export default function ConfigPage() {
       setDescription(data.description || "");
       setIsOpen(!!data.is_open);
       setMapsEnabled(!!data.maps_enabled);
+      setTopeDescuento(Number((data as any).max_discount_pct) || 0);
       const pc = typeof data.payment_config === "object" && data.payment_config ? data.payment_config : {};
       setPayment({ ...DEFAULT_PAYMENT, ...pc });
       const sc = typeof data.schedule === "object" && data.schedule ? (data.schedule as any) : DEFAULT_SCHEDULE;
@@ -214,6 +216,7 @@ export default function ConfigPage() {
           is_open: isOpen,
           payment_config: payment,
           schedule,
+          max_discount_pct: topeDescuento,
         }),
       });
       setSuccess(true);
@@ -425,6 +428,33 @@ export default function ConfigPage() {
           </div>
         </div>
       )}
+
+      {/* Tope de descuento — red de seguridad contra una promo mal cargada */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 mb-6">
+        <h3 className="text-lg font-semibold text-white mb-2">Descuento máximo por pedido</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Ningún pedido va a descontar más que esto, sumando promociones, cupón y ruleta. Es la
+          red que te salva si alguien carga 90% donde quería poner 9%. Se mide sobre el precio
+          de lista, antes de cualquier descuento.
+        </p>
+        <div className="flex items-center gap-3 flex-wrap">
+          <select
+            value={topeDescuento}
+            onChange={(e) => setTopeDescuento(Number(e.target.value))}
+            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+          >
+            <option value={0}>Sin tope</option>
+            {[20, 25, 30, 35, 40, 50, 60, 70].map((p) => (
+              <option key={p} value={p}>{p}%</option>
+            ))}
+          </select>
+          <span className="text-xs text-gray-500">
+            {topeDescuento > 0
+              ? `Un pedido de $10.000 nunca va a cobrarse menos de $${(10000 * (1 - topeDescuento / 100)).toLocaleString("es-AR")}.`
+              : "Sin tope: si una promoción está mal cargada, el sistema la obedece."}
+          </span>
+        </div>
+      </div>
 
       {/* Medios de Pago */}
       <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 space-y-4">

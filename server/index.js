@@ -411,6 +411,11 @@ function computeSameProductDiscounts(items, promos) {
     const categoryId = String(item.categoryId ?? item.category_id ?? "");
     const unitPrice = Number(item.originalPrice ?? item.price ?? 0);
     if (unitPrice <= 0) continue;
+    // Lo que la promo porcentual YA descontó en este ítem, por unidad. El
+    // precio del catálogo viene con ese descuento horneado, así que si no se
+    // resta acá los dos descuentos se suman: un 30% + un 2x1 dejaban el
+    // producto al 20% de su precio. Las promos no se acumulan — gana la mayor.
+    const bakedPerUnit = Math.max(0, unitPrice - Number(item.price ?? unitPrice));
 
     let bestLine = null;
     for (const promo of promos) {
@@ -426,8 +431,10 @@ function computeSameProductDiscounts(items, promos) {
       const pairs = Math.floor(qty / minQty);
       const discountedUnits = pairs * minQty;
       const perUnit = Math.round((unitPrice * Number(promo.percentage)) / 100);
-      const itemDiscount = discountedUnits * perUnit;
-      if (!bestLine || itemDiscount > bestLine.discount) {
+      // Solo la diferencia: si la promo porcentual ya descontó más, esto da 0.
+      const perUnitNeto = Math.max(0, perUnit - bakedPerUnit);
+      const itemDiscount = discountedUnits * perUnitNeto;
+      if (itemDiscount > 0 && (!bestLine || itemDiscount > bestLine.discount)) {
         bestLine = {
           promoId: promo.id,
           promoName: promo.name,
@@ -2039,7 +2046,7 @@ app.post("/api/orders", (req, res) => {
       }
     }
 
-    const computedTotal = Math.max(
+    let computedTotal = Math.max(
       0,
       (Number(subtotal) || 0) +
         (Number(deliveryCost) || 0) -
@@ -2047,6 +2054,33 @@ app.post("/api/orders", (req, res) => {
         promotionDiscount -
         wheelDiscount
     );
+
+    // ── Tope de descuento ──
+    // Red de seguridad por si alguna vez se carga mal una promo. Se mide contra
+    // el subtotal SIN descuentos, así el tope también alcanza a la promo
+    // porcentual, que viene horneada en el precio y no aparece como un
+    // descuento aparte. 0 = sin tope.
+    const sucursalTope = db
+      .prepare("SELECT max_discount_pct FROM branches WHERE id = ?")
+      .get(branchId);
+    const topePct = Number(sucursalTope?.max_discount_pct) || 0;
+    let topeAplicado = false;
+    if (topePct > 0 && topePct < 100) {
+      const subtotalSinDescuentos = (items || []).reduce(
+        (sum, i) => sum + (Number(i.originalPrice ?? i.price) || 0) * (Number(i.quantity) || 0),
+        0
+      );
+      const minimo = Math.round(subtotalSinDescuentos * (1 - topePct / 100)) + (Number(deliveryCost) || 0);
+      if (computedTotal < minimo) {
+        console.warn(
+          `[descuentos] tope del ${topePct}% recortó el pedido de la sucursal ${branchId}: ` +
+            `${computedTotal} -> ${minimo} (subtotal sin descuentos ${subtotalSinDescuentos}). ` +
+            `Revisar si hay una promoción mal cargada.`
+        );
+        computedTotal = minimo;
+        topeAplicado = true;
+      }
+    }
     const orderTotal = computedTotal;
 
     // Las cuatro escrituras van juntas o no va ninguna. Antes eran sueltas: si

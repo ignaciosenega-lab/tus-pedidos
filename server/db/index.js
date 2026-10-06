@@ -151,6 +151,14 @@ function getDb() {
       db.exec("ALTER TABLE branches ADD COLUMN maps_enabled INTEGER NOT NULL DEFAULT 0");
     }
 
+    // Migration: tope de descuento por pedido.
+    // Red de seguridad contra una promo mal cargada (90% en vez de 9%): por
+    // más que se acumulen promos, cupón y ruleta, el pedido nunca baja de
+    // (1 - tope) del subtotal sin descuentos. 0 = sin tope.
+    if (!branchCols2.includes("max_discount_pct")) {
+      db.exec("ALTER TABLE branches ADD COLUMN max_discount_pct INTEGER NOT NULL DEFAULT 0");
+    }
+
     // Migration: barrios cerrados / countries (ver schema.sql para el porqué).
     db.exec(`
       CREATE TABLE IF NOT EXISTS private_neighborhoods (

@@ -160,6 +160,7 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
       wheel_cooldown_hours,
       lat,
       lng,
+      max_discount_pct,
     } = req.body;
 
     // Check slug uniqueness if changing
@@ -193,13 +194,17 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
         schedule = @schedule, menu_id = @menu_id, delay_minutes = @delay_minutes, paused_until = @paused_until,
         wheel_enabled = @wheel_enabled, wheel_expires_minutes = @wheel_expires_minutes,
         wheel_cooldown_hours = @wheel_cooldown_hours,
-        lat = @lat, lng = @lng,
+        lat = @lat, lng = @lng, max_discount_pct = @max_discount_pct,
         updated_at = datetime('now', 'localtime')
       WHERE id = @id
     `).run({
       id,
       lat: latFinal,
       lng: lngFinal,
+      max_discount_pct:
+        max_discount_pct !== undefined && Number.isFinite(Number(max_discount_pct))
+          ? Math.min(100, Math.max(0, Math.round(Number(max_discount_pct))))
+          : existing.max_discount_pct ?? 0,
       slug: slug !== undefined ? slug : existing.slug,
       name: name !== undefined ? name : existing.name,
       address: address !== undefined ? address : existing.address,
