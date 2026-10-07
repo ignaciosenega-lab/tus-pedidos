@@ -19,7 +19,10 @@ interface Order {
   customer_name: string;
   customer_phone: string;
   customer_email: string;
-  customer_address: string;
+  customer_address?: string;
+  // El endpoint hace spread de la fila, así que el campo real es `address`.
+  address?: string;
+  floor?: string;
   delivery_type: string;
   delivery_method?: string;
   payment_method: string;
@@ -217,6 +220,63 @@ export default function OperationsPage() {
     return true;
   });
 
+  // Descarga lo que está en pantalla: respeta el día y la pestaña elegidos.
+  //
+  // Sale como CSV y no como .xlsx a propósito: Excel lo abre igual, no hace
+  // falta ninguna librería, y el archivo pesa unos kilobytes. Dos detalles que
+  // hacen que abra BIEN en el Excel en español: el BOM al principio (si no, los
+  // acentos salen rotos) y el punto y coma como separador (con coma, Excel
+  // mete todo en una sola columna).
+  function exportar() {
+    const sep = ";";
+    const limpio = (v: unknown) => {
+      const t = String(v ?? "").replace(/"/g, '""').replace(/\r?\n/g, " ");
+      return `"${t}"`;
+    };
+    // Excel en español espera la coma como separador decimal.
+    const num = (v: unknown) => `"${String(Math.round(Number(v) || 0)).replace(".", ",")}"`;
+
+    const cabecera = [
+      "N° pedido", "Fecha", "Hora", "Cliente", "Teléfono", "Entrega",
+      "Dirección", "Productos", "Pago", "Subtotal", "Envío", "Total", "Estado",
+    ];
+
+    const filas = filtered.map((o) => {
+      const f = o.created_at ? new Date(o.created_at) : null;
+      const fecha = f ? f.toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" }) : "";
+      const hora = f ? f.toLocaleTimeString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", hour: "2-digit", minute: "2-digit", hour12: false }) : "";
+      const productos = (o.items || [])
+        .map((i) => {
+          const cant = i.quantity ?? i.qty ?? 1;
+          const nom = i.productName || i.name || "";
+          return `${cant}x ${nom}${i.variantLabel ? ` (${i.variantLabel})` : ""}`;
+        })
+        .join(" | ");
+      return [
+        limpio(o.id), limpio(fecha), limpio(hora),
+        limpio(o.customer_name), limpio(o.customer_phone),
+        limpio(o.delivery_type === "delivery" ? "Envío" : "Retiro"),
+        limpio([o.address || o.customer_address || "", o.floor || ""].filter(Boolean).join(" ")),
+        limpio(productos), limpio(o.payment_method || ""),
+        num(o.subtotal), num(o.delivery_cost), num(o.total),
+        limpio(STATUS_LABELS[o.status] || o.status),
+      ].join(sep);
+    });
+
+    const csv = "\uFEFF" + [cabecera.map(limpio).join(sep), ...filas].join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const sucursal = branches.find((b) => b.id === branchId)?.name || "sucursal";
+    const sello = dateFilter || new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `pedidos-${sucursal.toLowerCase().replace(/\s+/g, "-")}-${sello}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   const counts = {
     active: byDate.filter((o) => activeStatuses.includes(o.status)).length,
     delivered: byDate.filter((o) => o.status === "delivered").length,
@@ -289,6 +349,11 @@ export default function OperationsPage() {
               ))}
             </select>
           )}
+          <button onClick={exportar} disabled={filtered.length === 0}
+            title="Baja los pedidos que estás viendo —según el día y la pestaña elegidos— en un archivo que abre en Excel."
+            className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white rounded-lg text-sm font-medium transition-colors">
+            Descargar Excel
+          </button>
           <button onClick={loadOrders}
             className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-medium transition-colors">
             Actualizar
@@ -465,10 +530,12 @@ export default function OperationsPage() {
                   </div>
                 </div>
 
-                {order.customer_address && (order.delivery_type || order.delivery_method) === "delivery" && (
+                {(order.address || order.customer_address) && (order.delivery_type || order.delivery_method) === "delivery" && (
                   <div className="text-sm mb-3">
                     <span className="text-gray-500">Dirección:</span>{" "}
-                    <span className="text-gray-300">{order.customer_address}</span>
+                    <span className="text-gray-300">
+                      {[order.address || order.customer_address, order.floor].filter(Boolean).join(" ")}
+                    </span>
                   </div>
                 )}
 
