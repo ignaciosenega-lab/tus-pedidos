@@ -15,6 +15,7 @@ interface Promotion {
   date_from: string;
   date_to: string;
   weekly_repeat: number;
+  active_days?: number[];
   is_active: number;
   apply_all_branches: number;
   time_from: string;
@@ -50,7 +51,7 @@ interface PromoFormData {
   date_from: string;
   date_to: string;
   weekly_repeat: boolean;
-  day_of_week: string;
+  active_days: number[];
   branch_scope: BranchScope;
   branch_ids: number[];
   time_mode: TimeMode;
@@ -126,7 +127,7 @@ export default function PromotionsPage() {
       date_from: "",
       date_to: "",
       weekly_repeat: false,
-      day_of_week: "",
+      active_days: [],
       branch_scope: "this",
       branch_ids: [],
       time_mode: "all_day",
@@ -205,7 +206,14 @@ export default function PromotionsPage() {
       date_from: isWeekly ? "" : (promo.date_from || ""),
       date_to: isWeekly ? "" : (promo.date_to || ""),
       weekly_repeat: isWeekly,
-      day_of_week: isWeekly ? getDayOfWeekFromDateString(promo.date_from || "") : "",
+      // Las promos viejas traen su único día en date_from; la migración ya las
+      // pasó a active_days, pero se deja el respaldo por si alguna quedó.
+      active_days:
+        promo.active_days && promo.active_days.length
+          ? promo.active_days
+          : isWeekly && promo.date_from
+          ? [Number(getDayOfWeekFromDateString(promo.date_from))]
+          : [],
       branch_scope: getBranchScope(promo),
       branch_ids: promo.branch_ids || [],
       time_mode: (promo.time_from || promo.time_to) ? "range" : "all_day",
@@ -224,15 +232,15 @@ export default function PromotionsPage() {
       alert("El nombre es requerido");
       return;
     }
-    if (formData.weekly_repeat && formData.day_of_week === "") {
+    if (formData.weekly_repeat && formData.active_days.length === 0) {
       alert("Elegí el día de la semana en que se repite la promoción");
       return;
     }
 
-    const dateFrom = formData.weekly_repeat
-      ? dayOfWeekToDateString(Number(formData.day_of_week))
-      : formData.date_from;
-    const dateTo = formData.weekly_repeat ? "" : formData.date_to;
+    // Con días explícitos, date_from vuelve a ser lo que dice: desde cuándo
+    // vale la promo. Ya no se usa para codificar el día de la semana.
+    const dateFrom = formData.date_from;
+    const dateTo = formData.date_to;
 
     if (formData.type === "same_product_quantity" && formData.min_quantity < 2) {
       alert("La cantidad mínima debe ser 2 o más para promos de unidades repetidas");
@@ -249,6 +257,7 @@ export default function PromotionsPage() {
       date_from: dateFrom,
       date_to: dateTo,
       weekly_repeat: formData.weekly_repeat,
+      active_days: formData.weekly_repeat ? formData.active_days : [],
       apply_all_branches: formData.branch_scope === "all",
       branch_ids: formData.branch_scope === "selected" ? formData.branch_ids : [],
       time_from: formData.time_mode === "range" ? formData.time_from : "",
@@ -654,22 +663,53 @@ export default function PromotionsPage() {
                 <span className="text-sm text-gray-300">Repetir semanalmente</span>
               </label>
 
-              {/* Date range OR day-of-week selector */}
-              {formData.weekly_repeat ? (
+              {/* Días de la semana, varios a la vez */}
+              {formData.weekly_repeat && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
-                    Día de la semana <span className="text-red-400">*</span>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Qué días <span className="text-red-400">*</span>
                   </label>
-                  <select value={formData.day_of_week}
-                    onChange={(e) => setFormData({ ...formData, day_of_week: e.target.value })}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
-                    <option value="">Elegí un día...</option>
-                    {DAY_NAMES_ES.map((name, i) => (
-                      <option key={i} value={i}>{name}</option>
-                    ))}
-                  </select>
+                  <div className="flex flex-wrap gap-2">
+                    {/* Arranca en lunes: es como se piensa una semana de trabajo. */}
+                    {[1, 2, 3, 4, 5, 6, 0].map((i) => {
+                      const elegido = formData.active_days.includes(i);
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() =>
+                            setFormData({
+                              ...formData,
+                              active_days: elegido
+                                ? formData.active_days.filter((d) => d !== i)
+                                : [...formData.active_days, i].sort((a, b) => a - b),
+                            })
+                          }
+                          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                            elegido
+                              ? "bg-emerald-600 text-white"
+                              : "bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700"
+                          }`}
+                        >
+                          {DAY_NAMES_ES[i].slice(0, 3)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    {formData.active_days.length === 0
+                      ? "Elegí al menos uno."
+                      : `Se repite todas las semanas: ${formData.active_days.map((d) => DAY_NAMES_ES[d]).join(", ")}.`}
+                  </p>
                 </div>
-              ) : (
+              )}
+
+              {/* La ventana de fechas vale siempre: con días elegidos acota
+                  desde y hasta cuándo se repite. Vacía = sin límite. */}
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">
+                  {formData.weekly_repeat ? "Entre estas fechas (opcional)" : "Fechas"}
+                </label>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-300 mb-1">Desde</label>
@@ -684,7 +724,7 @@ export default function PromotionsPage() {
                       className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" />
                   </div>
                 </div>
-              )}
+              </div>
 
               {/* Time range */}
               <div>

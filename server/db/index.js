@@ -163,6 +163,29 @@ function getDb() {
       db.exec("CREATE INDEX IF NOT EXISTS idx_products_owner ON products(owner_branch_id)");
     }
 
+    // Migration: días de la semana de una promoción.
+    // weekly_repeat solo repetía UN día — el de date_from — así que no había
+    // manera de hacer un 30% de lunes a jueves. active_days guarda la lista
+    // (0=domingo … 6=sábado), igual que los cupones, que ya lo tenían.
+    const promoColsDias = db.prepare("PRAGMA table_info(promotions)").all().map((c) => c.name);
+    if (!promoColsDias.includes("active_days")) {
+      db.exec("ALTER TABLE promotions ADD COLUMN active_days TEXT NOT NULL DEFAULT '[]'");
+      // Las que ya se repetían semanalmente pasan a tener su día en la lista,
+      // para que sigan comportándose igual y se puedan editar con la pantalla
+      // nueva sin que nadie tenga que volver a cargarlas.
+      const viejas = db
+        .prepare("SELECT id, date_from FROM promotions WHERE weekly_repeat = 1 AND date_from != ''")
+        .all();
+      const set = db.prepare("UPDATE promotions SET active_days = ? WHERE id = ?");
+      for (const p of viejas) {
+        const d = new Date(p.date_from + "T12:00:00");
+        if (!isNaN(d.getTime())) set.run(JSON.stringify([d.getDay()]), p.id);
+      }
+      if (viejas.length) {
+        console.log(`[migración] ${viejas.length} promos semanales pasaron a días explícitos`);
+      }
+    }
+
     // Migration: tope de descuento por pedido.
     // Red de seguridad contra una promo mal cargada (90% en vez de 9%): por
     // más que se acumulen promos, cupón y ruleta, el pedido nunca baja de

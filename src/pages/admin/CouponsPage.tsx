@@ -40,6 +40,8 @@ interface CatalogProduct {
 type ApplyTo = "all" | "categories" | "products";
 type BranchScope = "this" | "all" | "selected";
 
+const DIAS_ES = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
 interface CouponFormData {
   code: string;
   name: string;
@@ -53,6 +55,9 @@ interface CouponFormData {
   first_purchase_only: boolean;
   date_from: string;
   date_to: string;
+  // La tabla y el servidor ya evaluaban los días (server/index.js:1762); lo
+  // único que faltaba era la pantalla para elegirlos.
+  active_days: number[];
   branch_scope: BranchScope;
   branch_ids: number[];
 }
@@ -84,6 +89,7 @@ export default function CouponsPage() {
     productIds: [],
     first_purchase_only: false,
     date_from: "",
+    active_days: [],
     date_to: "",
     branch_scope: "this",
     branch_ids: [],
@@ -154,6 +160,7 @@ export default function CouponsPage() {
       productIds: [],
       first_purchase_only: false,
       date_from: "",
+    active_days: [],
       date_to: "",
       branch_scope: "this",
       branch_ids: [],
@@ -176,6 +183,7 @@ export default function CouponsPage() {
       productIds: coupon.productIds || [],
       first_purchase_only: !!coupon.first_purchase_only,
       date_from: coupon.date_from || "",
+      active_days: coupon.active_days || [],
       date_to: coupon.date_to || "",
       branch_scope: getBranchScope(coupon),
       branch_ids: coupon.branch_ids || [],
@@ -203,6 +211,7 @@ export default function CouponsPage() {
       first_purchase_only: formData.first_purchase_only,
       date_from: formData.date_from,
       date_to: formData.date_to,
+      active_days: formData.active_days,
       apply_all_branches: formData.branch_scope === "all",
       branch_ids: formData.branch_scope === "selected" ? formData.branch_ids : [],
     };
@@ -616,6 +625,43 @@ export default function CouponsPage() {
                     onChange={(e) => setFormData({ ...formData, date_to: e.target.value })}
                     className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" />
                 </div>
+              </div>
+
+              {/* Días en los que vale. Vacío = todos. */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Qué días vale</label>
+                <div className="flex flex-wrap gap-2">
+                  {/* Arranca en lunes, como se piensa una semana. */}
+                  {[1, 2, 3, 4, 5, 6, 0].map((i) => {
+                    const elegido = formData.active_days.includes(i);
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() =>
+                          setFormData({
+                            ...formData,
+                            active_days: elegido
+                              ? formData.active_days.filter((d) => d !== i)
+                              : [...formData.active_days, i].sort((a, b) => a - b),
+                          })
+                        }
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                          elegido
+                            ? "bg-emerald-600 text-white"
+                            : "bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700"
+                        }`}
+                      >
+                        {DIAS_ES[i].slice(0, 3)}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  {formData.active_days.length === 0
+                    ? "Sin elegir ninguno vale todos los días."
+                    : `Solo ${formData.active_days.map((d) => DIAS_ES[d]).join(", ")}, todas las semanas.`}
+                </p>
               </div>
 
               {/* Branch scope selector (master only) */}

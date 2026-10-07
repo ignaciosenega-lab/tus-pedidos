@@ -914,6 +914,8 @@ router.get("/:id/promotions", requireAuth, requireBranchAccess("id"), (req, res)
     const catRows = db.prepare("SELECT category_id FROM promotion_categories WHERE promotion_id = ?").all(p.id);
     return {
       ...p,
+      // Igual que en cupones: el front recibe el array ya parseado.
+      active_days: safeParseJson(p.active_days, []),
       productIds: products.map((r) => r.product_id),
       branch_ids: branchRows.map((r) => r.branch_id),
       categoryIds: catRows.map((r) => r.category_id),
@@ -925,7 +927,7 @@ router.get("/:id/promotions", requireAuth, requireBranchAccess("id"), (req, res)
 router.post("/:id/promotions", requireAuth, requireBranchAccess("id"), (req, res) => {
   const db = req.app.locals.db;
   const branchId = Number(req.params.id);
-  const { name, percentage, apply_to_all, apply_scope, date_from, date_to, weekly_repeat, productIds, categoryIds, apply_all_branches, branch_ids, time_from, time_to, type, min_quantity } = req.body;
+  const { name, percentage, apply_to_all, apply_scope, date_from, date_to, weekly_repeat, active_days, productIds, categoryIds, apply_all_branches, branch_ids, time_from, time_to, type, min_quantity } = req.body;
   if (!name) return res.status(400).json({ error: "Nombre es requerido" });
 
   const effectiveScope = apply_scope || (apply_to_all ? "all" : "products");
@@ -942,13 +944,14 @@ router.post("/:id/promotions", requireAuth, requireBranchAccess("id"), (req, res
   }
 
   const result = db.prepare(`
-    INSERT INTO promotions (branch_id, name, percentage, apply_to_all, apply_scope, date_from, date_to, weekly_repeat, apply_all_branches, time_from, time_to, type, min_quantity, is_active)
-    VALUES (@branch_id, @name, @percentage, @apply_to_all, @apply_scope, @date_from, @date_to, @weekly_repeat, @apply_all_branches, @time_from, @time_to, @type, @min_quantity, 1)
+    INSERT INTO promotions (branch_id, name, percentage, apply_to_all, apply_scope, date_from, date_to, weekly_repeat, active_days, apply_all_branches, time_from, time_to, type, min_quantity, is_active)
+    VALUES (@branch_id, @name, @percentage, @apply_to_all, @apply_scope, @date_from, @date_to, @weekly_repeat, @active_days, @apply_all_branches, @time_from, @time_to, @type, @min_quantity, 1)
   `).run({
     branch_id: branchId, name, percentage: percentage || 0,
     apply_to_all: effectiveScope === "all" ? 1 : 0,
     apply_scope: effectiveScope,
     date_from: date_from || "", date_to: date_to || "",
+    active_days: JSON.stringify(Array.isArray(active_days) ? active_days.map(Number).filter((d) => d >= 0 && d <= 6) : []),
     weekly_repeat: weekly_repeat ? 1 : 0,
     apply_all_branches: apply_all_branches ? 1 : 0,
     time_from: time_from || "", time_to: time_to || "",
@@ -988,7 +991,7 @@ router.put("/:id/promotions/:promoId", requireAuth, requireBranchAccess("id"), (
   const existing = db.prepare("SELECT * FROM promotions WHERE id = ? AND branch_id = ?").get(promoId, branchId);
   if (!existing) return res.status(404).json({ error: "Promoción no encontrada" });
 
-  const { name, percentage, apply_to_all, apply_scope, date_from, date_to, weekly_repeat, is_active, productIds, categoryIds, apply_all_branches, branch_ids, time_from, time_to, type, min_quantity } = req.body;
+  const { name, percentage, apply_to_all, apply_scope, date_from, date_to, weekly_repeat, active_days, is_active, productIds, categoryIds, apply_all_branches, branch_ids, time_from, time_to, type, min_quantity } = req.body;
 
   const effectiveScope = apply_scope !== undefined ? apply_scope : (existing.apply_scope || "all");
   const effectiveType = type !== undefined
@@ -1008,11 +1011,15 @@ router.put("/:id/promotions/:promoId", requireAuth, requireBranchAccess("id"), (
   }
   db.prepare(`
     UPDATE promotions SET name=@name, percentage=@percentage, apply_to_all=@apply_to_all, apply_scope=@apply_scope,
-    date_from=@date_from, date_to=@date_to, weekly_repeat=@weekly_repeat, is_active=@is_active,
+    date_from=@date_from, date_to=@date_to, weekly_repeat=@weekly_repeat, active_days=@active_days, is_active=@is_active,
     apply_all_branches=@apply_all_branches, time_from=@time_from, time_to=@time_to,
     type=@type, min_quantity=@min_quantity WHERE id=@id
   `).run({
     id: promoId,
+    active_days:
+      active_days !== undefined
+        ? JSON.stringify(Array.isArray(active_days) ? active_days.map(Number).filter((d) => d >= 0 && d <= 6) : [])
+        : existing.active_days ?? "[]",
     name: name !== undefined ? name : existing.name,
     percentage: percentage !== undefined ? percentage : existing.percentage,
     apply_to_all: effectiveScope === "all" ? 1 : 0,

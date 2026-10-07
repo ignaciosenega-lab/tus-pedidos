@@ -215,7 +215,22 @@ function isPromotionActiveToday(promo) {
   const now = new Date();
   const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
-  if (promo.weekly_repeat) {
+  // Días elegidos a mano: la promo corre en cualquiera de ellos, dentro de la
+  // ventana de fechas. Es lo que permite un 30% de lunes a jueves. Si la lista
+  // está vacía se cae al comportamiento viejo, así nada de lo ya cargado cambia.
+  let diasElegidos = [];
+  try {
+    const parsed = JSON.parse(promo.active_days || "[]");
+    if (Array.isArray(parsed)) diasElegidos = parsed.map(Number).filter((d) => d >= 0 && d <= 6);
+  } catch {
+    diasElegidos = [];
+  }
+
+  if (diasElegidos.length > 0) {
+    if (!diasElegidos.includes(now.getDay())) return false;
+    if (promo.date_from && todayStr < promo.date_from) return false;
+    if (promo.date_to && todayStr > promo.date_to) return false;
+  } else if (promo.weekly_repeat) {
     if (!promo.date_from) return false;
     const fromDate = new Date(promo.date_from + "T12:00:00");
     if (fromDate.getDay() !== now.getDay()) return false;
