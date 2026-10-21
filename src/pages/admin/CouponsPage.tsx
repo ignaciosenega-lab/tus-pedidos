@@ -26,6 +26,33 @@ interface Coupon {
   branch_ids: number[];
 }
 
+/** Lo que devuelve /coupons/:id/orders: el rendimiento de la campaña. */
+interface InformeCupon {
+  coupon: { id: number; code: string; name: string; type: string; value: number };
+  /** "todas" cuando el cupón corre en varias sucursales y lo mira el master. */
+  alcance: "todas" | "sucursal";
+  resumen: {
+    pedidos: number;
+    cancelados: number;
+    facturado: number;
+    descontado: number;
+    ticketPromedio: number;
+    clientes: number;
+    primerUso: string | null;
+    ultimoUso: string | null;
+  };
+  orders: Array<{
+    id: number;
+    branch_name?: string;
+    created_at: string;
+    customer_name: string;
+    customer_phone: string;
+    discount: number;
+    total: number;
+    status: string;
+  }>;
+}
+
 interface CatalogCategory {
   id: number;
   name: string;
@@ -64,6 +91,22 @@ interface CouponFormData {
 
 export default function CouponsPage() {
   const { apiFetch } = useApi();
+
+  // Informe de un cupón: null = cerrado, el id mientras carga.
+  const [informe, setInforme] = useState<InformeCupon | null>(null);
+  const [cargandoInforme, setCargandoInforme] = useState<number | null>(null);
+
+  async function verInforme(coupon: Coupon) {
+    setCargandoInforme(coupon.id);
+    try {
+      setInforme(await apiFetch<InformeCupon>(`/api/branches/${branchId}/coupons/${coupon.id}/orders`));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "No se pudo cargar el informe");
+    } finally {
+      setCargandoInforme(null);
+    }
+  }
+
   const { branchId, branches, setBranchId, isMaster, loading: branchLoading } = useBranchId();
 
   const [coupons, setCoupons] = useState<Coupon[]>([]);
@@ -417,8 +460,19 @@ export default function CouponsPage() {
                       {getBranchScopeLabel(coupon)}
                     </td>
                   )}
-                  <td className="px-4 py-3 text-sm text-gray-300">
-                    {coupon.used_count}{coupon.max_uses > 0 ? ` / ${coupon.max_uses}` : " / \u221E"}
+                  <td className="px-4 py-3 text-sm">
+                    {/* Los usos son el acceso natural al informe: quien mira ese
+                        número es porque quiere saber cómo viene la campaña. */}
+                    <button
+                      onClick={() => verInforme(coupon)}
+                      disabled={cargandoInforme === coupon.id}
+                      title="Ver los pedidos y lo facturado con este cupón"
+                      className="text-emerald-400 hover:text-emerald-300 font-medium underline decoration-dotted underline-offset-4 disabled:opacity-50"
+                    >
+                      {cargandoInforme === coupon.id
+                        ? "Cargando…"
+                        : `${coupon.used_count}${coupon.max_uses > 0 ? ` / ${coupon.max_uses}` : " / \u221E"}`}
+                    </button>
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-400">
                     {coupon.date_from && coupon.date_to
@@ -451,6 +505,120 @@ export default function CouponsPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Informe de la campaña del cupón */}
+      {informe && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
+             onClick={() => setInforme(null)}>
+          <div className="bg-gray-900 rounded-lg border border-gray-800 w-full max-w-4xl max-h-[90vh] overflow-y-auto"
+               onClick={(e) => e.stopPropagation()}>
+            <div className="border-b border-gray-800 px-6 py-4 flex items-center justify-between sticky top-0 bg-gray-900 z-10">
+              <div>
+                <h3 className="text-lg font-semibold text-white">
+                  Cupón{" "}
+                  <span className="font-mono text-emerald-400">{informe.coupon.code}</span>
+                  {informe.coupon.name ? <span className="text-gray-400 font-normal"> · {informe.coupon.name}</span> : null}
+                </h3>
+                <p className="text-sm text-gray-500">
+                  {informe.alcance === "todas"
+                    ? "Sumando todas las sucursales donde corre"
+                    : "Solo los pedidos de esta sucursal"}
+                </p>
+              </div>
+              <button onClick={() => setInforme(null)} className="text-gray-400 hover:text-white text-2xl leading-none">×</button>
+            </div>
+
+            <div className="p-6">
+              {informe.resumen.pedidos === 0 && informe.resumen.cancelados === 0 ? (
+                <p className="text-gray-400 text-sm py-8 text-center">
+                  Todavía no se usó en ningún pedido.
+                </p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+                    {[
+                      { r: "Facturado", v: `$${informe.resumen.facturado.toLocaleString("es-AR")}`, c: "text-emerald-400" },
+                      { r: "Descontado", v: `−$${informe.resumen.descontado.toLocaleString("es-AR")}`, c: "text-amber-500" },
+                      { r: "Pedidos", v: String(informe.resumen.pedidos), c: "text-white" },
+                      { r: "Ticket promedio", v: `$${informe.resumen.ticketPromedio.toLocaleString("es-AR")}`, c: "text-white" },
+                    ].map((k) => (
+                      <div key={k.r} className="bg-gray-800/50 border border-gray-800 rounded-lg p-3">
+                        <div className={`text-xl font-bold ${k.c}`}>{k.v}</div>
+                        <div className="text-xs text-gray-500 mt-0.5">{k.r}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <p className="text-sm text-gray-400 mb-4">
+                    {informe.resumen.clientes} cliente{informe.resumen.clientes === 1 ? "" : "s"} distinto
+                    {informe.resumen.clientes === 1 ? "" : "s"}
+                    {informe.resumen.cancelados > 0 && (
+                      <>
+                        {" · "}
+                        <span className="text-red-400">
+                          {informe.resumen.cancelados} cancelado{informe.resumen.cancelados === 1 ? "" : "s"}
+                        </span>
+                        {informe.resumen.cancelados === 1 ? ", que no suma" : ", que no suman"} a lo facturado
+                      </>
+                    )}
+                  </p>
+
+                  <div className="overflow-x-auto border border-gray-800 rounded-lg">
+                    <table className="w-full">
+                      <thead className="bg-gray-800/50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase">Pedido</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase">Fecha</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase">Cliente</th>
+                          {informe.alcance === "todas" && (
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase">Sucursal</th>
+                          )}
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-400 uppercase">Descuento</th>
+                          <th className="px-4 py-2 text-right text-xs font-medium text-gray-400 uppercase">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-800">
+                        {informe.orders.map((o) => (
+                          <tr key={o.id} className={o.status === "cancelled" ? "opacity-50" : ""}>
+                            <td className="px-4 py-2 text-sm text-white">
+                              #{o.id}
+                              {o.status === "cancelled" && (
+                                <span className="ml-2 text-xs text-red-400">cancelado</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-gray-400">
+                              {o.created_at
+                                ? new Date(o.created_at).toLocaleString("es-AR", {
+                                    timeZone: "America/Argentina/Buenos_Aires",
+                                    day: "2-digit", month: "2-digit", year: "numeric",
+                                    hour: "2-digit", minute: "2-digit",
+                                  })
+                                : "-"}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-gray-300">
+                              {o.customer_name || "-"}
+                              <span className="text-gray-600 ml-2">{o.customer_phone}</span>
+                            </td>
+                            {informe.alcance === "todas" && (
+                              <td className="px-4 py-2 text-sm text-gray-400">{o.branch_name || "-"}</td>
+                            )}
+                            <td className="px-4 py-2 text-sm text-amber-500/90 text-right">
+                              −${(Number(o.discount) || 0).toLocaleString("es-AR")}
+                            </td>
+                            <td className="px-4 py-2 text-sm text-emerald-400 text-right font-medium">
+                              ${(Number(o.total) || 0).toLocaleString("es-AR")}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

@@ -1218,6 +1218,67 @@ router.put("/:id/coupons/:couponId", requireAuth, requireBranchAccess("id"), (re
   });
 });
 
+// GET /api/branches/:id/coupons/:couponId/orders
+//
+// Los pedidos que usaron un cupón, con el resumen de la campaña.
+//
+// Dos decisiones que cambian los números y conviene tener presentes:
+//
+//  1. Los pedidos guardan `coupon_code`, no el id del cupón. Un cupón de todas
+//     las sucursales tiene el mismo código en varias, así que mirar solo una
+//     subestima la campaña. Si el cupón es `apply_all_branches` y quien
+//     consulta es master, se cuentan todas; si no, solo la suya, y la
+//     respuesta lo dice en `alcance`.
+//  2. Lo cancelado no se vendió. Se cuenta aparte y no suma a la facturación.
+router.get("/:id/coupons/:couponId/orders", requireAuth, requireBranchAccess("id"), (req, res) => {
+  const db = req.app.locals.db;
+  const branchId = Number(req.params.id);
+  const couponId = Number(req.params.couponId);
+
+  const coupon = db
+    .prepare("SELECT * FROM coupons WHERE id = ? AND (branch_id = ? OR apply_all_branches = 1)")
+    .get(couponId, branchId);
+  if (!coupon) return res.status(404).json({ error: "Cupón no encontrado" });
+
+  const todasLasSucursales = !!coupon.apply_all_branches && req.user?.role === "master";
+
+  const orders = db
+    .prepare(
+      `SELECT o.*, b.name AS branch_name
+         FROM orders o
+         LEFT JOIN branches b ON b.id = o.branch_id
+        WHERE o.coupon_code = ?${todasLasSucursales ? "" : " AND o.branch_id = ?"}
+        ORDER BY o.created_at DESC`
+    )
+    .all(...(todasLasSucursales ? [coupon.code] : [coupon.code, branchId]));
+
+  const vendidos = orders.filter((o) => o.status !== "cancelled");
+  const suma = (lista, campo) => lista.reduce((t, o) => t + (Number(o[campo]) || 0), 0);
+  const facturado = suma(vendidos, "total");
+
+  res.json({
+    coupon: { id: coupon.id, code: coupon.code, name: coupon.name, type: coupon.type, value: coupon.value },
+    alcance: todasLasSucursales ? "todas" : "sucursal",
+    resumen: {
+      pedidos: vendidos.length,
+      cancelados: orders.length - vendidos.length,
+      // Lo que entró de caja en esos pedidos, ya con el descuento aplicado.
+      facturado,
+      // Lo que la campaña costó: la plata que el cupón dejó de cobrar.
+      descontado: suma(vendidos, "discount"),
+      ticketPromedio: vendidos.length ? Math.round(facturado / vendidos.length) : 0,
+      clientes: new Set(vendidos.map((o) => o.customer_phone)).size,
+      primerUso: orders.length ? orders[orders.length - 1].created_at : null,
+      ultimoUso: orders.length ? orders[0].created_at : null,
+    },
+    orders: orders.map((o) => ({
+      ...o,
+      items: safeParseJson(o.items, []),
+      created_at: o.created_at ? o.created_at.replace(" ", "T") + "Z" : o.created_at,
+    })),
+  });
+});
+
 // DELETE /api/branches/:id/coupons/:couponId
 router.delete("/:id/coupons/:couponId", requireAuth, requireBranchAccess("id"), (req, res) => {
   const db = req.app.locals.db;
