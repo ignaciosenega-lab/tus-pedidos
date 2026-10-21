@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { useApi } from "../../hooks/useApi";
+import { desglosarDescuentos } from "../../utils/descuentos";
 
 interface Branch {
   id: number;
@@ -23,7 +24,9 @@ interface OrderItem {
   productName: string;
   variantLabel?: string;
   quantity: number;
+  // Una promo porcentual viene horneada en `price`; `originalPrice` es el de lista.
   price: number;
+  originalPrice?: number;
   categoryId?: string;
 }
 
@@ -40,7 +43,10 @@ interface GlobalOrder {
   items: OrderItem[];
   subtotal: number;
   delivery_cost: number;
-  discount: number;
+  discount: number;           // cupón
+  promotion_discount?: number; // promos por cantidad
+  wheel_discount?: number;     // premio de la ruleta
+  coupon_code?: string | null;
   total: number;
   status: string;
   created_at: string;
@@ -508,9 +514,25 @@ export default function GlobalOperationsPage() {
                           : "-"}
                       </span>
                     </div>
-                    <span className="text-emerald-400 font-bold">
-                      ${(order.total ?? 0).toLocaleString("es-AR")}
-                    </span>
+                    {(() => {
+                      // Esta vista es compacta a propósito, así que va solo la
+                      // marca: el desglose completo está en la Operación de cada
+                      // sucursal.
+                      const d = desglosarDescuentos(order);
+                      return (
+                        <div className="text-right">
+                          <span className="text-emerald-400 font-bold">
+                            ${(order.total ?? 0).toLocaleString("es-AR")}
+                          </span>
+                          {d.total > 0 && (
+                            <div className="text-xs text-amber-500/90 whitespace-nowrap">
+                              −${d.total.toLocaleString("es-AR")} ({d.porcentaje}% off)
+                              {order.coupon_code ? ` · ${order.coupon_code}` : ""}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-gray-400 mb-2">

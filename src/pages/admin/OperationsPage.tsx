@@ -2,12 +2,16 @@ import { useState, useEffect } from "react";
 import GuidedTour, { TourButton, type TourStep } from "../../components/admin/GuidedTour";
 import { useApi } from "../../hooks/useApi";
 import { useBranchId } from "../../hooks/useBranchId";
+import { desglosarDescuentos } from "../../utils/descuentos";
 
 interface OrderItem {
   productName: string;
   variantLabel?: string;
   quantity: number;
+  // `price` es lo que se cobró. Una promo porcentual viene horneada acá, y
+  // `originalPrice` guarda el precio de lista: la diferencia es el descuento.
   price: number;
+  originalPrice?: number;
   // legacy fields
   name?: string;
   qty?: number;
@@ -29,6 +33,12 @@ interface Order {
   items: OrderItem[];
   subtotal: number;
   delivery_cost: number;
+  // Los descuentos se guardan separados para poder rastrear de dónde salió
+  // cada uno. El endpoint hace spread de la fila, así que ya vienen todos.
+  discount?: number;           // cupón
+  promotion_discount?: number; // promos tipo 2x1
+  wheel_discount?: number;     // premio de la ruleta
+  coupon_code?: string | null;
   total: number;
   status: string;
   notes: string;
@@ -238,10 +248,13 @@ export default function OperationsPage() {
 
     const cabecera = [
       "N° pedido", "Fecha", "Hora", "Cliente", "Teléfono", "Entrega",
-      "Dirección", "Productos", "Pago", "Subtotal", "Envío", "Total", "Estado",
+      "Dirección", "Productos", "Pago", "Subtotal sin descuentos",
+      "Promoción en productos", "Promoción por cantidad", "Cupón", "Código de cupón",
+      "Ruleta", "Descuento total", "Envío", "Total", "Estado",
     ];
 
     const filas = filtered.map((o) => {
+      const d = desglosarDescuentos(o);
       const f = o.created_at ? new Date(o.created_at) : null;
       const fecha = f ? f.toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" }) : "";
       const hora = f ? f.toLocaleTimeString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", hour: "2-digit", minute: "2-digit", hour12: false }) : "";
@@ -258,7 +271,9 @@ export default function OperationsPage() {
         limpio(o.delivery_type === "delivery" ? "Envío" : "Retiro"),
         limpio([o.address || o.customer_address || "", o.floor || ""].filter(Boolean).join(" ")),
         limpio(productos), limpio(o.payment_method || ""),
-        num(o.subtotal), num(o.delivery_cost), num(o.total),
+        num(d.lista), num(d.enProducto), num(d.promo), num(d.cupon),
+        limpio(o.coupon_code || ""), num(d.ruleta), num(d.total),
+        num(o.delivery_cost), num(o.total),
         limpio(STATUS_LABELS[o.status] || o.status),
       ].join(sep);
     });
@@ -507,9 +522,21 @@ export default function OperationsPage() {
                       {order.created_at ? new Date(order.created_at).toLocaleString("es-AR", { timeZone: "America/Argentina/Buenos_Aires" }) : "-"}
                     </p>
                   </div>
-                  <span className="text-emerald-400 font-bold text-lg">
-                    ${order.total?.toLocaleString() || "0"}
-                  </span>
+                  <div className="text-right">
+                    <span className="text-emerald-400 font-bold text-lg">
+                      ${order.total?.toLocaleString() || "0"}
+                    </span>
+                    {/* En una lista larga, lo que hace falta es ver de un vistazo
+                        qué pedidos salieron con descuento y de cuánto. */}
+                    {(() => {
+                      const d = desglosarDescuentos(order);
+                      return d.total > 0 ? (
+                        <div className="text-xs text-amber-500/90 mt-0.5 whitespace-nowrap">
+                          −${d.total.toLocaleString()} ({d.porcentaje}% off)
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
                 </div>
 
                 {/* Customer Info */}
@@ -540,29 +567,90 @@ export default function OperationsPage() {
                 )}
 
                 {/* Items */}
+                {(() => {
+                  const d = desglosarDescuentos(order);
+                  return (
                 <div className="bg-gray-800/50 rounded-lg p-3 mb-3">
                   <div className="space-y-1">
                     {(order.items || []).map((item, i) => {
                       const name = item.productName || item.name || "Producto";
                       const qty = item.quantity || item.qty || 1;
                       const variant = item.variantLabel ? ` (${item.variantLabel})` : "";
+                      const lista = Number(item.originalPrice ?? item.price) || 0;
+                      const conPromo = lista > (Number(item.price) || 0);
                       return (
                         <div key={i} className="flex justify-between text-sm">
                           <span className="text-gray-300">
                             {qty}x {name}{variant}
                           </span>
-                          <span className="text-gray-400">${(item.price * qty).toLocaleString()}</span>
+                          <span className="text-gray-400 whitespace-nowrap">
+                            {/* El precio de lista tachado al lado del cobrado: así se ve
+                                de un vistazo qué producto entró en promoción. */}
+                            {conPromo && (
+                              <span className="text-gray-600 line-through mr-2">
+                                ${(lista * qty).toLocaleString()}
+                              </span>
+                            )}
+                            ${((Number(item.price) || 0) * qty).toLocaleString()}
+                          </span>
                         </div>
                       );
                     })}
                   </div>
-                  {order.delivery_cost > 0 && (
-                    <div className="flex justify-between text-sm mt-2 pt-2 border-t border-gray-700">
-                      <span className="text-gray-400">Envío</span>
-                      <span className="text-gray-400">${order.delivery_cost.toLocaleString()}</span>
+
+                  {(d.total > 0 || order.delivery_cost > 0) && (
+                    <div className="mt-2 pt-2 border-t border-gray-700 space-y-1">
+                      {d.total > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-400">Subtotal sin descuentos</span>
+                          <span className="text-gray-400">${d.lista.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {d.enProducto > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-amber-500/90">Promoción en productos</span>
+                          <span className="text-amber-500/90">−${d.enProducto.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {d.promo > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-amber-500/90">Promoción por cantidad</span>
+                          <span className="text-amber-500/90">−${d.promo.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {d.cupon > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-amber-500/90">
+                            Cupón{order.coupon_code ? ` ${order.coupon_code}` : ""}
+                          </span>
+                          <span className="text-amber-500/90">−${d.cupon.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {d.ruleta > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-amber-500/90">Premio de la ruleta</span>
+                          <span className="text-amber-500/90">−${d.ruleta.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {order.delivery_cost > 0 && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-400">Envío</span>
+                          <span className="text-gray-400">${order.delivery_cost.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {d.total > 0 && (
+                        <div className="flex justify-between text-sm pt-1 border-t border-gray-700/70">
+                          <span className="text-gray-300 font-medium">Total</span>
+                          <span className="text-gray-100 font-medium">
+                            ${(order.total || 0).toLocaleString()}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
+                  );
+                })()}
 
                 {order.notes && (
                   <div className="text-sm mb-3 bg-yellow-900/10 border border-yellow-900/30 rounded-lg p-2">
