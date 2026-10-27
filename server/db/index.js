@@ -190,6 +190,12 @@ function getDb() {
     // Red de seguridad contra una promo mal cargada (90% en vez de 9%): por
     // más que se acumulen promos, cupón y ruleta, el pedido nunca baja de
     // (1 - tope) del subtotal sin descuentos. 0 = sin tope.
+    if (!branchCols2.includes("delivery_tolerance_m")) {
+      // Margen en metros para el aviso de "fuera de zona". Google ubica un
+      // barrio privado en su portón y no en su centro, así que una dirección
+      // válida puede caer unos metros afuera del borde dibujado.
+      db.exec("ALTER TABLE branches ADD COLUMN delivery_tolerance_m INTEGER NOT NULL DEFAULT 300");
+    }
     if (!branchCols2.includes("max_discount_pct")) {
       db.exec("ALTER TABLE branches ADD COLUMN max_discount_pct INTEGER NOT NULL DEFAULT 0");
     }

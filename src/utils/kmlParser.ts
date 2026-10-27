@@ -1,4 +1,4 @@
-import type { DeliveryZone, LatLng } from "../types";
+import type { DeliveryZone, LatLng, PolygonPoint } from "../types";
 
 const ZONE_COLORS = [
   "#10b981", // emerald
@@ -92,24 +92,66 @@ function parseCoordinateString(raw: string): LatLng[] {
 /**
  * Check if a point (lat,lng) is inside a polygon using ray-casting algorithm.
  */
-export function isPointInPolygon(point: LatLng, polygon: LatLng[]): boolean {
-  let inside = false;
-  const n = polygon.length;
+/** Un vértice, venga como objeto o como par [lat, lng]. */
+function aLatLng(p: PolygonPoint): LatLng {
+  return Array.isArray(p) ? { lat: p[0], lng: p[1] } : p;
+}
 
-  for (let i = 0, j = n - 1; i < n; j = i++) {
-    const xi = polygon[i].lat;
-    const yi = polygon[i].lng;
-    const xj = polygon[j].lat;
-    const yj = polygon[j].lng;
+/**
+ * ¿El punto cae dentro del polígono? (ray casting)
+ *
+ * Normaliza cada vértice antes de compararlo: el editor de zonas guarda pares
+ * `[lat, lng]` y el importador de KML objetos `{lat, lng}`. Leer `.lat` de un
+ * arreglo devuelve `undefined`, toda comparación da falso y la función
+ * contesta "fuera" para cualquier dirección del mapa — que es exactamente lo
+ * que venía pasando.
+ */
+export function isPointInPolygon(point: LatLng, polygon: PolygonPoint[]): boolean {
+  const pts = polygon.map(aLatLng);
+  let inside = false;
+
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const yi = pts[i].lat, xi = pts[i].lng;
+    const yj = pts[j].lat, xj = pts[j].lng;
 
     const intersect =
-      yi > point.lng !== yj > point.lng &&
-      point.lat < ((xj - xi) * (point.lng - yi)) / (yj - yi) + xi;
+      yi > point.lat !== yj > point.lat &&
+      point.lng < ((xj - xi) * (point.lat - yi)) / (yj - yi) + xi;
 
     if (intersect) inside = !inside;
   }
 
   return inside;
+}
+
+/** Metros por grado, aproximados a la latitud dada. Alcanza para distancias cortas. */
+function metrosPorGrado(lat: number) {
+  return { porLat: 111_320, porLng: 111_320 * Math.cos((lat * Math.PI) / 180) };
+}
+
+/** Distancia en metros de un punto al segmento a–b. */
+function distanciaAlSegmento(p: LatLng, a: LatLng, b: LatLng): number {
+  const { porLat, porLng } = metrosPorGrado(p.lat);
+  const px = (p.lng - a.lng) * porLng, py = (p.lat - a.lat) * porLat;
+  const bx = (b.lng - a.lng) * porLng, by = (b.lat - a.lat) * porLat;
+
+  const largo2 = bx * bx + by * by;
+  // Un segmento degenerado (dos vértices iguales) es un punto.
+  const t = largo2 === 0 ? 0 : Math.max(0, Math.min(1, (px * bx + py * by) / largo2));
+  const dx = px - bx * t, dy = py - by * t;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+/** Qué tan lejos está el punto del borde del polígono, en metros. */
+export function distanciaAlBorde(point: LatLng, polygon: PolygonPoint[]): number {
+  const pts = polygon.map(aLatLng);
+  if (pts.length < 2) return Infinity;
+
+  let min = Infinity;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    min = Math.min(min, distanciaAlSegmento(point, pts[j], pts[i]));
+  }
+  return min;
 }
 
 /**
@@ -118,11 +160,26 @@ export function isPointInPolygon(point: LatLng, polygon: LatLng[]): boolean {
  */
 export function findDeliveryZone(
   zones: DeliveryZone[],
-  point: LatLng
+  point: LatLng,
+  toleranciaM = 0
 ): DeliveryZone | null {
-  const matches = zones
-    .filter((z) => z.active && isPointInPolygon(point, z.polygon))
-    .sort((a, b) => a.cost - b.cost);
+  const activas = zones.filter((z) => z.active);
 
-  return matches[0] ?? null;
+  const dentro = activas
+    .filter((z) => isPointInPolygon(point, z.polygon))
+    .sort((a, b) => a.cost - b.cost);
+  if (dentro[0]) return dentro[0];
+
+  // Margen de tolerancia. Google ubica un barrio privado en su portón, no en su
+  // centro, así que una dirección válida puede caer unos metros afuera del
+  // borde. Sin esto, el barrio entero queda rechazado por dónde está la tranquera.
+  if (toleranciaM > 0) {
+    const cerca = activas
+      .map((z) => ({ z, d: distanciaAlBorde(point, z.polygon) }))
+      .filter((x) => x.d <= toleranciaM)
+      .sort((a, b) => a.d - b.d || a.z.cost - b.z.cost);
+    if (cerca[0]) return cerca[0].z;
+  }
+
+  return null;
 }

@@ -26,7 +26,7 @@ interface Props {
 export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onRemoveCoupon }: Props) {
   const { items } = useCart();
   const dispatch = useCartDispatch();
-  const { businessConfig, branchId, deliveryZones, delayMinutes, sameProductPromos, wheel } = useStorefront();
+  const { businessConfig, branchId, deliveryZones, deliveryToleranceM, delayMinutes, sameProductPromos, wheel } = useStorefront();
 
   // Descuento auto-aplicado por promos "2x1 al mismo producto". Mismo cálculo
   // que el CartModal hace para mostrar el total al cliente — acá lo replicamos
@@ -254,13 +254,13 @@ export default function CheckoutModal({ onClose, isStoreOpen, appliedCoupon, onR
       // Chequeo de zona solo si tenemos coordenadas (dirección elegida desde el mapa).
       // Si el cliente la escribió a mano (Maps caído), no podemos calcular zona → no bloquear.
       if (result.lat != null && result.lng != null && deliveryZones.length > 0) {
-        const zone = findDeliveryZone(deliveryZones, { lat: result.lat, lng: result.lng });
+        const zone = findDeliveryZone(deliveryZones, { lat: result.lat, lng: result.lng }, deliveryToleranceM);
         setOutsideZone(!zone);
       } else {
         setOutsideZone(false);
       }
     },
-    [deliveryZones]
+    [deliveryZones, deliveryToleranceM]
   );
 
   function validate(): boolean {

@@ -1116,6 +1116,9 @@ function readStateFromDb(branchSlug) {
     wheel,
     coupons,
     deliveryZones,
+    // Cuánto se perdona que una dirección caiga fuera del borde antes de
+    // avisarle al cliente que no llegamos.
+    deliveryToleranceM: Number(branch.delivery_tolerance_m) || 0,
     businessConfig,
     paymentConfig,
     styleConfig,

@@ -260,10 +260,21 @@ export interface LatLng {
   lng: number;
 }
 
+/**
+ * Un vértice de polígono, en cualquiera de los dos formatos que circulan.
+ *
+ * El editor de zonas guarda pares `[lat, lng]` y eso es lo que hay en la base;
+ * el importador de KML arma objetos `{lat, lng}`. Declarar solo uno de los dos
+ * fue lo que dejó pasar el error: el tipo decía `LatLng[]` y el código leía
+ * `.lat` sobre arreglos, así que TypeScript validó una comparación contra
+ * `undefined` y el chequeo de zona daba "fuera" para todas las direcciones.
+ */
+export type PolygonPoint = LatLng | [number, number];
+
 export interface DeliveryZone {
   id: string;
   name: string;
-  polygon: LatLng[];
+  polygon: PolygonPoint[];
   cost: number;
   active: boolean;
   color: string;

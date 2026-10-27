@@ -12,6 +12,7 @@ interface StorefrontData {
   sameProductPromos: SameProductPromo[];
   wheel: WheelConfig;
   deliveryZones: DeliveryZone[];
+  deliveryToleranceM: number;
   delayMinutes: number;
   businessConfig: BusinessConfig;
   styleConfig: StyleConfig;
@@ -70,6 +71,7 @@ export function useStorefront(): StorefrontData {
     sameProductPromos: [],
     wheel: emptyWheel,
     deliveryZones: [],
+    deliveryToleranceM: 0,
     delayMinutes: 30,
     businessConfig: defaultConfig,
     styleConfig: defaultStyleConfig,
@@ -105,6 +107,7 @@ export function useStorefront(): StorefrontData {
             sameProductPromos: [],
             wheel: emptyWheel,
             deliveryZones: [],
+            deliveryToleranceM: 0,
             delayMinutes: 30,
             businessConfig: { ...defaultConfig, ...(state.businessConfig || {}) },
             styleConfig: { ...defaultStyleConfig, ...sc },
@@ -124,6 +127,7 @@ export function useStorefront(): StorefrontData {
           sameProductPromos: state.sameProductPromos || [],
           wheel: state.wheel || emptyWheel,
           deliveryZones: state.deliveryZones || [],
+          deliveryToleranceM: Number(state.deliveryToleranceM) || 0,
           delayMinutes: state.delayMinutes || 30,
           businessConfig: state.businessConfig || defaultConfig,
           styleConfig: { ...defaultStyleConfig, ...sc },

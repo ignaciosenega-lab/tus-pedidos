@@ -161,6 +161,7 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
       lat,
       lng,
       max_discount_pct,
+      delivery_tolerance_m,
     } = req.body;
 
     // Check slug uniqueness if changing
@@ -195,6 +196,7 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
         wheel_enabled = @wheel_enabled, wheel_expires_minutes = @wheel_expires_minutes,
         wheel_cooldown_hours = @wheel_cooldown_hours,
         lat = @lat, lng = @lng, max_discount_pct = @max_discount_pct,
+        delivery_tolerance_m = @delivery_tolerance_m,
         updated_at = datetime('now', 'localtime')
       WHERE id = @id
     `).run({
@@ -205,6 +207,11 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
         max_discount_pct !== undefined && Number.isFinite(Number(max_discount_pct))
           ? Math.min(100, Math.max(0, Math.round(Number(max_discount_pct))))
           : existing.max_discount_pct ?? 0,
+      // Un margen enorme volvería inútil el aviso: se acota a 2 km.
+      delivery_tolerance_m:
+        delivery_tolerance_m !== undefined && Number.isFinite(Number(delivery_tolerance_m))
+          ? Math.min(2000, Math.max(0, Math.round(Number(delivery_tolerance_m))))
+          : existing.delivery_tolerance_m ?? 300,
       slug: slug !== undefined ? slug : existing.slug,
       name: name !== undefined ? name : existing.name,
       address: address !== undefined ? address : existing.address,

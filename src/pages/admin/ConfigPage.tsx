@@ -102,6 +102,7 @@ export default function ConfigPage() {
   const [schedule, setSchedule] = useState<ScheduleData>(DEFAULT_SCHEDULE);
   const [mapsEnabled, setMapsEnabled] = useState(false);
   const [topeDescuento, setTopeDescuento] = useState(0);
+  const [margenZona, setMargenZona] = useState(300);
   const { user } = useAuth();
   const [claveActual, setClaveActual] = useState("");
   const [claveNueva, setClaveNueva] = useState("");
@@ -160,6 +161,7 @@ export default function ConfigPage() {
       setIsOpen(!!data.is_open);
       setMapsEnabled(!!data.maps_enabled);
       setTopeDescuento(Number((data as any).max_discount_pct) || 0);
+      setMargenZona(Number((data as any).delivery_tolerance_m) || 0);
       const pc = typeof data.payment_config === "object" && data.payment_config ? data.payment_config : {};
       setPayment({ ...DEFAULT_PAYMENT, ...pc });
       const sc = typeof data.schedule === "object" && data.schedule ? (data.schedule as any) : DEFAULT_SCHEDULE;
@@ -217,6 +219,7 @@ export default function ConfigPage() {
           payment_config: payment,
           schedule,
           max_discount_pct: topeDescuento,
+          delivery_tolerance_m: margenZona,
         }),
       });
       setSuccess(true);
@@ -452,6 +455,34 @@ export default function ConfigPage() {
             {topeDescuento > 0
               ? `Un pedido de $10.000 nunca va a cobrarse menos de $${(10000 * (1 - topeDescuento / 100)).toLocaleString("es-AR")}.`
               : "Sin tope: si una promoción está mal cargada, el sistema la obedece."}
+          </span>
+        </div>
+      </div>
+
+      {/* Margen de la zona de envío */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 mb-6">
+        <h3 className="text-lg font-semibold text-white mb-2">Margen de la zona de envío</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Google ubica un barrio privado en su portón, no en su centro, así que una dirección
+          que sí entra puede caer unos metros afuera del contorno que dibujaste. Con este margen
+          el checkout no le muestra el aviso de "no llegamos" a quien esté más cerca que eso del
+          borde. Es solo el aviso: no cambia la zona ni el costo de envío.
+        </p>
+        <div className="flex items-center gap-3 flex-wrap">
+          <select
+            value={margenZona}
+            onChange={(e) => setMargenZona(Number(e.target.value))}
+            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+          >
+            <option value={0}>Sin margen</option>
+            {[100, 200, 300, 500, 800, 1000].map((m) => (
+              <option key={m} value={m}>{m} m</option>
+            ))}
+          </select>
+          <span className="text-xs text-gray-500">
+            {margenZona > 0
+              ? `Una dirección hasta ${margenZona} m afuera del borde no recibe el aviso.`
+              : "Sin margen: alcanza con estar un metro afuera para que le avise que no llegás."}
           </span>
         </div>
       </div>
