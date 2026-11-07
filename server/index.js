@@ -35,6 +35,10 @@ fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 // Initialize database on startup and share via app.locals
 const db = getDb();
 app.locals.db = db;
+// El feed público del menú arma el catálogo de una sucursal con la misma
+// función que la tienda, para que los precios que entregamos a un tercero no
+// sean una segunda implementación de las reglas de precio que se desincroniza.
+app.locals.readStateFromDb = (slug) => readStateFromDb(slug);
 console.log("SQLite database initialized");
 
 /* ── Middleware ────────────────────────────────── */
