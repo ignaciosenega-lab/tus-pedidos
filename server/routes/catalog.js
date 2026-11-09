@@ -454,6 +454,12 @@ router.delete("/products/:id", (req, res) => {
     db.prepare("DELETE FROM product_variants WHERE product_id = ?").run(id);
     db.prepare("DELETE FROM branch_product_overrides WHERE product_id = ?").run(id);
     db.prepare("DELETE FROM branch_variant_overrides WHERE variant_id IN (SELECT id FROM product_variants WHERE product_id = ?)").run(id);
+    // coupon_targets apunta al producto por id pero sin foreign key, porque la
+    // misma columna guarda a veces una categoría. Es el único lado que el
+    // borrado en cascada no alcanza: sin esto queda un cupón apuntando a un
+    // producto que ya no existe. El resto (variantes, exclusividades por menú,
+    // promociones) se va solo, con las claves foráneas prendidas.
+    db.prepare("DELETE FROM coupon_targets WHERE target_type = 'product' AND target_id = ?").run(id);
     const result = db.prepare("DELETE FROM products WHERE id = ?").run(id);
     return result.changes;
   });
