@@ -1293,8 +1293,11 @@ function BranchCatalog() {
 
   const filtered = products.filter((p) => {
     if (filterStatus !== "all") {
-      if (filterStatus === "alta" && !p.is_available) return false;
-      if (filterStatus === "baja" && p.is_available) return false;
+      // Un producto dado de baja en el catálogo global no está "en alta" acá
+      // por más que la sucursal no lo haya desactivado: no se vende.
+      const enAlta = p.is_active !== 0 && !!p.is_available;
+      if (filterStatus === "alta" && !enAlta) return false;
+      if (filterStatus === "baja" && enAlta) return false;
     }
     if (filterCat !== "all" && p.category_id !== Number(filterCat)) return false;
     if (search && !p.name.toLowerCase().includes(search.toLowerCase())) return false;
@@ -1509,8 +1512,12 @@ function BranchCatalog() {
                 const price =
                   p.type === "simple" ? p.base_price ?? 0 : p.variants?.[0]?.price ?? 0;
                 const available = p.is_available !== 0;
+                // La baja global gana sobre el interruptor de la sucursal: el
+                // producto no se vende en ningún lado y acá no hay nada que
+                // prender, así que no mostramos un botón que no hace nada.
+                const deBaja = p.is_active === 0;
                 return (
-                  <tr key={p.id} className={`hover:bg-gray-800/40 transition-colors ${!available ? "opacity-60" : ""}`}>
+                  <tr key={p.id} className={`hover:bg-gray-800/40 transition-colors ${!available || deBaja ? "opacity-60" : ""}`}>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         <img
@@ -1527,16 +1534,25 @@ function BranchCatalog() {
                     <td className="px-4 py-3 text-gray-400 hidden sm:table-cell">{catName(p.category_id)}</td>
                     <td className="px-4 py-3 text-emerald-400 font-medium">{formatPrice(price)}</td>
                     <td className="px-4 py-3">
-                      <button
-                        onClick={() => toggleAvailability(p)}
-                        className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-colors ${
-                          available
-                            ? "bg-emerald-900/40 text-emerald-400 hover:bg-emerald-900/60"
-                            : "bg-red-900/40 text-red-400 hover:bg-red-900/60"
-                        }`}
-                      >
-                        {available ? "DISPONIBLE" : "NO DISPONIBLE"}
-                      </button>
+                      {deBaja ? (
+                        <span
+                          title="Dado de baja en el catálogo global: no se vende en ninguna sucursal. Para venderlo hay que darlo de alta desde el catálogo."
+                          className="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-900/40 text-amber-400 cursor-help"
+                        >
+                          DE BAJA
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => toggleAvailability(p)}
+                          className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-colors ${
+                            available
+                              ? "bg-emerald-900/40 text-emerald-400 hover:bg-emerald-900/60"
+                              : "bg-red-900/40 text-red-400 hover:bg-red-900/60"
+                          }`}
+                        >
+                          {available ? "DISPONIBLE" : "NO DISPONIBLE"}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );

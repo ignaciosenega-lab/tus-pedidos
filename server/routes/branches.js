@@ -326,7 +326,22 @@ router.get("/:id/catalog", requireAuth, requireBranchAccess("id"), (req, res) =>
   const db = req.app.locals.db;
   const branchId = Number(req.params.id);
 
-  const products = db.prepare("SELECT * FROM products ORDER BY id").all();
+  // Los mismos filtros que usa la tienda. Sin esto la query era
+  // `SELECT * FROM products`, así que el Catálogo de cada sucursal listaba el
+  // catálogo entero: los productos exclusivos del menú de otra y los productos
+  // propios de otra sucursal aparecían acá, y encima en verde, porque sin
+  // override `is_available` cae en 1. Ortúzar veía como "DISPONIBLE" cosas que
+  // su tienda no mostró nunca.
+  const menuId = getBranchMenuId(db, branchId);
+  const products = db.prepare(`
+    SELECT * FROM products p
+    WHERE (
+            NOT EXISTS (SELECT 1 FROM product_exclusive_menus pem WHERE pem.product_id = p.id)
+            OR EXISTS (SELECT 1 FROM product_exclusive_menus pem WHERE pem.product_id = p.id AND pem.menu_id = ?)
+          )
+      AND (p.owner_branch_id IS NULL OR p.owner_branch_id = ?)
+    ORDER BY p.id
+  `).all(menuId ?? -1, branchId);
   const categories = db.prepare("SELECT * FROM categories WHERE is_active = 1 ORDER BY sort_order, id").all();
 
   // Load branch overrides
