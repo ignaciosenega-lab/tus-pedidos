@@ -162,6 +162,7 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
       lng,
       max_discount_pct,
       delivery_tolerance_m,
+      notice_text,
     } = req.body;
 
     // Check slug uniqueness if changing
@@ -196,7 +197,7 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
         wheel_enabled = @wheel_enabled, wheel_expires_minutes = @wheel_expires_minutes,
         wheel_cooldown_hours = @wheel_cooldown_hours,
         lat = @lat, lng = @lng, max_discount_pct = @max_discount_pct,
-        delivery_tolerance_m = @delivery_tolerance_m,
+        delivery_tolerance_m = @delivery_tolerance_m, notice_text = @notice_text,
         updated_at = datetime('now', 'localtime')
       WHERE id = @id
     `).run({
@@ -212,6 +213,12 @@ router.put("/:id", requireAuth, requireBranchAccess("id"), (req, res) => {
         delivery_tolerance_m !== undefined && Number.isFinite(Number(delivery_tolerance_m))
           ? Math.min(2000, Math.max(0, Math.round(Number(delivery_tolerance_m))))
           : existing.delivery_tolerance_m ?? 300,
+      // El aviso se apaga borrando el texto, así que un string vacío tiene que
+      // poder guardarse: no se puede tratar como "no mandaron nada".
+      notice_text:
+        notice_text !== undefined
+          ? String(notice_text).trim().slice(0, 300)
+          : (existing.notice_text || ""),
       slug: slug !== undefined ? slug : existing.slug,
       name: name !== undefined ? name : existing.name,
       address: address !== undefined ? address : existing.address,

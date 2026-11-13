@@ -1098,6 +1098,8 @@ function readStateFromDb(branchSlug) {
     sliderImages: safeParseJson(branch.slider_images, []),
     timezone: branch.timezone || "America/Argentina/Buenos_Aires",
     mapsEnabled: !!branch.maps_enabled,
+    // Cartel que salta al entrar a la tienda. Vacío = no hay nada que avisar.
+    notice: branch.notice_text || "",
   };
 
   const paymentConfig = safeParseJson(branch.payment_config, {});

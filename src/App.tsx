@@ -10,6 +10,7 @@ import ProductCard from "./components/ProductCard";
 import ProductOptionsModal from "./components/ProductOptionsModal";
 import CartModal from "./components/CartModal";
 import CheckoutModal from "./components/CheckoutModal";
+import StoreNoticeModal from "./components/StoreNoticeModal";
 import StoreClosedBanner from "./components/StoreClosedBanner";
 import PromoCarousel from "./components/PromoCarousel";
 import ThemeStyles from "./components/ThemeStyles";
@@ -368,6 +369,10 @@ export default function App({ menuOnly: menuOnlyProp = false }: { menuOnly?: boo
         </div>
       </main>
       </div>
+
+      {/* El aviso de la sucursal, si cargaron uno. En modo carta no va: eso es
+          un menú de referencia, no la tienda de un local. */}
+      {!menuOnly && <StoreNoticeModal notice={(businessConfig as any).notice || ""} />}
 
       {/* Modals — en modo carta (solo lectura) no hay compra, no se renderizan */}
       {!menuOnly && optionsProduct && (

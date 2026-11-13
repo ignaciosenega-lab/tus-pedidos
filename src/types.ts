@@ -205,6 +205,8 @@ export interface BusinessConfig {
   whatsapp: string;
   socialLinks: { platform: string; url: string }[];
   sliderImages: string[];
+  /** Cartel que salta al entrar a la tienda. Vacío = no hay aviso. */
+  notice?: string | null;
 }
 
 export interface PaymentConfig {

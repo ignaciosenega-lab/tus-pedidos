@@ -50,6 +50,7 @@ interface BranchData {
   payment_config: PaymentFormData;
   schedule: ScheduleData;
   maps_enabled?: number;
+  notice_text?: string;
 }
 
 interface PaymentFormData {
@@ -103,6 +104,7 @@ export default function ConfigPage() {
   const [mapsEnabled, setMapsEnabled] = useState(false);
   const [topeDescuento, setTopeDescuento] = useState(0);
   const [margenZona, setMargenZona] = useState(300);
+  const [aviso, setAviso] = useState("");
   const { user } = useAuth();
   const [claveActual, setClaveActual] = useState("");
   const [claveNueva, setClaveNueva] = useState("");
@@ -162,6 +164,7 @@ export default function ConfigPage() {
       setMapsEnabled(!!data.maps_enabled);
       setTopeDescuento(Number((data as any).max_discount_pct) || 0);
       setMargenZona(Number((data as any).delivery_tolerance_m) || 0);
+      setAviso(String((data as any).notice_text || ""));
       const pc = typeof data.payment_config === "object" && data.payment_config ? data.payment_config : {};
       setPayment({ ...DEFAULT_PAYMENT, ...pc });
       const sc = typeof data.schedule === "object" && data.schedule ? (data.schedule as any) : DEFAULT_SCHEDULE;
@@ -220,6 +223,7 @@ export default function ConfigPage() {
           schedule,
           max_discount_pct: topeDescuento,
           delivery_tolerance_m: margenZona,
+          notice_text: aviso,
         }),
       });
       setSuccess(true);
@@ -372,6 +376,38 @@ export default function ConfigPage() {
           </div>
           <span className="text-sm text-gray-300">{isOpen ? "Sucursal abierta" : "Sucursal cerrada"}</span>
         </label>
+      </div>
+
+      {/* Aviso en la tienda */}
+      <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 space-y-3">
+        <h3 className="text-lg font-semibold text-white">Aviso en la tienda</h3>
+        <p className="text-sm text-gray-500">
+          Un cartel que le aparece al cliente apenas entra a la tienda. Sirve para avisar
+          algo puntual: una reforma, una mudanza, un corte de luz. Dejalo vacío cuando no
+          haya nada que avisar — el cartel desaparece solo.
+        </p>
+        <textarea
+          value={aviso}
+          onChange={(e) => setAviso(e.target.value.slice(0, 300))}
+          rows={3}
+          maxLength={300}
+          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500"
+          placeholder="NOS ESTAMOS RENOVANDO. PRÓXIMAMENTE ABRIMOS."
+        />
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs text-gray-500">
+            {aviso.trim()
+              ? "El cartel se muestra una vez por visita. Si cambiás el texto, vuelve a aparecer."
+              : "Ahora mismo no se muestra ningún cartel."}
+          </p>
+          <span className="text-xs text-gray-600 shrink-0">{aviso.length}/300</span>
+        </div>
+        {aviso.trim() && isOpen && (
+          <p className="text-xs text-amber-400/90">
+            Ojo: el cartel avisa, pero no frena los pedidos. Si el local no puede
+            atender, además apagá &ldquo;Sucursal abierta&rdquo; acá arriba.
+          </p>
+        )}
       </div>
 
       {/* Mi contraseña — solo el encargado. El personal comparte el usuario del

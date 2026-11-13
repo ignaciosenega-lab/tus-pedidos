@@ -151,6 +151,20 @@ function getDb() {
       db.exec("ALTER TABLE branches ADD COLUMN maps_enabled INTEGER NOT NULL DEFAULT 0");
     }
 
+    // Migration: aviso de la tienda (el cartel que salta al entrar).
+    // Texto libre por sucursal; vacío = no se muestra nada. Sirve para avisar
+    // una reforma, una mudanza o lo que sea, sin tener que tocar el código ni
+    // esperar un deploy: se escribe y se borra desde Configuración.
+    if (!branchCols2.includes("notice_text")) {
+      db.exec("ALTER TABLE branches ADD COLUMN notice_text TEXT NOT NULL DEFAULT ''");
+      // Quilmes está en reforma, así que el aviso arranca puesto: nadie tiene
+      // que acordarse de escribirlo. Va acá adentro, atado a la creación de la
+      // columna, para que corra una sola vez — cuando el local reabra y borren
+      // el texto desde el panel, un reinicio no se lo vuelve a poner.
+      db.prepare("UPDATE branches SET notice_text = ? WHERE slug = ?")
+        .run("NOS ESTAMOS RENOVANDO.\nPRÓXIMAMENTE ABRIMOS.", "quilmes");
+    }
+
     // Migration: dueño de un producto propio.
     // La exclusividad de product_exclusive_menus es por MENÚ, y varias
     // sucursales comparten menú: un producto creado en Cipolletti aparecía en
