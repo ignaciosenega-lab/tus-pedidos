@@ -382,9 +382,10 @@ export default function ConfigPage() {
       <div className="bg-gray-900 border border-gray-800 rounded-lg p-6 space-y-3">
         <h3 className="text-lg font-semibold text-white">Aviso en la tienda</h3>
         <p className="text-sm text-gray-500">
-          Un cartel que le aparece al cliente apenas entra a la tienda. Sirve para avisar
-          algo puntual: una reforma, una mudanza, un corte de luz. Dejalo vacío cuando no
-          haya nada que avisar — el cartel desaparece solo.
+          Un cartel que <strong className="text-gray-300">tapa la tienda</strong>: el cliente
+          lo ve apenas entra, no lo puede cerrar y no llega al menú. Es para cuando el local
+          no puede atender — una reforma, una mudanza, un corte de luz. Dejalo vacío para que
+          la tienda funcione normal.
         </p>
         <textarea
           value={aviso}
@@ -397,15 +398,15 @@ export default function ConfigPage() {
         <div className="flex items-center justify-between gap-3">
           <p className="text-xs text-gray-500">
             {aviso.trim()
-              ? "El cartel se muestra una vez por visita. Si cambiás el texto, vuelve a aparecer."
-              : "Ahora mismo no se muestra ningún cartel."}
+              ? "El cartel queda puesto hasta que borres el texto."
+              : "Ahora mismo no se muestra ningún cartel: la tienda funciona normal."}
           </p>
           <span className="text-xs text-gray-600 shrink-0">{aviso.length}/300</span>
         </div>
-        {aviso.trim() && isOpen && (
+        {aviso.trim() && (
           <p className="text-xs text-amber-400/90">
-            Ojo: el cartel avisa, pero no frena los pedidos. Si el local no puede
-            atender, además apagá &ldquo;Sucursal abierta&rdquo; acá arriba.
+            Ojo: mientras haya texto acá, <strong>esta sucursal no vende</strong>. Nadie
+            puede ver el menú ni hacer un pedido hasta que lo borres.
           </p>
         )}
       </div>

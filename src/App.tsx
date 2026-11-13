@@ -372,7 +372,13 @@ export default function App({ menuOnly: menuOnlyProp = false }: { menuOnly?: boo
 
       {/* El aviso de la sucursal, si cargaron uno. En modo carta no va: eso es
           un menú de referencia, no la tienda de un local. */}
-      {!menuOnly && <StoreNoticeModal notice={(businessConfig as any).notice || ""} />}
+      {!menuOnly && (
+        <StoreNoticeModal
+          notice={(businessConfig as any).notice || ""}
+          logo={businessConfig.logo}
+          title={businessConfig.title}
+        />
+      )}
 
       {/* Modals — en modo carta (solo lectura) no hay compra, no se renderizan */}
       {!menuOnly && optionsProduct && (
