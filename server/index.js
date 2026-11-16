@@ -43,6 +43,26 @@ console.log("SQLite database initialized");
 
 /* ── Middleware ────────────────────────────────── */
 app.set("trust proxy", true); // Required behind EasyPanel reverse proxy
+
+// HSTS. Sin esta cabecera, escribir "quilmes.pedidos.jirosushi.com.ar" a mano
+// arranca por http: el proxy redirige a https enseguida, pero en ese instante
+// Chrome ya pintó el cartel de "No es seguro". Con HSTS el navegador se saltea
+// el paso y va derecho a https desde la segunda visita.
+//
+// Sólo sobre https: mandarla sobre http no sirve de nada —el navegador la
+// ignora— y la especificación lo desaconseja de plano.
+//
+// Sin includeSubDomains a propósito: así cada sucursal la fija para su propio
+// dominio y no para todo jirosushi.com.ar, donde cuelgan otros sitios que no
+// controlamos desde acá. Y sin preload, porque salir de esa lista después es
+// un trámite largo con los fabricantes de navegadores.
+const HSTS_MAX_AGE = 15552000; // 180 días
+app.use((req, res, next) => {
+  if (req.secure) {
+    res.setHeader("Strict-Transport-Security", `max-age=${HSTS_MAX_AGE}`);
+  }
+  next();
+});
 app.use(compression()); // gzip de respuestas (JSON de /api/state y assets) — clave en móviles lentos
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
